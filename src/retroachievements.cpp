@@ -25,6 +25,11 @@ extern HWND hNTView; // not in ntview.h
 
 int FDS_GameId = 0;
 
+static bool GameIsActive()
+{
+	return true;
+}
+
 static void CauseUnpause()
 {
 	FCEUI_SetEmulationPaused(false);
@@ -150,7 +155,7 @@ void RA_Init()
 	RA_SetConsoleID(NES);
 
 	// provide callbacks to the DLL
-	RA_InstallSharedFunctions(NULL, CauseUnpause, CausePause, RebuildMenu, GetEstimatedGameTitle, ResetEmulator, LoadROM);
+	RA_InstallSharedFunctions(GameIsActive, CauseUnpause, CausePause, RebuildMenu, GetEstimatedGameTitle, ResetEmulator, LoadROM);
 
 	// register the system memory
 	RA_ClearMemoryBanks();
