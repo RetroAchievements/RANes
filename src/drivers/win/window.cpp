@@ -3215,6 +3215,11 @@ void SaveMovieAs()
 
 void OpenRamSearch()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("search memory"))
+		return;
+#endif
+
 	if (GameInfo)
 	{
 		reset_address_info();
@@ -3224,6 +3229,11 @@ void OpenRamSearch()
 
 void OpenRamWatch()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("watch memory"))
+		return;
+#endif
+
 	if (GameInfo)
 		RamWatchHWnd = CreateDialog(fceu_hInstance, MAKEINTRESOURCE(IDD_RAMWATCH), MainhWnd, (DLGPROC) RamWatchProc);
 }

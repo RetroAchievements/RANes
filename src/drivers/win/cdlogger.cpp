@@ -34,6 +34,10 @@
 
 #include "../../nsf.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 using namespace std;
 
 void CDLoggerROMClosed();
@@ -311,6 +315,11 @@ void SaveCDLogFile()
 // returns false if refused to start
 bool DoCDLogger()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("log code/data"))
+		return false;
+#endif
+
 	if (!GameInfo)
 	{
 		FCEUD_PrintError("You must have a game loaded before you can use the Code Data Logger.");

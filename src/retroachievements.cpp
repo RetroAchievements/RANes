@@ -1,10 +1,24 @@
 #include "retroachievements.h"
 
 #include "fceu.h"
+#include "cheat.h"
 
+#include "drivers\win\cdlogger.h"
+#include "drivers\win\cheat.h"
 #include "drivers\win\common.h"
+#include "drivers\win\debugger.h"
+#include "drivers\win\memview.h"
+#include "drivers\win\memwatch.h"
+#include "drivers\win\ntview.h"
+#include "drivers\win\ram_search.h"
+#include "drivers\win\tracer.h"
 
 #include "RA_BuildVer.h"
+
+extern HWND hPPUView; // not in ppuview.h
+extern void KillPPUView(); // not in ppuview.h
+extern HWND hGGConv; // not in cheat.h
+extern HWND hNTView; // not in ntview.h
 
 int FDS_GameId = 0;
 
@@ -63,6 +77,27 @@ static void GetEstimatedGameTitle(char* sNameOut)
 
 static void ResetEmulator()
 {
+	// close debug windows
+	CloseMemoryWatch();
+	CloseRamWindows();
+	if (hDebug)
+		DebuggerExit();
+	if (hPPUView)
+		KillPPUView();
+	if (hNTView)
+		KillNTView();
+	if (hMemView)
+		KillMemView();
+	if (hTracer)
+		SendMessage(hTracer, WM_CLOSE, NULL, NULL);
+	if (hCDLogger)
+		SendMessage(hCDLogger, WM_CLOSE, NULL, NULL);
+	if (hGGConv)
+		SendMessage(hGGConv, WM_CLOSE, NULL, NULL);
+
+	// disable any active cheats
+	FCEU_FlushGameCheats(0, 1);
+
 	// reset speed
 	extern int32 fps_scale_unpaused;
 	if (fps_scale_unpaused != 256)

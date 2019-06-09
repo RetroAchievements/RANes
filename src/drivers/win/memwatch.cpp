@@ -30,6 +30,10 @@
 #include "main.h"
 #include "window.h" //adelikat: For GetMainHWDN()
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 using namespace std;
 
 //Memory Watch named constants-----------------------------------
@@ -948,6 +952,11 @@ static BOOL CALLBACK MemWatchCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARA
 //Open the Memory Watch dialog
 void CreateMemWatch()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("watch memory"))
+		return;
+#endif
+
 	if(NeedsInit) //Clear the strings
 	{
 		NeedsInit = 0;
