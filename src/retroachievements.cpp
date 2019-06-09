@@ -12,6 +12,8 @@
 #include "drivers\win\memwatch.h"
 #include "drivers\win\ntview.h"
 #include "drivers\win\ram_search.h"
+#include "drivers\win\taseditor.h"
+#include "drivers\win\taseditor\taseditor_project.h"
 #include "drivers\win\tracer.h"
 
 #include "RA_BuildVer.h"
@@ -78,6 +80,16 @@ static void GetEstimatedGameTitle(char* sNameOut)
 
 static void ResetEmulator()
 {
+	// close the TAS editor
+	if (FCEUMOV_Mode(MOVIEMODE_TASEDITOR))
+	{
+		// make sure the project isn't marked as modified, or exitTASEditor can be canceled
+		extern TASEDITOR_PROJECT project;
+		project.reset();
+		
+		exitTASEditor();
+	}	
+
 	// make sure we're not in the middle of playing a movie
 	FCEUI_StopMovie();
 
@@ -114,6 +126,7 @@ static void ResetEmulator()
 
 static void LoadROM(const char* sFullPath)
 {
+	// deprecated (unused)
 }
 
 unsigned char ByteReader(unsigned int nOffs)
