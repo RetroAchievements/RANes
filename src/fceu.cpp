@@ -170,11 +170,18 @@ static void FCEU_CloseGame(void)
 {
 	if (GameInfo)
 	{
+#ifdef RETROACHIEVEMENTS
+		if (!RA_HardcoreModeIsActive())
+		{
+#endif
 		if (AutoResumePlay)
 		{
 			// save "-resume" savestate
 			FCEUSS_Save(FCEU_MakeFName(FCEUMKF_RESUMESTATE, 0, 0).c_str(), false);
 		}
+#ifdef RETROACHIEVEMENTS
+		}
+#endif
 
 #ifdef WIN32
 		extern char LoadedRomFName[2048];
@@ -545,6 +552,10 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 		FCEUI_printf("NTSC mode set");
 	}
 
+#ifdef RETROACHIEVEMENTS
+	if (!RA_HardcoreModeIsActive())
+	{
+#endif
 	if (GameInfo->type != GIT_NSF)
 		FCEU_LoadGameCheats(0);
 
@@ -554,6 +565,9 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 		if (FCEUSS_Load(FCEU_MakeFName(FCEUMKF_RESUMESTATE, 0, 0).c_str(), false))
 			FCEU_DispMessage("Old play session resumed.", 0);
 	}
+#ifdef RETROACHIEVEMENTS
+	}
+#endif
 
 	ResetScreenshotsCounter();
 
@@ -1197,6 +1211,11 @@ void UpdateAutosave(void) {
 void FCEUI_RewindToLastAutosave(void) {
 	if (!EnableAutosave || !AutoSS)
 		return;
+
+#ifdef RETROACHIEVEMENTS
+	if (RA_HardcoreModeIsActive())
+		return;
+#endif
 
 	if (AutosaveStatus[AutosaveIndex] == 1) {
 		char * f;
