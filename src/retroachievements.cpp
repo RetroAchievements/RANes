@@ -1,6 +1,7 @@
 #include "retroachievements.h"
 
 #include "fceu.h"
+#include "movie.h"
 #include "cheat.h"
 
 #include "drivers\win\cdlogger.h"
@@ -77,6 +78,9 @@ static void GetEstimatedGameTitle(char* sNameOut)
 
 static void ResetEmulator()
 {
+	// make sure we're not in the middle of playing a movie
+	FCEUI_StopMovie();
+
 	// close debug windows
 	CloseMemoryWatch();
 	CloseRamWindows();

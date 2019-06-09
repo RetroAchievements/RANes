@@ -1768,6 +1768,11 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 				char*& fname = recent_movie[wParam - MOVIE_FIRST_RECENT_FILE];
 				if(fname)
 				{
+#ifdef RETROACHIEVEMENTS
+					if (!RA_WarnDisableHardcore("playback a recording"))
+						break;
+#endif
+
 					string movie_fname = fname;
 					if (!FCEUI_LoadMovie(fname, 1, false))
 					{
