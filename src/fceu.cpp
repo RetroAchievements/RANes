@@ -1166,6 +1166,11 @@ void FCEUI_FrameAdvanceEnd(void) {
 }
 
 void FCEUI_FrameAdvance(void) {
+#if RETROACHIEVEMENTS
+	if (RA_HardcoreModeIsActive())
+		return;
+#endif
+
 	frameAdvanceRequested = true;
 	frameAdvance_Delay_count = 0;
 }

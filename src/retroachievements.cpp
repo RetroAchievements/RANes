@@ -63,6 +63,14 @@ static void GetEstimatedGameTitle(char* sNameOut)
 
 static void ResetEmulator()
 {
+	// reset speed
+	extern int32 fps_scale_unpaused;
+	if (fps_scale_unpaused != 256)
+		FCEUD_SetEmulationSpeed(EMUSPEED_NORMAL);
+	FCEUI_SetEmulationPaused(0);
+
+	// reset emulator
+	FCEUI_ResetNES();
 }
 
 static void LoadROM(const char* sFullPath)

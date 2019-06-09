@@ -1992,6 +1992,10 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 				break;
 			case ID_EMULATIONSPEED_CUSTOMSPEED:
 			{
+#if RETROACHIEVEMENTS
+				if (!RA_WarnDisableHardcore("set a custom speed"))
+					break;
+#endif
 				int new_value = fps_scale / 2.56;
 				if ((CWin32InputBox::GetInteger("Emulation Speed", "Enter a number of percents from 1 to 1000.", new_value, hWnd) == IDOK))
 				{
