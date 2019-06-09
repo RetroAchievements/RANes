@@ -739,6 +739,10 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 	CallRegisteredLuaFunctions(LUACALL_AFTEREMULATION);
 #endif
 
+#ifdef RETROACHIEVEMENTS
+	RA_DoAchievementsFrame();
+#endif
+
 	FCEU_PutImage();
 
 #ifdef WIN32

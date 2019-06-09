@@ -69,6 +69,20 @@ static void LoadROM(const char* sFullPath)
 {
 }
 
+unsigned char ByteReader(unsigned int nOffs)
+{
+	if (GameInfo)
+		return static_cast<unsigned char>(ARead[nOffs](nOffs));
+
+	return 0;
+}
+
+void ByteWriter(unsigned int nOffs, unsigned int nVal)
+{
+	if (GameInfo)
+		BWrite[nOffs](nOffs, static_cast<uint8>(nVal));
+}
+
 void RA_Init()
 {
 	// initialize the DLL
@@ -77,6 +91,10 @@ void RA_Init()
 
 	// provide callbacks to the DLL
 	RA_InstallSharedFunctions(NULL, CauseUnpause, CausePause, RebuildMenu, GetEstimatedGameTitle, ResetEmulator, LoadROM);
+
+	// register the system memory
+	RA_ClearMemoryBanks();
+	RA_InstallMemoryBank(0, ByteReader, ByteWriter, 0x10000);
 
 	// add a placeholder menu item and start the login process - menu will be updated when login completes
 	RebuildMenu();
