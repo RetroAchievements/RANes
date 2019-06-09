@@ -31,6 +31,14 @@
 /vc/vc14_obj_RA-Debug
 /vc/vc14_obj_RA-Release
 /vc/vc14_obj_RA-PublicRelease
+/output/RACache
+/output/RANes.exe
+/output/RANes.exp
+/output/RANes.lib
+/output/RANes.pdb
+/output/RAPrefs_RANes.cfg
+/output/RA_Integration.dll
+/output/overlay
 
 # linux build output
 bin
