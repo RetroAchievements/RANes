@@ -193,14 +193,21 @@ string gettingstartedhelp = "Gettingstarted";//Getting Started
 //********************************************************************************
 void SetMainWindowText()
 {
+#ifdef RETROACHIEVEMENTS
+	string str;
+#else
 	string str = FCEU_NAME_AND_VERSION;
 	if (newppu)
 		str.append(" (New PPU)");
+#endif
+
 	if (GameInfo)
 	{
 		//Add the filename to the window caption
 		extern char FileBase[];
+#ifndef RETROACHIEVEMENTS
 		str.append(": ");
+#endif
 		str.append(FileBase);
 		if (FCEUMOV_IsLoaded())
 		{
@@ -208,7 +215,12 @@ void SetMainWindowText()
 			str.append(StripPath(FCEUI_GetMovieName()));
 		}
 	}
+
+#ifdef RETROACHIEVEMENTS
+	RA_UpdateAppTitle(str.c_str());
+#else
 	SetWindowText(hAppWnd, str.c_str());
+#endif
 }
 
 bool HasRecentFiles()
@@ -1078,6 +1090,10 @@ bool ALoad(const char *nameo, char* innerFilename, bool silent)
 
 	if (FCEUI_LoadGameVirtual(nameo, !(pal_setting_specified || dendy_setting_specified), silent))
 	{
+#ifdef RETROACHIEVEMENTS
+		RA_IdentifyAndActivateGame();
+#endif
+
 		pal_emulation = FCEUI_GetCurrentVidSystem(0, 0);
 
 		UpdateCheckedMenuItems();
@@ -1117,7 +1133,11 @@ bool ALoad(const char *nameo, char* innerFilename, bool silent)
 	}
 	else
 	{
+#ifdef RETROACHIEVEMENTS
+		RA_UpdateAppTitle("");
+#else
 		SetWindowText(hAppWnd, FCEU_NAME_AND_VERSION);	//adelikat: If game fails to load while a previous one was open, the previous would have been closed, so reflect that in the window caption
+#endif
 		return false;
 	}
 	
