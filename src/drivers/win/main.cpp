@@ -79,6 +79,10 @@ extern "C" { FILE __iob_func[3] = { *stdin,*stdout,*stderr }; }
 #include "taseditor.h"
 #include "taseditor/taseditor_window.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 extern TASEDITOR_WINDOW taseditorWindow;
 extern bool taseditorEnableAcceleratorKeys;
 
@@ -874,6 +878,11 @@ int main(int argc,char *argv[])
 	if (PauseAfterLoad) FCEUI_ToggleEmulationPause();
 	SetAutoFirePattern(AFon, AFoff);
 	UpdateCheckedMenuItems();
+
+#ifdef RETROACHIEVEMENTS
+	RA_Init();
+#endif
+
 doloopy:
 	UpdateFCEUWindow();
 	if(GameInfo)
@@ -923,6 +932,10 @@ doloopy:
 	Sleep(50);
 	if(!exiting)
 		goto doloopy;
+
+#ifdef RETROACHIEVEMENTS
+	RA_Shutdown();
+#endif
 
 	DriverKill();
 	timeEndPeriod(1);

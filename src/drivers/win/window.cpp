@@ -71,6 +71,10 @@
 #include "movieoptions.h"
 #include "config.h" //adelikat: For SaveConfigFile()
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 #include <fstream>
 #include <sstream>
 #include <cmath>
@@ -2421,6 +2425,17 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
             case FCEUX_CONTEXT_GUICONFIG:
                 ConfigGUI();
                 break;
+
+			default:
+#if RETROACHIEVEMENTS
+				if (LOWORD(wParam) >= IDM_RA_MENUSTART &&
+					LOWORD(wParam) < IDM_RA_MENUEND)
+				{
+					RA_InvokeDialog(LOWORD(wParam));
+					return 0;
+				}
+#endif
+				break;
 			}
 		}
 		break;
