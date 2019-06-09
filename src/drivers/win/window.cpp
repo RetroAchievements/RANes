@@ -773,6 +773,11 @@ void LoadRecentRom(int slot)
 	char*& fname = recent_files[slot];
 	if(fname)
 	{
+#if RETROACHIEVEMENTS
+		if (!RA_ConfirmLoadNewRom(false))
+			return;
+#endif
+
 		if (!ALoad(fname))
 		{
 			int result = MessageBox(hAppWnd, "Remove from list?", "Could Not Open Recent File", MB_YESNO);
@@ -1072,10 +1077,20 @@ void CloseGame()
 {
 	if (GameInfo)
 	{
+#if RETROACHIEVEMENTS
+		if (!RA_ConfirmLoadNewRom(false))
+			return;
+#endif
+
 		FCEUI_CloseGame();
 		KillMemView();
 		updateGameDependentMenus(GameInfo != 0);
 		updateGameDependentMenusDebugger(GameInfo != 0);
+
+#if RETROACHIEVEMENTS
+		RA_ActivateGame(0);
+#endif
+
 		SetMainWindowText();
 	}
 }
@@ -1155,6 +1170,11 @@ bool ALoad(const char *nameo, char* innerFilename, bool silent)
 /// @param initialdir Directory that's pre-selected in the Open File dialog.
 void LoadNewGamey(HWND hParent, const char *initialdir)
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_ConfirmLoadNewRom(false))
+		return;
+#endif
+
 	const char filter[] = "All usable files (*.nes,*.nsf,*.fds,*.unf,*.zip,*.rar,*.7z,*.gz)\0*.nes;*.nsf;*.fds;*.unf;*.zip;*.rar;*.7z;*.gz\0All non-compressed usable files (*.nes,*.nsf,*.fds,*.unf)\0*.nes;*.nsf;*.fds;*.unf\0All Files (*.*)\0*.*\0\0";
 	char nameo[2048];
 
