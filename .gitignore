@@ -24,6 +24,14 @@
 /output/fcs/*.fc*
 /vc/userconfig/scmrev.h
 
+# retroachievements
+/src/RA_BuildVer.h
+/vc/Temp.txt
+/vc/vc14_bin_RA-Debug
+/vc/vc14_obj_RA-Debug
+/vc/vc14_obj_RA-Release
+/vc/vc14_obj_RA-PublicRelease
+
 # linux build output
 bin
 src/fceux

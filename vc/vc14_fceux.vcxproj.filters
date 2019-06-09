@@ -49,6 +49,9 @@
     <Filter Include="drivers\win\taseditor">
       <UniqueIdentifier>{cfac36a2-cdfd-4c0a-be8e-353b1303a909}</UniqueIdentifier>
     </Filter>
+    <Filter Include="retroachievements">
+      <UniqueIdentifier>{8e348269-3ac0-4138-b96b-653eb98836bc}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\asm.cpp" />
@@ -1092,6 +1095,12 @@
     </ClCompile>
     <ClCompile Include="..\src\boards\hp10xx_hp20xx.cpp">
       <Filter>boards</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\retroachievements.cpp">
+      <Filter>retroachievements</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\RAInterface\RA_Interface.cpp">
+      <Filter>retroachievements</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
