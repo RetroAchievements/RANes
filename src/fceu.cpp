@@ -64,6 +64,10 @@ extern void RefreshThrottleFPS();
 #include "fceulua.h"
 #endif
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 //TODO - we really need some kind of global platform-specific options api
 #ifdef WIN32
 #include "drivers/win/main.h"
@@ -1132,13 +1136,25 @@ void FCEUI_ClearEmulationFrameStepped()
 //mbg merge 7/18/06 added
 //ideally maybe we shouldnt be using this, but i need it for quick merging
 void FCEUI_SetEmulationPaused(int val) {
+#if RETROACHIEVEMENTS
+	if (EmulationPaused != val)
+	{
+		EmulationPaused = val;
+		RA_SetPaused(val != 0);
+	}
+#else
 	EmulationPaused = val;
+#endif
 }
 
 void FCEUI_ToggleEmulationPause(void)
 {
 	EmulationPaused = (EmulationPaused & EMULATIONPAUSED_PAUSED) ^ EMULATIONPAUSED_PAUSED;
 	DebuggerWasUpdated = false;
+
+#if RETROACHIEVEMENTS
+	RA_SetPaused(EmulationPaused != 0);
+#endif
 }
 
 void FCEUI_FrameAdvanceEnd(void) {

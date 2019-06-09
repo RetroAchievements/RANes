@@ -10,10 +10,12 @@ int FDS_GameId = 0;
 
 static void CauseUnpause()
 {
+	FCEUI_SetEmulationPaused(false);
 }
 
 static void CausePause()
 {
+	FCEUI_SetEmulationPaused(true);
 }
 
 static int GetMenuItemIndex(HMENU hMenu, const char* pItemName)
