@@ -126,7 +126,7 @@ static void ResetEmulator()
 
 static void LoadROM(const char* sFullPath)
 {
-	// deprecated (unused)
+	FCEUI_LoadGame(sFullPath, 0);
 }
 
 unsigned char ByteReader(unsigned int nOffs)
