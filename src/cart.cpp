@@ -32,6 +32,9 @@
 #include "file.h"
 #include "utils/memory.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
 
 #include <cstring>
 #include <cstdlib>
@@ -347,6 +350,11 @@ bool FCEU_OpenGenie(void)
 {
 	FILE *fp;
 	int x;
+
+#ifdef RETROACHIEVEMENTS
+	if (RA_HardcoreModeIsActive())
+		return true;
+#endif
 
 	if (!GENIEROM)
 	{
