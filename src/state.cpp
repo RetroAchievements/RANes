@@ -41,6 +41,9 @@
 #ifdef _S9XLUA_H
 #include "fceulua.h"
 #endif
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
 
 //TODO - we really need some kind of global platform-specific options api
 #ifdef WIN32
@@ -527,6 +530,10 @@ void FCEUSS_Save(const char *fname, bool display_message)
 
 	delete st;
 
+#ifdef RETROACHIEVEMENTS
+	RA_OnSaveState(fn);
+#endif
+
 	if(!fname)
 	{
 		SaveStateStatus[CurrentState] = 1;
@@ -750,6 +757,10 @@ bool FCEUSS_Load(const char *fname, bool display_message)
 		return false;
 	}
 
+#ifdef RETROACHIEVEMENTS
+	RA_OnLoadState(fn);
+#endif
+
 	//If in bot mode, don't do a backup when loading.
 	//Otherwise you eat at the hard disk, since so many
 	//states are being loaded.
@@ -954,6 +965,11 @@ bool file_exists(const char * filename)
 void FCEUI_LoadState(const char *fname, bool display_message)
 {
 	if(!FCEU_IsValidUI(FCEUI_LOADSTATE)) return;
+
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("load a state"))
+		return;
+#endif
 
 	StateShow = 0;
 	loadStateFailed = 0;

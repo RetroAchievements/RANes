@@ -29,6 +29,10 @@
 #include "../../cheat.h" // For FCEU_LoadGameCheats()
 #include <map>
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 static HWND pwindow = 0;	    //Handle to Cheats dialog
 HWND hCheat = 0;			    //mbg merge 7/19/06 had to add
 HMENU hCheatcontext = 0;     //Handle to cheat context menu
@@ -907,6 +911,11 @@ BOOL CALLBACK CheatConsoleCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM l
 
 void ConfigCheats(HWND hParent)
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("configure cheats"))
+		return;
+#endif
+
 	if (!GameInfo)
 	{
 		FCEUD_PrintError("You must have a game loaded before you can manipulate cheats.");
@@ -1191,6 +1200,11 @@ void SetGGConvFocus(int address,int compare)
 
 void DoGGConv()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("convert game genie codes"))
+		return;
+#endif
+
 	if (hGGConv)
 	{
 		ShowWindow(hGGConv, SW_SHOWNORMAL);

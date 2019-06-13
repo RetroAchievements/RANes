@@ -7,6 +7,10 @@
 #include "driver.h"
 #include "utils/memory.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "RA_BuildVer.h"
+#endif
+
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +20,9 @@ static char *aboutString = 0;
 // returns a string suitable for use in an aboutbox
 char *FCEUI_GetAboutString() {
 	const char *aboutTemplate =
+#ifdef RETROACHIEVEMENTS
+		"RANes " RANES_VERSION_SHORT "\n\n"
+#endif
 		FCEU_NAME_AND_VERSION "\n\n"
 		"Administrators:\n"
 		"zeromus, punkrockguy318 (Lukas Sabota), feos\n"

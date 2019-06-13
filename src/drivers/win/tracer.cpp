@@ -39,6 +39,10 @@
 #include "mapinput.h"
 #include "input.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 using namespace std;
 
 //#define LOG_SKIP_UNMAPPED 4
@@ -1178,6 +1182,11 @@ void ShowLogDirDialog(void){
 
 void DoTracer()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("trace"))
+		return;
+#endif
+
 	if (!GameInfo)
 	{
 		FCEUD_PrintError("You must have a game loaded before you can use the Trace Logger.");

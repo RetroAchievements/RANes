@@ -33,6 +33,10 @@
 #include "driver.h"
 #include "movie.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -692,6 +696,23 @@ int FDSLoad(const char *name, FCEUFILE *fp) {
 		FDSBIOS = NULL;
 		return(0);
 	}
+
+#ifdef RETROACHIEVEMENTS
+	// calculate the checksum for all disks
+	if (TotalSides == 1)
+	{
+		FDS_GameId = RA_IdentifyRom(diskdata[0], 65500);
+	}
+	else
+	{
+		uint8* allDisks = (uint8*)FCEU_malloc(TotalSides * 65500);
+		for (x = 0; x < TotalSides; x++)
+			memcpy(allDisks + 65500 * x, diskdata[x], 65500);
+
+		FDS_GameId = RA_IdentifyRom(allDisks, TotalSides * 65500);
+		FCEU_free(allDisks);
+	}
+#endif
 
 	if (!disableBatteryLoading) {
 		FCEUFILE *tp;

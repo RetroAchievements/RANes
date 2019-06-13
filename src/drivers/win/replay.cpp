@@ -8,6 +8,10 @@
 #include "utils/xstring.h"
 #include "taseditor/taseditor_config.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 static const char* fm2ext[] = { "fm2", "fm3", 0};
 
 int MetaPosX,MetaPosY;
@@ -1079,5 +1083,10 @@ void Replay_LoadMovie()
 /// Show movie replay dialog and replay the movie if necessary.
 void FCEUD_MovieReplayFrom()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("playback a recording"))
+		return;
+#endif
+
 	if (GameInfo) Replay_LoadMovie();
 }

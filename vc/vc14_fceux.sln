@@ -3,12 +3,23 @@ Microsoft Visual Studio Solution File, Format Version 11.00
 # Visual Studio 2015
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "fceux", "vc14_fceux.vcxproj", "{6893EF44-FEA3-46DF-B236-C4C200F54294}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{11D7E52F-E091-4E64-968D-66469F2DC71E}"
+	ProjectSection(SolutionItems) = preProject
+		..\.editorconfig = ..\.editorconfig
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
 		Debug|x64 = Debug|x64
 		PublicRelease|Win32 = PublicRelease|Win32
 		PublicRelease|x64 = PublicRelease|x64
+		RA-Debug|Win32 = RA-Debug|Win32
+		RA-Debug|x64 = RA-Debug|x64
+		RA-PublicRelease|Win32 = RA-PublicRelease|Win32
+		RA-PublicRelease|x64 = RA-PublicRelease|x64
+		RA-Release|Win32 = RA-Release|Win32
+		RA-Release|x64 = RA-Release|x64
 		Release|Win32 = Release|Win32
 		Release|x64 = Release|x64
 	EndGlobalSection
@@ -20,6 +31,18 @@ Global
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.PublicRelease|Win32.Build.0 = PublicRelease|Win32
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.PublicRelease|x64.ActiveCfg = PublicRelease|x64
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.PublicRelease|x64.Build.0 = PublicRelease|x64
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-Debug|Win32.ActiveCfg = RA-Debug|Win32
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-Debug|Win32.Build.0 = RA-Debug|Win32
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-Debug|x64.ActiveCfg = RA-Debug|x64
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-Debug|x64.Build.0 = RA-Debug|x64
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-PublicRelease|Win32.ActiveCfg = RA-PublicRelease|Win32
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-PublicRelease|Win32.Build.0 = RA-PublicRelease|Win32
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-PublicRelease|x64.ActiveCfg = RA-PublicRelease|x64
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-PublicRelease|x64.Build.0 = RA-PublicRelease|x64
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-Release|Win32.ActiveCfg = RA-Release|Win32
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-Release|Win32.Build.0 = RA-Release|Win32
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-Release|x64.ActiveCfg = RA-Release|x64
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-Release|x64.Build.0 = RA-Release|x64
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Release|Win32.ActiveCfg = Release|Win32
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Release|Win32.Build.0 = Release|Win32
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Release|x64.ActiveCfg = Release|Win32

@@ -42,6 +42,10 @@ and invalidate it when the vnapage changes.
 #include "../../palette.h"
 #include "../../ppu.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 HWND hNTView;
 
 int NTViewPosX,NTViewPosY;
@@ -596,6 +600,11 @@ BOOL CALLBACK NTViewCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 void DoNTView()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("view name tables"))
+		return;
+#endif
+
 	if (!GameInfo) {
 		FCEUD_PrintError("You must have a game loaded before you can use the Name Table Viewer.");
 		return;

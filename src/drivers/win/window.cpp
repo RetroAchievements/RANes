@@ -71,6 +71,10 @@
 #include "movieoptions.h"
 #include "config.h" //adelikat: For SaveConfigFile()
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 #include <fstream>
 #include <sstream>
 #include <cmath>
@@ -189,14 +193,21 @@ string gettingstartedhelp = "Gettingstarted";//Getting Started
 //********************************************************************************
 void SetMainWindowText()
 {
+#ifdef RETROACHIEVEMENTS
+	string str;
+#else
 	string str = FCEU_NAME_AND_VERSION;
 	if (newppu)
 		str.append(" (New PPU)");
+#endif
+
 	if (GameInfo)
 	{
 		//Add the filename to the window caption
 		extern char FileBase[];
+#ifndef RETROACHIEVEMENTS
 		str.append(": ");
+#endif
 		str.append(FileBase);
 		if (FCEUMOV_IsLoaded())
 		{
@@ -204,7 +215,12 @@ void SetMainWindowText()
 			str.append(StripPath(FCEUI_GetMovieName()));
 		}
 	}
+
+#ifdef RETROACHIEVEMENTS
+	RA_UpdateAppTitle(str.c_str());
+#else
 	SetWindowText(hAppWnd, str.c_str());
+#endif
 }
 
 bool HasRecentFiles()
@@ -757,6 +773,11 @@ void LoadRecentRom(int slot)
 	char*& fname = recent_files[slot];
 	if(fname)
 	{
+#if RETROACHIEVEMENTS
+		if (!RA_ConfirmLoadNewRom(false))
+			return;
+#endif
+
 		if (!ALoad(fname))
 		{
 			int result = MessageBox(hAppWnd, "Remove from list?", "Could Not Open Recent File", MB_YESNO);
@@ -1056,10 +1077,20 @@ void CloseGame()
 {
 	if (GameInfo)
 	{
+#if RETROACHIEVEMENTS
+		if (!RA_ConfirmLoadNewRom(false))
+			return;
+#endif
+
 		FCEUI_CloseGame();
 		KillMemView();
 		updateGameDependentMenus(GameInfo != 0);
 		updateGameDependentMenusDebugger(GameInfo != 0);
+
+#if RETROACHIEVEMENTS
+		RA_ActivateGame(0);
+#endif
+
 		SetMainWindowText();
 	}
 }
@@ -1074,6 +1105,10 @@ bool ALoad(const char *nameo, char* innerFilename, bool silent)
 
 	if (FCEUI_LoadGameVirtual(nameo, !(pal_setting_specified || dendy_setting_specified), silent))
 	{
+#ifdef RETROACHIEVEMENTS
+		RA_IdentifyAndActivateGame();
+#endif
+
 		pal_emulation = FCEUI_GetCurrentVidSystem(0, 0);
 
 		UpdateCheckedMenuItems();
@@ -1113,7 +1148,11 @@ bool ALoad(const char *nameo, char* innerFilename, bool silent)
 	}
 	else
 	{
+#ifdef RETROACHIEVEMENTS
+		RA_UpdateAppTitle("");
+#else
 		SetWindowText(hAppWnd, FCEU_NAME_AND_VERSION);	//adelikat: If game fails to load while a previous one was open, the previous would have been closed, so reflect that in the window caption
+#endif
 		return false;
 	}
 	
@@ -1131,6 +1170,11 @@ bool ALoad(const char *nameo, char* innerFilename, bool silent)
 /// @param initialdir Directory that's pre-selected in the Open File dialog.
 void LoadNewGamey(HWND hParent, const char *initialdir)
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_ConfirmLoadNewRom(false))
+		return;
+#endif
+
 	const char filter[] = "All usable files (*.nes,*.nsf,*.fds,*.unf,*.zip,*.rar,*.7z,*.gz)\0*.nes;*.nsf;*.fds;*.unf;*.zip;*.rar;*.7z;*.gz\0All non-compressed usable files (*.nes,*.nsf,*.fds,*.unf)\0*.nes;*.nsf;*.fds;*.unf\0All Files (*.*)\0*.*\0\0";
 	char nameo[2048];
 
@@ -1724,6 +1768,11 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 				char*& fname = recent_movie[wParam - MOVIE_FIRST_RECENT_FILE];
 				if(fname)
 				{
+#ifdef RETROACHIEVEMENTS
+					if (!RA_WarnDisableHardcore("playback a recording"))
+						break;
+#endif
+
 					string movie_fname = fname;
 					if (!FCEUI_LoadMovie(fname, 1, false))
 					{
@@ -1948,6 +1997,10 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 				break;
 			case ID_EMULATIONSPEED_CUSTOMSPEED:
 			{
+#if RETROACHIEVEMENTS
+				if (!RA_WarnDisableHardcore("set a custom speed"))
+					break;
+#endif
 				int new_value = fps_scale / 2.56;
 				if ((CWin32InputBox::GetInteger("Emulation Speed", "Enter a number of percents from 1 to 1000.", new_value, hWnd) == IDOK))
 				{
@@ -2421,6 +2474,17 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
             case FCEUX_CONTEXT_GUICONFIG:
                 ConfigGUI();
                 break;
+
+			default:
+#if RETROACHIEVEMENTS
+				if (LOWORD(wParam) >= IDM_RA_MENUSTART &&
+					LOWORD(wParam) < IDM_RA_MENUEND)
+				{
+					RA_InvokeDialog(LOWORD(wParam));
+					return 0;
+				}
+#endif
+				break;
 			}
 		}
 		break;
@@ -3156,6 +3220,11 @@ void SaveMovieAs()
 
 void OpenRamSearch()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("search memory"))
+		return;
+#endif
+
 	if (GameInfo)
 	{
 		reset_address_info();
@@ -3165,6 +3234,11 @@ void OpenRamSearch()
 
 void OpenRamWatch()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("watch memory"))
+		return;
+#endif
+
 	if (GameInfo)
 		RamWatchHWnd = CreateDialog(fceu_hInstance, MAKEINTRESOURCE(IDD_RAMWATCH), MainhWnd, (DLGPROC) RamWatchProc);
 }

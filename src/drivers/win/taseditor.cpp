@@ -26,6 +26,10 @@ Main - Main gate between emulator and Taseditor
 #include "../keyboard.h"
 #include "../joystick.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 using namespace std;
 
 // TAS Editor data
@@ -74,6 +78,11 @@ extern void TaseditorManualFunction();
 // returns true if Taseditor is engaged at the end of the function
 bool enterTASEditor()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("use the TAS editor"))
+		return false;
+#endif
+
 	if (taseditorWindow.hwndTASEditor)
 	{
 		// TAS Editor is already engaged, just set focus to its window

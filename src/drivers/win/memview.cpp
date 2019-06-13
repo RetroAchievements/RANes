@@ -40,6 +40,10 @@
 #include "Win32InputBox.h"
 #include "utils/xstring.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 extern Name* lastBankNames;
 extern Name* loadedBankNames;
 extern Name* ramBankNames;
@@ -2164,6 +2168,11 @@ LRESULT CALLBACK MemViewCallB(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 void DoMemView()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("view memory"))
+		return;
+#endif
+
 	WNDCLASSEX     wndclass ;
 	//static RECT al;
 

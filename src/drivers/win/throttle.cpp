@@ -23,6 +23,10 @@
 #include "windows.h"
 #include "driver.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 static uint64 tmethod,tfreq;
 static uint64 desiredfps;
 int32 fps_scale = 256;
@@ -145,6 +149,11 @@ void FCEUD_SetEmulationSpeed(int cmd)
 	default:
 		return;
 	}
+
+#ifdef RETROACHIEVEMENTS
+	if (RA_HardcoreModeIsActive() && fps_scale < 256)
+		fps_scale = fps_scale_unpaused = 256;
+#endif
 
 	RefreshThrottleFPS();
 	FCEU_DispMessage("Emulation speed %d%%", 0, (fps_scale_unpaused * 100) >> 8);

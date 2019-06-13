@@ -64,6 +64,10 @@ extern void RefreshThrottleFPS();
 #include "fceulua.h"
 #endif
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 //TODO - we really need some kind of global platform-specific options api
 #ifdef WIN32
 #include "drivers/win/main.h"
@@ -166,11 +170,18 @@ static void FCEU_CloseGame(void)
 {
 	if (GameInfo)
 	{
+#ifdef RETROACHIEVEMENTS
+		if (!RA_HardcoreModeIsActive())
+		{
+#endif
 		if (AutoResumePlay)
 		{
 			// save "-resume" savestate
 			FCEUSS_Save(FCEU_MakeFName(FCEUMKF_RESUMESTATE, 0, 0).c_str(), false);
 		}
+#ifdef RETROACHIEVEMENTS
+		}
+#endif
 
 #ifdef WIN32
 		extern char LoadedRomFName[2048];
@@ -541,6 +552,10 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 		FCEUI_printf("NTSC mode set");
 	}
 
+#ifdef RETROACHIEVEMENTS
+	if (!RA_HardcoreModeIsActive())
+	{
+#endif
 	if (GameInfo->type != GIT_NSF)
 		FCEU_LoadGameCheats(0);
 
@@ -550,6 +565,9 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 		if (FCEUSS_Load(FCEU_MakeFName(FCEUMKF_RESUMESTATE, 0, 0).c_str(), false))
 			FCEU_DispMessage("Old play session resumed.", 0);
 	}
+#ifdef RETROACHIEVEMENTS
+	}
+#endif
 
 	ResetScreenshotsCounter();
 
@@ -733,6 +751,10 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 
 #ifdef _S9XLUA_H
 	CallRegisteredLuaFunctions(LUACALL_AFTEREMULATION);
+#endif
+
+#ifdef RETROACHIEVEMENTS
+	RA_DoAchievementsFrame();
 #endif
 
 	FCEU_PutImage();
@@ -1132,13 +1154,25 @@ void FCEUI_ClearEmulationFrameStepped()
 //mbg merge 7/18/06 added
 //ideally maybe we shouldnt be using this, but i need it for quick merging
 void FCEUI_SetEmulationPaused(int val) {
+#if RETROACHIEVEMENTS
+	if (EmulationPaused != val)
+	{
+		EmulationPaused = val;
+		RA_SetPaused(val != 0);
+	}
+#else
 	EmulationPaused = val;
+#endif
 }
 
 void FCEUI_ToggleEmulationPause(void)
 {
 	EmulationPaused = (EmulationPaused & EMULATIONPAUSED_PAUSED) ^ EMULATIONPAUSED_PAUSED;
 	DebuggerWasUpdated = false;
+
+#if RETROACHIEVEMENTS
+	RA_SetPaused(EmulationPaused != 0);
+#endif
 }
 
 void FCEUI_FrameAdvanceEnd(void) {
@@ -1146,6 +1180,11 @@ void FCEUI_FrameAdvanceEnd(void) {
 }
 
 void FCEUI_FrameAdvance(void) {
+#if RETROACHIEVEMENTS
+	if (RA_HardcoreModeIsActive())
+		return;
+#endif
+
 	frameAdvanceRequested = true;
 	frameAdvance_Delay_count = 0;
 }
@@ -1172,6 +1211,11 @@ void UpdateAutosave(void) {
 void FCEUI_RewindToLastAutosave(void) {
 	if (!EnableAutosave || !AutoSS)
 		return;
+
+#ifdef RETROACHIEVEMENTS
+	if (RA_HardcoreModeIsActive())
+		return;
+#endif
 
 	if (AutosaveStatus[AutosaveIndex] == 1) {
 		char * f;

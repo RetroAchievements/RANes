@@ -35,6 +35,9 @@
 #include "vsuni.h"
 #include "fds.h"
 #include "driver.h"
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
 
 #ifdef WIN32
 #include "drivers/win/main.h"
@@ -697,6 +700,10 @@ void FCEUI_PowerNES(void)
 	FCEU_DispMessage("Command: Power switch", 0);
 	FCEU_QSimpleCommand(FCEUNPCMD_POWER);
 	ResetFrameCounter();
+
+#ifdef RETROACHIEVEMENTS
+	RA_OnReset();
+#endif
 }
 
 const char* FCEUI_CommandTypeNames[]=

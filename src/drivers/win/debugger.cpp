@@ -39,6 +39,10 @@
 #include "ppuview.h"
 #include "richedit.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 // ################################## Start of SP CODE ###########################
 
 #include "debuggersp.h"
@@ -2484,6 +2488,11 @@ void updateGameDependentMenusDebugger(unsigned int enable) {
 
 void DoDebug(uint8 halt)
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("debug"))
+		return;
+#endif
+
 	if (!debugger_open)
 	{
 		hDebug = CreateDialog(fceu_hInstance,"DEBUGGER",NULL,DebuggerCallB);

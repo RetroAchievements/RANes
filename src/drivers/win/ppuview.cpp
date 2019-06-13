@@ -25,6 +25,10 @@
 #include "../../fceu.h"
 #include "../../cart.h"
 
+#ifdef RETROACHIEVEMENTS
+#include "retroachievements.h"
+#endif
+
 HWND hPPUView;
 
 extern uint8 *VPage[8];
@@ -617,6 +621,11 @@ BOOL CALLBACK PPUViewCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 
 void DoPPUView()
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("view PPU tables"))
+		return;
+#endif
+
 		if(!GameInfo) {
 				FCEUD_PrintError("You must have a game loaded before you can use the PPU Viewer.");
 				return;
