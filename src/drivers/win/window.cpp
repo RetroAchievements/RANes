@@ -2136,6 +2136,11 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 			case MENU_DISPLAY_BG:
 			case MENU_DISPLAY_OBJ:
 				{
+#ifdef RETROACHIEVEMENTS
+					if (RA_HardcoreModeIsActive())
+						break;
+#endif
+
 					bool spr, bg;
 					FCEUI_GetRenderPlanes(spr,bg);
 					if(LOWORD(wParam)==MENU_DISPLAY_BG)

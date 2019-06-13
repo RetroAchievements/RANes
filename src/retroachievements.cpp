@@ -99,6 +99,9 @@ static void ResetEmulator()
 	// make sure we're not in the middle of playing a movie
 	FCEUI_StopMovie();
 
+	// force all layers to be visible
+	FCEUI_SetRenderPlanes(true, true);
+
 	// close debug windows
 	CloseMemoryWatch();
 	CloseRamWindows();
