@@ -1917,6 +1917,10 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 
 			//Lua submenu
 			case ID_FILE_OPENLUAWINDOW:
+#if RETROACHIEVEMENTS
+				if (!RA_WarnDisableHardcore("open lua windows"))
+					break;
+#endif
 				if (!LuaConsoleHWnd)
 				{
 					LuaConsoleHWnd = CreateDialog(fceu_hInstance, MAKEINTRESOURCE(IDD_LUA), hWnd, (DLGPROC) DlgLuaScriptDialog);

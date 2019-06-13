@@ -22,6 +22,7 @@ extern HWND hPPUView; // not in ppuview.h
 extern void KillPPUView(); // not in ppuview.h
 extern HWND hGGConv; // not in cheat.h
 extern HWND hNTView; // not in ntview.h
+extern HWND LuaConsoleHWnd; // not in fcelua.h
 
 int FDS_GameId = 0;
 
@@ -115,6 +116,8 @@ static void ResetEmulator()
 		SendMessage(hCDLogger, WM_CLOSE, NULL, NULL);
 	if (hGGConv)
 		SendMessage(hGGConv, WM_CLOSE, NULL, NULL);
+	if (LuaConsoleHWnd)
+		PostMessage(LuaConsoleHWnd, WM_CLOSE, 0, 0);
 
 	// disable any active cheats
 	FCEU_FlushGameCheats(0, 1);
