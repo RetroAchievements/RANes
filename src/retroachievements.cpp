@@ -8,6 +8,7 @@
 #include "drivers\win\cheat.h"
 #include "drivers\win\common.h"
 #include "drivers\win\debugger.h"
+#include "drivers\win\input.h"
 #include "drivers\win\memview.h"
 #include "drivers\win\memwatch.h"
 #include "drivers\win\ntview.h"
@@ -207,5 +208,24 @@ void RA_IdentifyAndActivateGame()
 
 			FCEU_fclose(fp);
 		}
+	}
+}
+
+void RA_ProcessInputs()
+{
+	if (RA_IsOverlayFullyVisible())
+	{
+		const uint32 nIn = *(uint32*)(joyports[0].ptr);
+
+		ControllerInput input;
+		input.m_bUpPressed = (nIn & 0x10);
+		input.m_bDownPressed = (nIn & 0x20);
+		input.m_bLeftPressed = (nIn & 0x40);
+		input.m_bRightPressed = (nIn & 0x80);
+		input.m_bCancelPressed = (nIn & 0x02);
+		input.m_bConfirmPressed = (nIn & 0x01);
+		input.m_bQuitPressed = (nIn & 0x08);
+
+		RA_NavigateOverlay(&input);
 	}
 }
