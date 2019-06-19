@@ -891,10 +891,6 @@ int main(int argc,char *argv[])
 doloopy:
 	UpdateFCEUWindow();
 
-#ifdef RETROACHIEVEMENTS
-	RA_HandleHTTPResults();
-#endif
-
 	if(GameInfo)
 	{
 		while(GameInfo)
@@ -919,10 +915,6 @@ doloopy:
 
 			}
 			else skippy = 0;
-
-#ifdef RETROACHIEVEMENTS
-			RA_HandleHTTPResults();
-#endif
 
 			if(FCEU_LuaFrameskip())
 				skippy = true;
