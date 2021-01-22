@@ -26,6 +26,46 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+static const char* HotkeyStrings[HK_MAX] = {
+		"CheatMenu",
+		"BindState",
+		"LoadLua",
+		"ToggleBG",
+		"SaveState",
+		"FDSSelect",
+		"LoadState",
+		"FDSEject",
+		"VSInsertCoin",
+		"VSToggleDip",
+		"MovieToggleFrameDisplay",
+		"SubtitleDisplay",
+		"Reset",
+		"Screenshot",
+		"Pause",
+		"DecreaseSpeed",
+		"IncreaseSpeed",
+		"FrameAdvance",
+		"Turbo",
+		"ToggleInputDisplay",
+		"ToggleMovieRW",
+		"MuteCapture",
+		"Quit",
+		"FrameAdvanceLagSkip",
+		"LagCounterDisplay",
+		"SelectState0", "SelectState1", "SelectState2", "SelectState3",
+		"SelectState4", "SelectState5", "SelectState6", "SelectState7", 
+		"SelectState8", "SelectState9", "SelectStateNext", "SelectStatePrev",
+		"VolumeDown", "VolumeUp" };
+
+const char *getHotkeyString( int i )
+{
+   if ( (i>=0) && (i<HK_MAX) )
+   {
+      return HotkeyStrings[i];
+   }
+   return NULL;
+}
+
 /**
  * Read a custom pallete from a file and load it into the core.
  */
@@ -62,20 +102,20 @@ LoadCPalette(const std::string &file)
 static void
 CreateDirs(const std::string &dir)
 {
-	char *subs[8]={"fcs","snaps","gameinfo","sav","cheats","movies","cfg.d"};
+	const char *subs[9]={"fcs","snaps","gameinfo","sav","cheats","movies","input"};
 	std::string subdir;
 	int x;
 
 #if defined(WIN32) || defined(NEED_MINGW_HACKS)
 	mkdir(dir.c_str());
 	chmod(dir.c_str(), 755);
-	for(x = 0; x < 6; x++) {
+	for(x = 0; x < 7; x++) {
 		subdir = dir + PSS + subs[x];
 		mkdir(subdir.c_str());
 	}
 #else
 	mkdir(dir.c_str(), S_IRWXU);
-	for(x = 0; x < 6; x++) {
+	for(x = 0; x < 7; x++) {
 		subdir = dir + PSS + subs[x];
 		mkdir(subdir.c_str(), S_IRWXU);
 	}
@@ -159,6 +199,7 @@ InitConfig()
 
 	// video controls
 	config->addOption('f', "fullscreen", "SDL.Fullscreen", 0);
+	config->addOption("videoDriver", "SDL.VideoDriver", 0);
 
 	// set x/y res to 0 for automatic fullscreen resolution detection (no change)
 	config->addOption('x', "xres", "SDL.XResolution", 0);
@@ -166,7 +207,7 @@ InitConfig()
 	config->addOption("SDL.LastXRes", 0);
 	config->addOption("SDL.LastYRes", 0);
 	config->addOption('b', "bpp", "SDL.BitsPerPixel", 32);
-	config->addOption("doublebuf", "SDL.DoubleBuffering", 0);
+	config->addOption("doublebuf", "SDL.DoubleBuffering", 1);
 	config->addOption("autoscale", "SDL.AutoScale", 1);
 	config->addOption("keepratio", "SDL.KeepRatio", 1);
 	config->addOption("xscale", "SDL.XScale", 1.0);
@@ -179,8 +220,8 @@ InitConfig()
 	config->addOption("togglemenu", "SDL.ToggleMenu", 0);
 
 	// OpenGL options
-	config->addOption("opengl", "SDL.OpenGL", 0);
-	config->addOption("openglip", "SDL.OpenGLip", 0);
+	config->addOption("opengl", "SDL.OpenGL", 1);
+	config->addOption("openglip", "SDL.OpenGLip", 1);
 	config->addOption("SDL.SpecialFilter", 0);
 	config->addOption("SDL.SpecialFX", 0);
 	config->addOption("SDL.Vsync", 1);
@@ -201,7 +242,7 @@ InitConfig()
 	config->addOption("input4", "SDL.Input.3", "Gamepad.3");
 
 	// allow for input configuration
-	config->addOption('i', "inputcfg", "SDL.InputCfg", InputCfg);
+	//config->addOption('i', "inputcfg", "SDL.InputCfg", InputCfg);
     
 	// display input
 	config->addOption("inputdisplay", "SDL.InputDisplay", 0);
@@ -245,8 +286,6 @@ InitConfig()
     //TODO implement this
     config->addOption("periodicsaves", "SDL.PeriodicSaves", 0);
 
-    
-    #ifdef _GTK
 	char* home_dir = getenv("HOME");
 	// prefixed with _ because they are internal (not cli options)
 	config->addOption("_lastopenfile", "SDL.LastOpenFile", home_dir);
@@ -254,7 +293,9 @@ InitConfig()
 	config->addOption("_lastopennsf", "SDL.LastOpenNSF", home_dir);
 	config->addOption("_lastsavestateas", "SDL.LastSaveStateAs", home_dir);
 	config->addOption("_lastloadlua", "SDL.LastLoadLua", "");
-    #endif
+
+	config->addOption("_useNativeFileDialog", "SDL.UseNativeFileDialog", false);
+	config->addOption("_useNativeMenuBar"   , "SDL.UseNativeMenuBar", false);
     
 	// fcm -> fm2 conversion
 	config->addOption("fcmconvert", "SDL.FCMConvert", "");
@@ -269,22 +310,21 @@ InitConfig()
     config->addOption("4buttonexit", "SDL.ABStartSelectExit", 0);
 
 	// GamePad 0 - 3
-	for(unsigned int i = 0; i < GAMEPAD_NUM_DEVICES; i++) {
+	for(unsigned int i = 0; i < GAMEPAD_NUM_DEVICES; i++) 
+	{
 		char buf[64];
-		snprintf(buf, 20, "SDL.Input.GamePad.%d.", i);
+		snprintf(buf, sizeof(buf)-1, "SDL.Input.GamePad.%u.", i);
 		prefix = buf;
 
 		config->addOption(prefix + "DeviceType", DefaultGamePadDevice[i]);
-		config->addOption(prefix + "DeviceNum",  0);
-		for(unsigned int j = 0; j < GAMEPAD_NUM_BUTTONS; j++) {
-			config->addOption(prefix + GamePadNames[j], DefaultGamePad[i][j]);
-		}
+		config->addOption(prefix + "DeviceGUID", "");
+		config->addOption(prefix + "Profile"   , "");
 	}
     
 	// PowerPad 0 - 1
 	for(unsigned int i = 0; i < POWERPAD_NUM_DEVICES; i++) {
 		char buf[64];
-		snprintf(buf, 20, "SDL.Input.PowerPad.%d.", i);
+		snprintf(buf, sizeof(buf)-1, "SDL.Input.PowerPad.%u.", i);
 		prefix = buf;
 
 		config->addOption(prefix + "DeviceType", DefaultPowerPadDevice[i]);

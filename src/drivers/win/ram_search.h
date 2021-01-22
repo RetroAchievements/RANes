@@ -29,11 +29,18 @@ void SetSearchType(int SearchType); //Set the search type
 void DoRamSearchOperation(); //Perform a search
 
 extern HWND RamSearchHWnd;
-extern LRESULT CALLBACK RamSearchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
+extern INT_PTR CALLBACK RamSearchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
+extern POINT CalcSubWindowPos(HWND hDlg, POINT* conf);
 
 // Too much work to do for resorting the values, and finding the biggest number 
 // by sorting in ram list doesn't help too much in usually use, so I gave it up. 
 // static int CALLBACK RamSearchItemSortFunc(LPARAM lp1, LPARAM lp2, LPARAM lpSort);
 // extern void UpdateSortColumnIcon(HWND hwndListView, int sortColumn, bool sortAsc);
+
+#define CHEAT_1BYTE_BG RGB(216, 203, 253)
+#define CHEAT_2BYTE_BG RGB(195, 186, 253)
+#define CHEAT_3BYTE_BG RGB(176, 139, 252)
+#define CHEAT_4BYTE_BG RGB(175, 94, 253)
+#define CHEAT_4BYTE_TEXT RGB(255, 255, 255)
 
 #endif

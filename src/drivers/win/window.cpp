@@ -50,6 +50,7 @@
 #include "memview.h"
 #include "tracer.h"
 #include "cdlogger.h"
+#include "header_editor.h"
 #include "throttle.h"
 #include "monitor.h"
 #include "keyboard.h"
@@ -104,7 +105,7 @@ using namespace std;
 
 //Handles----------------------------------------------
 static HMENU fceumenu = 0;	  //Main menu.
-HWND pwindow;				  //Client Area
+// HWND pwindow;				  //Client Area
 HMENU recentmenu;				//Recent Menu
 HMENU recentluamenu;			//Recent Lua Files Menu
 HMENU recentmoviemenu;			//Recent Movie Files Menu
@@ -121,7 +122,7 @@ extern bool turbo;
 extern bool movie_readonly;
 extern bool AutoSS;			//flag for whether an auto-save has been made
 extern int newppu;
-extern BOOL CALLBACK ReplayMetadataDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);	//Metadata dialog
+extern INT_PTR CALLBACK ReplayMetadataDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);	//Metadata dialog
 extern bool CheckFileExists(const char* filename);	//Receives a filename (fullpath) and checks to see if that file exists
 extern bool oldInputDisplay;
 extern int RAMInitOption;
@@ -151,6 +152,7 @@ int menuYoffset = 0;
 bool wasPausedByCheats = false;		//For unpausing the emulator if paused by the cheats dialog
 bool rightClickEnabled = true;		//If set to false, the right click context menu will be disabled.
 bool fullscreenByDoubleclick = false;
+uint8 BWorldData[1 + 13 + 1];
 
 //Function Prototypes
 void ChangeMenuItemText(int menuitem, string text);			//Alters a menu item name
@@ -185,6 +187,7 @@ const unsigned int MAX_NUMBER_OF_MOVIE_RECENT_FILES = sizeof(recent_movie)/sizeo
 
 int EnableBackgroundInput = 0;
 int ismaximized = 0;
+WNDPROC DefaultEditCtrlProc;
 
 //Help Menu subtopics
 string moviehelp = "MovieRecording";		 //Movie Recording
@@ -257,7 +260,7 @@ int GetCheckedAutoFirePattern()
 	if (AFon == 4 && AFoff == 2) return MENU_AUTOFIRE_PATTERN_14;
 	if (AFon == 5 && AFoff == 1) return MENU_AUTOFIRE_PATTERN_15;
 
-return MENU_AUTOFIRE_PATTERN_1;
+	return MENU_AUTOFIRE_PATTERN_1;
 }
 
 int GetCheckedAutoFireOffset()
@@ -382,8 +385,9 @@ void CalcWindowSize(RECT *al)
 
 /// Updates the menu items that should only be enabled if a game is loaded.
 /// @param enable Flag that indicates whether the menus should be enabled (1) or disabled (0). 
-void updateGameDependentMenus(unsigned int enable)
+void updateGameDependentMenus()
 {
+	// they are quite simple, enabled only when game is loaded
 	const int menu_ids[]= {
 		MENU_CLOSE_FILE,
 		ID_FILE_SCREENSHOT,
@@ -394,6 +398,7 @@ void updateGameDependentMenus(unsigned int enable)
 		MENU_SWITCH_DISK,
 		MENU_EJECT_DISK,
 		MENU_RECORD_AVI,
+		MENU_INPUT_BARCODE,
 		MENU_STOP_AVI,
 		MENU_RECORD_WAV,
 		MENU_STOP_WAV,
@@ -411,10 +416,14 @@ void updateGameDependentMenus(unsigned int enable)
 		ID_TOOLS_TEXTHOOKER
 	};
 
+	bool enable = GameInfo != 0;
 	for (unsigned int i = 0; i < sizeof(menu_ids) / sizeof(*menu_ids); i++)
-	{
-			EnableMenuItem(fceumenu, menu_ids[i], MF_BYCOMMAND | (enable ? MF_ENABLED : MF_GRAYED));
-	}
+		EnableMenuItem(fceumenu, menu_ids[i], MF_BYCOMMAND | enable ? MF_ENABLED : MF_GRAYED | MF_DISABLED);
+
+	// Special treatment for the iNES head editor, only when no game is loaded or an NES game is loaded
+	extern iNES_HEADER head;
+	enable = GameInfo == 0 || !strncmp((const char*)&head, "NES\x1A", 4);
+	EnableMenuItem(fceumenu, MENU_INESHEADEREDITOR, MF_BYCOMMAND | enable ? MF_ENABLED : MF_GRAYED | MF_DISABLED);
 }
 
 //Updates menu items which need to be checked or unchecked.
@@ -1051,7 +1060,7 @@ void HideFWindow(int h)
 		SetWindowPos(hAppWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOMOVE | SWP_NOREPOSITION | SWP_NOSIZE);
 	}
 
-	SetWindowLong(hAppWnd, GWL_STYLE, desa | ( GetWindowLong(hAppWnd, GWL_STYLE) & WS_VISIBLE ));
+	SetWindowLongPtr(hAppWnd, GWL_STYLE, desa | ( GetWindowLong(hAppWnd, GWL_STYLE) & WS_VISIBLE ));
 	SetWindowPos(hAppWnd, 0, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOMOVE | SWP_NOREPOSITION | SWP_NOSIZE | SWP_NOZORDER);
 }
 
@@ -1084,13 +1093,11 @@ void CloseGame()
 
 		FCEUI_CloseGame();
 		KillMemView();
-		updateGameDependentMenus(GameInfo != 0);
-		updateGameDependentMenusDebugger(GameInfo != 0);
-
+		updateGameDependentMenus();
+		updateGameDependentMenusDebugger();
 #if RETROACHIEVEMENTS
 		RA_ActivateGame(0);
 #endif
-
 		SetMainWindowText();
 	}
 }
@@ -1159,8 +1166,8 @@ bool ALoad(const char *nameo, char* innerFilename, bool silent)
 	SetMainWindowText();
 	ParseGIInput(GameInfo);
 
-	updateGameDependentMenus(GameInfo != 0);
-	updateGameDependentMenusDebugger(GameInfo != 0);
+	updateGameDependentMenus();
+	updateGameDependentMenusDebugger();
 	EmulationPaused = oldPaused;
 	return true;
 }
@@ -1340,7 +1347,7 @@ void DumpSubtitles(HWND hWnd)
 
 			for (unsigned int i = 0; i < subtitleFrames.size(); i++)
 			{
-				fprintf(srtfile, "%i\n", i+1); // starts with 1, not 0
+				fprintf(srtfile, "%u\n", i+1); // starts with 1, not 0
 				double seconds, ms, endseconds, endms;
 				seconds = subtitleFrames[i]/fps;
 				if (i+1 < subtitleFrames.size()) // there's another subtitle coming after this one
@@ -1364,8 +1371,8 @@ void DumpSubtitles(HWND hWnd)
 				floor(endseconds/3600), (int)floor(endseconds/60) % 60, (int)floor(endseconds) % 60, (int)(endms*1000));
 				fprintf(srtfile, "%s\n\n", subtitleMessages[i].c_str()); // new line for every subtitle
 			}
+			fclose(srtfile);
 		}
-	fclose(srtfile);
 	}
 
 	return;
@@ -1923,7 +1930,7 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 #endif
 				if (!LuaConsoleHWnd)
 				{
-					LuaConsoleHWnd = CreateDialog(fceu_hInstance, MAKEINTRESOURCE(IDD_LUA), hWnd, (DLGPROC) DlgLuaScriptDialog);
+					LuaConsoleHWnd = CreateDialog(fceu_hInstance, MAKEINTRESOURCE(IDD_LUA), hWnd, DlgLuaScriptDialog);
 				} else
 				{
 					ShowWindow(LuaConsoleHWnd, SW_SHOWNORMAL);
@@ -1976,7 +1983,24 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 			case MENU_INSERT_COIN:
 				FCEUI_VSUniCoin();
 				break;
-			
+			case MENU_INPUT_BARCODE:
+				char bbuf[32 + 1];
+				if ((CWin32InputBox::GetString("Input Barcode", "Input full 13- or 8-digit barcode to be directly send to the reader. Or input partial 12- or 7-digit number to allow the program to calculate control code automatically.", bbuf, hWnd) == IDOK)) {
+					uint32 stl = strlen(bbuf);
+					if (InputType[2] == SIFC_BWORLD) {
+						strcpy((char *)&BWorldData[1], (char *)bbuf);
+						BWorldData[0] = 1;
+						FCEU_DispMessage("Barcode entered: %s", 0, bbuf);
+					}
+					else {
+						if(FCEUI_DatachSet((uint8 *)bbuf) == 1)
+							FCEU_DispMessage("Barcode entered: %s", 0, bbuf);
+						else
+							FCEU_DispMessage("Invalid barcode size or characters!", 0);
+					}
+				}
+				break;
+
 			//Emulation submenu
 			case ID_NES_PAUSE:
 				FCEUI_ToggleEmulationPause();
@@ -2374,7 +2398,9 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 			case MENU_GAMEGENIEDECODER:
 				DoGGConv();
 				break;
-
+			case MENU_INESHEADEREDITOR:
+				DoHeadEdit();
+				break;
 			//Help Menu--------------------------------------------------------------
 			case MENU_HELP:
 				OpenHelpWindow();
@@ -2585,6 +2611,7 @@ adelikat: Outsourced this to a remappable hotkey
 		EnableMenuItem(fceumenu,MENU_EJECT_DISK,MF_BYCOMMAND | (FCEU_IsValidUI(FCEUI_EJECT_DISK)?MF_ENABLED:MF_GRAYED));
 		EnableMenuItem(fceumenu,MENU_SWITCH_DISK,MF_BYCOMMAND | (FCEU_IsValidUI(FCEUI_SWITCH_DISK)?MF_ENABLED:MF_GRAYED));
 		EnableMenuItem(fceumenu,MENU_INSERT_COIN,MF_BYCOMMAND | (FCEU_IsValidUI(FCEUI_INSERT_COIN)?MF_ENABLED:MF_GRAYED));
+		EnableMenuItem(fceumenu,MENU_INPUT_BARCODE,MF_BYCOMMAND | (FCEU_IsValidUI(FCEUI_INPUT_BARCODE)?MF_ENABLED:MF_GRAYED));
 		EnableMenuItem(fceumenu,MENU_TASEDITOR,MF_BYCOMMAND | (FCEU_IsValidUI(FCEUI_TASEDITOR)?MF_ENABLED:MF_GRAYED));
 		EnableMenuItem(fceumenu,MENU_CLOSE_FILE,MF_BYCOMMAND | (FCEU_IsValidUI(FCEUI_CLOSEGAME) && GameInfo ?MF_ENABLED:MF_GRAYED));
 		EnableMenuItem(fceumenu,MENU_RECENT_FILES,MF_BYCOMMAND | ((FCEU_IsValidUI(FCEUI_OPENGAME) && HasRecentFiles()) ?MF_ENABLED:MF_GRAYED)); //adelikat - added && recent_files, otherwise this line prevents recent from ever being gray when TAS Editor is not engaged
@@ -2752,8 +2779,8 @@ int CreateMainWindow()
 	UpdateLuaRMenu(recentluamenu, recent_lua, MENU_LUA_RECENT, LUA_FIRST_RECENT_FILE);
 	UpdateMovieRMenu(recentmoviemenu, recent_movie, MENU_MOVIE_RECENT, MOVIE_FIRST_RECENT_FILE);
 
-	updateGameDependentMenus(0);
-	updateGameDependentMenusDebugger(0);
+	updateGameDependentMenus();
+	updateGameDependentMenusDebugger();
 	if (MainWindow_wndx==-32000) MainWindow_wndx=0; //Just in case
 	if (MainWindow_wndy==-32000) MainWindow_wndy=0;
 	hAppWnd = CreateWindowEx(
@@ -3237,7 +3264,7 @@ void OpenRamSearch()
 	if (GameInfo)
 	{
 		reset_address_info();
-		RamSearchHWnd = CreateDialog(fceu_hInstance, MAKEINTRESOURCE(IDD_RAMSEARCH), MainhWnd, (DLGPROC)RamSearchProc);
+		RamSearchHWnd = CreateDialog(fceu_hInstance, MAKEINTRESOURCE(IDD_RAMSEARCH), MainhWnd, RamSearchProc);
 	}
 }
 
@@ -3249,7 +3276,7 @@ void OpenRamWatch()
 #endif
 
 	if (GameInfo)
-		RamWatchHWnd = CreateDialog(fceu_hInstance, MAKEINTRESOURCE(IDD_RAMWATCH), MainhWnd, (DLGPROC) RamWatchProc);
+		RamWatchHWnd = CreateDialog(fceu_hInstance, MAKEINTRESOURCE(IDD_RAMWATCH), MainhWnd, RamWatchProc);
 }
 
 void SaveSnapshotAs()
@@ -3294,4 +3321,292 @@ void UpdateSortColumnIcon(HWND hwndListView, int sortColumn, bool sortAsc)
 			SendMessage(header, HDM_SETITEM, i, (LPARAM)&hdItem);
 		}
 	}
+}
+
+// Push the window away from the main FCEUX window
+POINT CalcSubWindowPos(HWND hDlg, POINT* conf)
+{
+	POINT pt; // dialog position
+	RECT wR, dR; // Window rect, dialog rect
+
+
+	// Try to calc the default position, it doesn't overlap the main window and ensure it's in the screen;
+	GetWindowRect(hAppWnd, &wR);
+	GetWindowRect(hDlg, &dR);
+
+	pt.x = wR.left;
+	pt.y = wR.top;
+
+	LONG wW = wR.right - wR.left; // window width
+	LONG dW = dR.right - dR.left; // dialog width
+
+	if (pt.x + wW + dW < GetSystemMetrics(SM_CXSCREEN))
+		pt.x += wW; // if there is enough place for the dialog on the right, put the dialog there
+	else if (pt.x - dW > 0)
+		pt.x -= dW; // otherwise, we check if we can put it on the left
+
+	// If the dialog has a configured window position, override the default position
+	if (conf)
+	{
+		LONG wH = wR.bottom - wR.top;
+		// It is overrided only when the configured position is not completely off screen
+		if (conf->x > -wW * 2 || conf->x < wW * 2 + GetSystemMetrics(SM_CXSCREEN))
+			pt.x = conf->x;
+		if (conf->y > -wH * 2 || conf->y < wH * 2 + GetSystemMetrics(SM_CYSCREEN))
+			pt.y = conf->y;
+	}
+
+	// finally set the window position
+	SetWindowPos(hDlg, NULL, pt.x, pt.y, NULL, NULL, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW);
+
+	// return the calculated point, maybe the caller can use it for further.
+	return pt;
+}
+
+LRESULT APIENTRY FilterEditCtrlProc(HWND hwnd, UINT msg, WPARAM wP, LPARAM lP)
+{
+	bool through = true;
+	INT_PTR result = 0;
+
+	switch (msg)
+	{
+		case WM_PASTE:
+		{
+
+			bool (*IsLetterLegal)(char) = GetIsLetterLegal(GetDlgCtrlID(hwnd));
+
+			if (IsLetterLegal)
+			{
+				if (OpenClipboard(hwnd))
+				{
+					HANDLE handle = GetClipboardData(CF_TEXT);
+					if (handle)
+					{
+
+						// get the original clipboard string
+						char* clipStr = (char*)GlobalLock(handle);
+
+						// check if the text in clipboard has illegal characters
+						int len = strlen(clipStr);
+						for (int i = 0; i < len; ++i)
+						{
+							if (!IsLetterLegal(clipStr[i]))
+							{
+								through = false;
+								// Show Edit control tip, just like the control with ES_NUMBER do
+								ShowLetterIllegalBalloonTip(hwnd, IsLetterLegal);
+								break;
+							}
+						}
+						GlobalUnlock(handle);
+						CloseClipboard();
+					}
+				}
+			}
+		}
+		break;
+		case WM_CHAR:
+		{
+			bool(*IsLetterLegal)(char) = GetIsLetterLegal(GetDlgCtrlID(hwnd));
+			through = IsInputLegal(IsLetterLegal, wP);
+			if (!through)
+				ShowLetterIllegalBalloonTip(hwnd, IsLetterLegal);
+		}
+	}
+
+	return through ? CallWindowProc(DefaultEditCtrlProc, hwnd, msg, wP, lP) : result;
+}
+
+// return a letter legal checking function for the specified control with the given id
+bool inline (*GetIsLetterLegal(UINT id))(char letter)
+{
+	switch (id)
+	{
+
+		// Game genie text in Cheat and Game Genie Encoder/Decoder
+		case IDC_CHEAT_GAME_GENIE_TEXT:
+		case IDC_GAME_GENIE_CODE:
+			return IsLetterLegalGG;
+		
+		// Addresses in Debugger
+		case IDC_DEBUGGER_VAL_PCSEEK:
+		case IDC_DEBUGGER_VAL_PC:
+		case IDC_DEBUGGER_VAL_A:
+		case IDC_DEBUGGER_VAL_X:
+		case IDC_DEBUGGER_VAL_Y:
+		case IDC_DEBUGGER_BOOKMARK:
+
+		// Debugger -> Add breakpoint
+		case IDC_ADDBP_ADDR_START: case IDC_ADDBP_ADDR_END:
+
+		// Array Size, Init value in Symbolic Name in Debugger
+		case IDC_EDIT_SYMBOLIC_ARRAY: case IDC_EDIT_SYMBOLIC_INIT:
+
+		// Address, Value, Compare, Known Value, Note equal, Greater than and Less than in Cheat
+		case IDC_CHEAT_ADDR: case IDC_CHEAT_VAL: case IDC_CHEAT_COM:
+		case IDC_CHEAT_VAL_KNOWN: case IDC_CHEAT_VAL_NE_BY:
+		case IDC_CHEAT_VAL_GT_BY: case IDC_CHEAT_VAL_LT_BY:
+
+		// Address, Value and Compare in Game Genie Encoder/Decoder
+		case IDC_GAME_GENIE_ADDR: case IDC_GAME_GENIE_VAL: case IDC_GAME_GENIE_COMP:
+
+		// Address controls in Memory watch
+		case MW_ADDR00: case MW_ADDR01: case MW_ADDR02: case MW_ADDR03:
+		case MW_ADDR04: case MW_ADDR05: case MW_ADDR06: case MW_ADDR07:
+		case MW_ADDR08: case MW_ADDR09: case MW_ADDR10: case MW_ADDR11:
+		case MW_ADDR12: case MW_ADDR13: case MW_ADDR14: case MW_ADDR15:
+		case MW_ADDR16: case MW_ADDR17: case MW_ADDR18: case MW_ADDR19:
+		case MW_ADDR20: case MW_ADDR21: case MW_ADDR22: case MW_ADDR23:
+		case IDC_EDIT_COMPAREADDRESS:
+			return IsLetterLegalHex;
+
+		// Specific Address in RAM Search
+		// RAM Watch / RAM Search / Cheat -> Add watch (current only in adding watch operation)
+		case IDC_EDIT_COMPAREADDRESSES:
+			return IsLetterLegalHexList;
+
+		// Size multiplier and TV Aspect in Video Config
+		case IDC_WINSIZE_MUL_X: case IDC_WINSIZE_MUL_Y:
+		case IDC_TVASPECT_X: case IDC_TVASPECT_Y:
+			return IsLetterLegalFloat;
+
+		// Cheat code in Cheat
+		case IDC_CHEAT_TEXT:
+			return IsLetterLegalCheat;
+
+		// PRG ROM, PRG RAM, PRG NVRAM, CHR ROM, CHR RAM and CHR NVRAM in iNES Header Editor
+		case IDC_PRGROM_EDIT: case IDC_PRGRAM_EDIT: case IDC_PRGNVRAM_EDIT:
+		case IDC_CHRROM_EDIT: case IDC_CHRRAM_EDIT: case IDC_CHRNVRAM_EDIT:
+			return IsLetterLegalSize;
+
+		// Specific value, Different by and Modulo in RAM search
+		case IDC_EDIT_COMPAREVALUE:
+		case IDC_EDIT_DIFFBY:
+		case IDC_EDIT_MODBY:
+		{
+			extern char rs_t;
+			switch (rs_t)
+            {
+				case 's': return IsLetterLegalDecHexMixed;
+				case 'u': return IsLetterLegalUnsignedDecHexMixed;
+				case 'h': return IsLetterLegalHex;
+			}
+		}
+	}
+	return NULL;
+}
+
+void ShowLetterIllegalBalloonTip(HWND hwnd, bool(*IsLetterLegal)(char letter))
+{
+	wchar_t* title = L"Unacceptable Character";
+	wchar_t* msg = GetLetterIllegalErrMsg(IsLetterLegal);
+
+	EDITBALLOONTIP tip;
+	tip.cbStruct = sizeof(EDITBALLOONTIP);
+	tip.pszText = msg;
+	tip.pszTitle = title;
+	tip.ttiIcon = TTI_ERROR;
+	SendMessage(hwnd, EM_SHOWBALLOONTIP, 0, (LPARAM)&tip);
+
+	// make a sound
+	MessageBeep(0xFFFFFFFF);
+}
+
+inline wchar_t* GetLetterIllegalErrMsg(bool(*IsLetterLegal)(char letter))
+{
+	if (IsLetterLegal == IsLetterLegalGG)
+		return L"You can only type Game Genie characters:\nA P Z L G I T Y E O X U K S V N";
+	if (IsLetterLegal == IsLetterLegalHex)
+		return L"You can only type characters for hexadecimal number (0-9,A-F).";
+	if (IsLetterLegal == IsLetterLegalHexList)
+		return L"You can only type characters for hexademical number (0-9,A-F), each number is separated by a comma (,)";
+	if (IsLetterLegal == IsLetterLegalCheat)
+		return
+		L"The cheat code comes into the following 2 formats:\n"
+		"AAAA:VV freezes the value in Address $AAAA to $VV.\n"
+		"AAAA?CC:VV changes the value in Address $AAAA to $VV only when it's $CC.\n"
+		"All the characters are hexadecimal number (0-9,A-F).\n";
+	if (IsLetterLegal == IsLetterLegalFloat)
+		return L"You can only type decimal number (decimal point is acceptable).";
+	if (IsLetterLegal == IsLetterLegalSize)
+		return L"You can only type decimal number followed with B, KB or MB.";
+	if (IsLetterLegal == IsLetterLegalDec)
+		return L"You can only type decimal number (sign character is acceptable).";
+	if (IsLetterLegal == IsLetterLegalDecHexMixed)
+		return
+		L"You can only type decimal or hexademical number\n"
+		"(sign character is acceptable).\n\n"
+		"When your number contains letter A-F,\n"
+		"it is regarded as hexademical number,\n"
+		"however, if you want to express a heademical number\n"
+		"but all the digits are in 0-9,\n"
+		"you must add a $ prefix to prevent ambiguous.\n"
+		"eg. 10 is a decimal number,\n"
+		"$10 means a hexademical number that is 16 in decimal.";
+	if (IsLetterLegal == IsLetterLegalUnsignedDecHexMixed)
+		return
+		L"You can only type decimal or hexademical number.\n\n"
+		"When your number contains letter A-F,\n"
+		"it is regarded as hexademical number,\n"
+		"however, if you want to express a heademical number\n"
+		"but all the digits are in 0-9,\n"
+		"you must add a $ prefix to prevent ambiguous.\n"
+		"eg. 10 is a decimal number,\n"
+		"$10 means a hexademical number that is 16 in decimal.";
+
+	return L"Your input contains invalid characters.";
+}
+
+inline bool IsInputLegal(bool (*IsLetterLegal)(char letter), char letter)
+{
+	return !IsLetterLegal || letter == VK_BACK || GetKeyState(VK_CONTROL) & 0x8000 || IsLetterLegal(letter);
+}
+
+inline bool IsLetterLegalGG(char letter)
+{
+	char ch = toupper(letter);
+	for (int i = 0; GameGenieLetters[i]; ++i)
+		if (GameGenieLetters[i] == ch)
+			return true;
+	return false;
+}
+
+inline bool IsLetterLegalHex(char letter)
+{
+	return letter >= '0' && letter <= '9' || letter >= 'A' && letter <= 'F' || letter >= 'a' && letter <= 'f';
+}
+
+inline bool IsLetterLegalHexList(char letter)
+{
+	return IsLetterLegalHex(letter) || letter == ',' || letter == ' ';
+}
+
+inline bool IsLetterLegalCheat(char letter)
+{
+	return letter >= '0' && letter <= ':' || letter >= 'A' && letter <= 'F' || letter >= 'a' && letter <= 'f' || letter == '?';
+}
+
+inline bool IsLetterLegalSize(char letter)
+{
+	return letter >= '0' && letter <= '9' || letter == 'm' || letter == 'M' || letter == 'k' || letter == 'K' || letter == 'b' || letter == 'B';
+}
+
+inline bool IsLetterLegalDec(char letter)
+{
+	return letter >= '0' && letter <= '9' || letter == '-' || letter == '+';
+}
+
+inline bool IsLetterLegalFloat(char letter)
+{
+	return letter >= '0' && letter <= '9' || letter == '.' || letter == '-' || letter == '+';
+}
+
+inline bool IsLetterLegalDecHexMixed(char letter)
+{
+	return letter >= '0' && letter <= '9' || letter >= 'A' && letter <= 'F' || letter >= 'a' && letter <= 'f' || letter == '$' || letter == '-' || letter == '+';
+}
+
+inline bool IsLetterLegalUnsignedDecHexMixed(char letter)
+{
+	return letter >= '0' && letter <= '9' || letter >= 'A' && letter <= 'F' || letter >= 'a' && letter <= 'f' || letter == '$';
 }

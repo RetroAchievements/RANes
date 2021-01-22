@@ -73,7 +73,7 @@ class CWin32InputBox
 {
 private:
   WIN32INPUTBOX_PARAM *_param;
-  static LRESULT CALLBACK DlgProc(HWND, UINT, WPARAM, LPARAM);
+  static INT_PTR CALLBACK DlgProc(HWND, UINT, WPARAM, LPARAM);
   HWND _hwndEditCtrl;
 
   void InitDialog();
@@ -99,6 +99,12 @@ public:
 	LPCTSTR szPrompt,
 	int& result,
 	HWND hwndParent = 0);
+
+  static INT_PTR GetString(
+	  LPCTSTR szTitle,
+	  LPCTSTR szPrompt,
+	  CHAR* result,
+	  HWND hwndParent = 0);
 };
 
 #endif

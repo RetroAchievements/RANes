@@ -9,10 +9,15 @@
 uint32 PtoV(uint16 x, uint16 y);
 bool FCEUD_ShouldDrawInputAids();
 bool FCEUI_AviDisableMovieMessages();
-static SDL_Surface *s_screen;
 bool FCEUI_AviEnableHUDrecording();
 void FCEUI_SetAviEnableHUDrecording(bool enable);
 bool FCEUI_AviDisableMovieMessages();
 void FCEUI_SetAviDisableMovieMessages(bool disable);
+
+int init_gtk3_sdl_video(void);
+int destroy_gtk3_sdl_video(void);
+int gtk3_sdl_render(void);
+int gtk3_sdl_resize(void);
+
 #endif
 

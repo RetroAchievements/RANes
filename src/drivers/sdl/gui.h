@@ -27,13 +27,17 @@
 #endif
 extern GtkWidget* MainWindow;
 extern GtkWidget* evbox;
-extern GtkRadioAction* stateSlot;
 extern int GtkMouseData[3];
 extern bool gtkIsStarted;
 
 int InitGTKSubsystem(int argc, char** argv);
 void pushOutputToGTK(const char* str);
 void showGui(bool b);
+void toggleMenuVis(void);
+
+gint convertKeypress (GtkWidget * grab, GdkEventKey * event, gpointer user_data);
+void toggleOption (GtkWidget * w, gpointer p);
+void setCheckbox (GtkWidget * w, const char *configName);
 
 bool checkGTKVersion(int major_required, int minor_required);
 
@@ -50,14 +54,10 @@ void openGamepadConfig();
 
 void resizeGtkWindow();
 
-#ifdef OPENGL
-void setGl(GtkWidget* w, gpointer p);
-void setDoubleBuffering(GtkWidget* w, gpointer p);
-#endif
+void setStateMenuItem( int i );
 
 void openVideoConfig();
 void openSoundConfig();
-void quit ();
 void openAbout ();
 
 void emuReset ();
@@ -82,7 +82,24 @@ void saveStateAs();
 void loadStateFrom();
 void quickLoad();
 void quickSave();
-unsigned short GDKToSDLKeyval(int gdk_key);
+unsigned int GDKToSDLKeyval(int gdk_key);
 int InitGTKSubsystem(int argc, char** argv);
+
+uint32_t *getGuiPixelBuffer( int *w, int *h, int *s );
+int  guiPixelBufferReDraw(void);
+
+enum videoDriver_t
+{
+	VIDEO_NONE = -1,
+	VIDEO_OPENGL_GLX,
+	VIDEO_SDL,
+	VIDEO_CAIRO
+};
+extern enum videoDriver_t  videoDriver;
+
+int init_gui_video( videoDriver_t vd );
+int destroy_gui_video( void );
+void init_cairo_screen(void);
+void destroy_cairo_screen(void);
 
 #endif // ifndef FCEUX_GUI_H

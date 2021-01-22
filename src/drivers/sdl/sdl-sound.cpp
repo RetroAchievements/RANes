@@ -49,16 +49,21 @@ fillaudio(void *udata,
 			uint8 *stream,
 			int len)
 {
+	static int16_t sample = 0;
 	int16 *tmps = (int16*)stream;
 	len >>= 1;
-	while(len) {
-		int16 sample = 0;
-		if(s_BufferIn) {
+	while (len)
+	{
+		if (s_BufferIn)
+		{
 			sample = s_Buffer[s_BufferRead];
 			s_BufferRead = (s_BufferRead + 1) % s_BufferSize;
 			s_BufferIn--;
 		} else {
-			sample = 0;
+			// Retain last known sample value, helps avoid clicking
+         // noise when sound system is starved of audio data.
+			//sample = 0; 
+			//bufStarveDetected = 1;
 		}
 
 		*tmps = sample;
@@ -75,25 +80,21 @@ InitSound()
 {
 	int sound, soundrate, soundbufsize, soundvolume, soundtrianglevolume, soundsquare1volume, soundsquare2volume, soundnoisevolume, soundpcmvolume, soundq;
 	SDL_AudioSpec spec;
+	const char *driverName;
 
 	g_config->getOption("SDL.Sound", &sound);
-	if(!sound) {
+	if (!sound) 
+	{
 		return 0;
 	}
 
 	memset(&spec, 0, sizeof(spec));
-	if(SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
+	if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) 
+	{
 		puts(SDL_GetError());
 		KillSound();
 		return 0;
 	}
-	char driverName[8];
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-	// TODO - SDL 2
-#else
-	SDL_AudioDriverName(driverName, 8);
-	fprintf(stderr, "Loading SDL sound with %s driver...\n", driverName);
-#endif
 
 	// load configuration variables
 	g_config->getOption("SDL.Sound.Rate", &soundrate);
@@ -117,20 +118,32 @@ InitSound()
 
 	// For safety, set a bare minimum:
 	if (s_BufferSize < spec.samples * 2)
-	s_BufferSize = spec.samples * 2;
+	{
+		s_BufferSize = spec.samples * 2;
+	}
 
 	s_Buffer = (int *)FCEU_dmalloc(sizeof(int) * s_BufferSize);
+
 	if (!s_Buffer)
+	{
 		return 0;
+	}
 	s_BufferRead = s_BufferWrite = s_BufferIn = 0;
 
-	if(SDL_OpenAudio(&spec, 0) < 0)
+	if (SDL_OpenAudio(&spec, 0) < 0)
 	{
 		puts(SDL_GetError());
 		KillSound();
 		return 0;
-    }
+   }
 	SDL_PauseAudio(0);
+
+	driverName = SDL_GetCurrentAudioDriver();
+
+	if ( driverName )
+	{
+		fprintf(stderr, "Loading SDL sound with %s driver...\n", driverName);
+	}
 
 	FCEUI_SetSoundVolume(soundvolume);
 	FCEUI_SetSoundQuality(soundq);
@@ -171,11 +184,20 @@ WriteSound(int32 *buf,
 {
 	extern int EmulationPaused;
 	if (EmulationPaused == 0)
+   {
+		int waitCount = 0;
+
 		while(Count)
 		{
 			while(s_BufferIn == s_BufferSize) 
 			{
-				SDL_Delay(1);
+				SDL_Delay(1); waitCount++;
+
+				if ( waitCount > 1000 )
+				{
+					printf("Error: Sound sink is not draining... Breaking out of audio loop to prevent lockup.\n");
+					return;
+				}
 			}
 
 			s_Buffer[s_BufferWrite] = *buf;
@@ -188,6 +210,7 @@ WriteSound(int32 *buf,
             
 			buf++;
 		}
+   }
 }
 
 /**

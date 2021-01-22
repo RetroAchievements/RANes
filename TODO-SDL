@@ -1,47 +1,72 @@
 Priorities
 ==========
-	* SDL 2.0 RC is released - SDL2.0 compatibility is a goal
-	* Backwards-cpp still has an issue with clang++; look into this
-	* Users are reporting crashing issues with hotkey dialog (probably because its a mess!).  A huge chunk of the hotkey code should be rewritten (GUI and hotkey structs - or lack there-of)
-	* GTK File menu quit element has "CTRL-Q" accelerator.  This causes confusion with there being another SDL Hotkey for quit.  This should be addressed.
-	* Quit was mapped to '0' to prevent users from accidently quitting.  Perhaps a default quit combo could be used.
+   * Clean out old unused files - scons build system is dead, cmake is the way to go.
+   * GTK GUI was not cross-platform. A Qt5 version of the GUI has been created to meet this need. 
+     I will keep the GTK GUI around for Linux users who prefer it, but when it comes to adding new features
+     the Qt GUI is where I plan to add them first (if at all).
+   * The Qt GUI has by far exceeded the capabilities of the older GTK version. Below is a GUI capability 
+     matrix showing the differences between the two. I HIGHLY RECOMMEND USING THE Qt GUI.
+   * Code cleanup. Lots of compiler warnings with newer GCC. Maybe I'm OCD... but these warnings bother me.
 
 Features
 ========
-	* SDL.Vsync
-		* lets wait on this -- theres no simple way to use the OS default in SDL unless we just dont touch it, which might be the best thing to do here.
+   * Emulator no runs as a separate thread from the GUI. Much improved performance.
+   * Cross platform QT GUI is fully functional minus Debug Tools.
   
-GTK
-===
-	* Better on-the-fly video resizing with window resize / video config
-	* Smarter video config (disable widgets that are not used when openGL is enabled)
-	* Options to investigate:
-		* bpp
-		* scanlines
-	* GUI Cheat editor
+---------------------------------------------------------------------------------|
+----------------------  GUI Capability Matrix -----------------------------------|
+---------------------------------------------------------------------------------|
+Feature                                              |     Qt5     |     GTK3    |
+-----------------------------------------------------|-------------|-------------|
+Basic game ROM open/run and close via menu functions |     YES     |     YES     |
+Load/save game states                                |     YES     |     YES     |
+Select and execute Lua script via file browser       |     YES     |     YES     |
+Lua Console/Control Window                           |     YES     |     NO      |
+Screenshot snap/save functionality                   |     YES     |     YES     |
+Virtual game pad button mapping window               |     YES     |     YES     |
+Other input device type button mapping window        |     NO      |     NO      |
+Audio mixer / config window                          |     YES     |     YES     |
+Video config window                                  |     YES     |     YES     |
+OpenGL graphics                                      |     YES     |     YES     |
+Hot key config window                                |     YES     |     YES     |
+Palette config window                                |     YES     |     YES     |
+Multi-thread (GUI and emulation on separate threads) |     YES     |     NO      |
+Emulation speed control via menu                     |     YES     |     NO      |
+Emulation speed control via hotkeys                  |     YES     |     YES     |
+Fullscreen functionality                             |     YES     |     YES     |
+AVI Record Functionality                             |     NO      |     NO      |
+NES Emulation Power/Reset/Pause functionality        |     YES     |     YES     |
+Game genie load/enable capability                    |     YES     |     YES     |
+Movie record/save/play functionality                 |     YES     |     YES     |
+Cheat search window                                  |     YES     |     YES     |
+Active Cheat window                                  |     YES     |     YES     |
+RAM Search Window                                    |     YES     |     NO      |
+RAM Watch Window                                     |     YES     |     YES     |
+Memory Watch Window                                  |     NO      |     NO      |
+TAS Editor                                           |     NO      |     NO      |
+6502 Debugger Window                                 |     YES     |     YES     |
+PPU Viewer                                           |     YES     |     NO      |
+Name Table Viewer                                    |     YES     |     NO      |
+Memory Hex Editor                                    |     YES     |     YES     |
+Trace Logger                                         |     YES     |     NO      |
+Code/Data Logger                                     |     YES     |     NO      |
+Game Genie Encoder/Decoder                           |     YES     |     NO      |
+iNES Header Editor                                   |     YES     |     NO      |
+Built in help pages                                  |     NO      |     NO      |
+Network play (who actually uses this???)             |     NO      |     NO      |
+-----------------------------------------------------|-------------|-------------|
+---------------------------------------------------------------------------------|
+---------------------------------------------------------------------------------|
 
-SDL 2.0
-=======
-	* segfaults when opening a second game
-	* segfaults on fullscreen entry
-	* has not been tested in a while
+QT
+===
+   * Clean out rest of old GTK comments and #ifdefs
+	* GUI Debug Tools Pretty Much Done
+   * GUI should compile in windows as well.... but testing is not a priority since the windows gui already has a totally separate backend.
 
 BUGS
 ====
-	* F1 from terminal-less gui fceux process hangs fceux (since input is required from console in cheat editor)
-
-OS X
-====
-	* Single window mode does not work (the XWINDOWID hack does not work in Apples X11 server, so this may never get fixed).
-		* It is possible to use GTK to build native OS X menus: http://developer.gnome.org/gtk3/3.4/GtkApplication.html .  It would be awesome to do this and hide the main GTK window if the top bar is available
-	* Zapper input is taken from GTK window instead of X11 window (a workaround could be implemented to resolve with with some #ifdef APPLE etc)
-	* Not an "official" target, but testing should be done before release on OS X
-	* DMG Static binary download for Intel OS X
-		* Include needful libaries
-		* Adjust scons to produce static binary/libraries with an option
-			* http://www.scons.org/wiki/StaticallyLink
 
 DOCS
 ====
-	* Be sure to include details about new scons features for package maintainers so that the manpage, luascripts, and auxlib will be included in future packages
 	* Docs REALLY need a cleanup/rewrite

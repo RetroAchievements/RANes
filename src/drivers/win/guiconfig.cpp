@@ -85,7 +85,7 @@ void CloseGuiDialog(HWND hwndDlg)
 				"  manifestVersion=\"1.0\">\n"
 				"<assemblyIdentity\n"
 				"    name=\"FCEUX\"\n"
-				"    processorArchitecture=\"x86\"\n"
+				"    processorArchitecture=\"*\"\n"
 				"    version=\"1.0.0.0\"\n"
 				"    type=\"win32\"/>\n"
 				"<description>FCEUX</description>\n"
@@ -107,7 +107,7 @@ void CloseGuiDialog(HWND hwndDlg)
 /**
 * Message loop of the GUI configuration dialog.
 **/
-BOOL CALLBACK GUIConCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK GUIConCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch(uMsg)
 	{

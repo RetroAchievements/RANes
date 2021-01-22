@@ -22,7 +22,7 @@ int offsetStringToInt(unsigned int type, const char* offsetBuffer)
 {
 	int offset = -1;
 
-	if (sscanf(offsetBuffer,"%4X",&offset) == EOF)
+	if (sscanf(offsetBuffer,"%4X",(unsigned int *)&offset) == EOF)
 	{
 		return -1;
 	}
@@ -421,12 +421,12 @@ int condition(watchpointinfo* wp)
 
 //---------------------
 
-volatile int codecount, datacount, undefinedcount;
-unsigned char *cdloggerdata;
+volatile int codecount = 0, datacount = 0, undefinedcount = 0;
+unsigned char *cdloggerdata = NULL;
 unsigned int cdloggerdataSize = 0;
-static int indirectnext;
+static int indirectnext = 0;
 
-int debug_loggingCD;
+int debug_loggingCD = 0;
 
 //called by the cpu to perform logging if CDLogging is enabled
 void LogCDVectors(int which){
@@ -533,40 +533,41 @@ void IncrementInstructionsCounters()
 	delta_instructions++;
 }
 
-void BreakHit(int bp_num, bool force)
-{
-	if(!force)
+bool CondForbidTest(int bp_num) {
+	if (bp_num >= 0 && !condition(&watchpoint[bp_num]))
 	{
-		if (bp_num >= 0 && !condition(&watchpoint[bp_num]))
-		{
-			return; // condition rejected
-		}
+		return false;	// condition rejected
+	}
 
-		//check to see whether we fall in any forbid zone
-		for (int i = 0; i < numWPs; i++)
-		{
-			watchpointinfo& wp = watchpoint[i];
-			if(!(wp.flags & WP_F) || !(wp.flags & WP_E))
-				continue;
+	//check to see whether we fall in any forbid zone
+	for (int i = 0; i < numWPs; i++)
+	{
+		watchpointinfo& wp = watchpoint[i];
+		if (!(wp.flags & WP_F) || !(wp.flags & WP_E))
+			continue;
 
-			if (condition(&wp))
-			{
-				if (wp.endaddress) {
-					if( (wp.address <= _PC) && (wp.endaddress >= _PC) )
-						return;	//forbid
-				} else {
-					if(wp.address == _PC)
-						return; //forbid
-				}
+		if (condition(&wp))
+		{
+			if (wp.endaddress) {
+				if ((wp.address <= _PC) && (wp.endaddress >= _PC))
+					return false;	// forbid
+			}
+			else {
+				if (wp.address == _PC)
+					return false;	// forbid
 			}
 		}
 	}
+	return true;
+}
 
+void BreakHit(int bp_num)
+{
 	FCEUI_SetEmulationPaused(EMULATIONPAUSED_PAUSED); //mbg merge 7/19/06 changed to use EmulationPaused()
 
-#ifdef WIN32
+//#ifdef WIN32
 	FCEUD_DebugBreakpoint(bp_num);
-#endif
+//#endif
 }
 
 int StackAddrBackup;
@@ -585,17 +586,17 @@ static void breakpoint(uint8 *opcode, uint16 A, int size) {
 	if (break_asap)
 	{
 		break_asap = false;
-		BreakHit(BREAK_TYPE_LUA, true);
+		BreakHit(BREAK_TYPE_LUA);
 	}
 
 	if (break_on_cycles && ((timestampbase + (uint64)timestamp - total_cycles_base) > break_cycles_limit))
-		BreakHit(BREAK_TYPE_CYCLES_EXCEED, true);
+		BreakHit(BREAK_TYPE_CYCLES_EXCEED);
 	if (break_on_instructions && (total_instructions > break_instructions_limit))
-		BreakHit(BREAK_TYPE_INSTRUCTIONS_EXCEED, true);
+		BreakHit(BREAK_TYPE_INSTRUCTIONS_EXCEED);
 
 	//if the current instruction is bad, and we are breaking on bad opcodes, then hit the breakpoint
 	if(dbgstate.badopbreak && (size == 0))
-		BreakHit(BREAK_TYPE_BADOP, true);
+		BreakHit(BREAK_TYPE_BADOP);
 
 	//if we're stepping out, track the nest level
 	if (dbgstate.stepout) {
@@ -614,7 +615,7 @@ static void breakpoint(uint8 *opcode, uint16 A, int size) {
 	//if we're stepping, then we'll always want to break
 	if (dbgstate.step) {
 		dbgstate.step = false;
-		BreakHit(BREAK_TYPE_STEP, true);
+		BreakHit(BREAK_TYPE_STEP);
 		return;
 	}
 
@@ -626,7 +627,7 @@ static void breakpoint(uint8 *opcode, uint16 A, int size) {
 		if (diff<=0)
 		{
 			dbgstate.runline=false;
-			BreakHit(BREAK_TYPE_STEP, true);
+			BreakHit(BREAK_TYPE_STEP);
 			return;
 		}
 	}
@@ -635,7 +636,7 @@ static void breakpoint(uint8 *opcode, uint16 A, int size) {
 	if ((watchpoint[64].address == _PC) && (watchpoint[64].flags)) {
 		watchpoint[64].address = 0;
 		watchpoint[64].flags = 0;
-		BreakHit(BREAK_TYPE_STEP, true);
+		BreakHit(BREAK_TYPE_STEP);
 		return;
 	}
 
@@ -657,7 +658,7 @@ static void breakpoint(uint8 *opcode, uint16 A, int size) {
 		default: break;
 	}
 
-	#define BREAKHIT(x) { breakHit = (x); goto STOPCHECKING; }
+#define BREAKHIT(x) { if (CondForbidTest(x)) { breakHit = (x); goto STOPCHECKING; } }
 	int breakHit = -1;
 	for (i = 0; i < numWPs; i++)
 	{
@@ -864,10 +865,5 @@ void DebugCycle()
 	if(debug_loggingCD)
 		LogCDData(opcode, A, size);
 
-#ifdef WIN32
-	//This needs to be windows only or else the linux build system will fail since logging is declared in a
-	//windows source file
 	FCEUD_TraceInstruction(opcode, size);
-#endif
-
 }

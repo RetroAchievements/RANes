@@ -1149,7 +1149,7 @@ double GetDlgItemDouble(HWND hDlg, int item)
 	return(ret);
 }
 
-BOOL CALLBACK VideoConCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK VideoConCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	static char *vmstr[11]={
 		"Custom",
@@ -1288,6 +1288,11 @@ BOOL CALLBACK VideoConCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 		EnableWindow(GetDlgItem(hwndDlg, IDC_TVASPECT_X), eoptions&EO_TVASPECT);
 		EnableWindow(GetDlgItem(hwndDlg, IDC_TVASPECT_Y), eoptions&EO_TVASPECT);
 		EnableWindow(GetDlgItem(hwndDlg, IDC_STATIC_SLASHTEXT), eoptions&EO_TVASPECT);
+
+		DefaultEditCtrlProc = (WNDPROC)SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_WINSIZE_MUL_X), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+		SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_WINSIZE_MUL_Y), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+		SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_TVASPECT_X), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+		SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_TVASPECT_Y), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
 
 		break;
 	}

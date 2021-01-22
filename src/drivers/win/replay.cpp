@@ -327,7 +327,7 @@ void AbsoluteToRelative(char *const dst, const char *const dir, const char *cons
 }
 
 
-BOOL CALLBACK ReplayMetadataDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK ReplayMetadataDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	RECT wrect;
 	switch(uMsg)
@@ -506,7 +506,7 @@ void HandleScan(HWND hwndDlg, FCEUFILE* file, int& i)
 	SendDlgItemMessage(hwndDlg, IDC_COMBO_FILENAME, CB_INSERTSTRING, i++, (LPARAM)relative);
 }
 
-BOOL CALLBACK ReplayDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK ReplayDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch(uMsg)
 	{
@@ -771,7 +771,7 @@ BOOL CALLBACK ReplayDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 			else
 				SetTextColor(hdcStatic, RGB(255,0,0));		// use red for a mismatch
 			SetBkMode((HDC)wParam,TRANSPARENT);
-			return (BOOL)GetSysColorBrush(COLOR_BTNFACE);
+			return (INT_PTR)GetSysColorBrush(COLOR_BTNFACE);
 		} else if ((HWND)lParam == GetDlgItem(hwndDlg, IDC_LABEL_NEWPPUUSED))
 		{
 			HDC hdcStatic = (HDC)wParam;
@@ -784,7 +784,7 @@ BOOL CALLBACK ReplayDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 			else
 				SetTextColor(hdcStatic, RGB(255,0,0));		// use red for a mismatch
 			SetBkMode((HDC)wParam,TRANSPARENT);
-			return (BOOL)GetSysColorBrush(COLOR_BTNFACE);
+			return (INT_PTR)GetSysColorBrush(COLOR_BTNFACE);
 		} else
 		{
 			return FALSE;
@@ -845,7 +845,7 @@ static void UpdateRecordDialogPath(HWND hwndDlg, const std::string &fname)
 	}
 }
 
-static BOOL CALLBACK RecordDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+static INT_PTR CALLBACK RecordDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	static struct CreateMovieParameters* p = NULL;
 

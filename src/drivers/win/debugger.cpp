@@ -74,7 +74,7 @@ static HMENU hDisasmcontext;     //Handle to context menu
 static HMENU hDisasmcontextsub;  //Handle to context sub menu
 WNDPROC IDC_DEBUGGER_DISASSEMBLY_oldWndProc = 0;
 
-static HFONT hFont;
+// static HFONT hFont;
 static SCROLLINFO si;
 
 bool debuggerAutoload = false;
@@ -124,9 +124,11 @@ void UpdateOtherDebuggingDialogs()
 
 void RestoreSize(HWND hwndDlg)
 {
+	HDC hdc = GetDC(hwndDlg);
 	//If the dialog dimensions are changed those changes need to be reflected here.  - adelikat
-	const int DEFAULT_WIDTH = 820 + (debuggerIDAFont ? 64 : 0);	//Original width
-	const int DEFAULT_HEIGHT = 576 + (debuggerIDAFont ? 2 : 0);	//Original height
+	const int DEFAULT_WIDTH = MulDiv(820 + (debuggerIDAFont ? 64 : 0), GetDeviceCaps(hdc, LOGPIXELSX), 96);	//Original width
+	const int DEFAULT_HEIGHT = MulDiv(576 + (debuggerIDAFont ? 2 : 0), GetDeviceCaps(hdc, LOGPIXELSY), 96);	//Original height
+	ReleaseDC(hwndDlg, hdc);
 	
 	SetWindowPos(hwndDlg,HWND_TOP,DbgPosX,DbgPosY,DEFAULT_WIDTH,DEFAULT_HEIGHT,SWP_SHOWWINDOW);
 }
@@ -271,7 +273,7 @@ static void UpdateDialog(HWND hwndDlg) {
 	//CheckDlgButton(hwndDlg,IDC_ADDBP_MEM_SPR,BST_UNCHECKED);
 }
 
-BOOL CALLBACK AddbpCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK AddbpCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	char str[8] = {0};
 	int tmp;
@@ -280,8 +282,13 @@ BOOL CALLBACK AddbpCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	{
 		case WM_INITDIALOG:
 			CenterWindow(hwndDlg);
-			SendDlgItemMessage(hwndDlg,IDC_ADDBP_ADDR_START,EM_SETLIMITTEXT,4,0);
-			SendDlgItemMessage(hwndDlg,IDC_ADDBP_ADDR_END,EM_SETLIMITTEXT,4,0);
+			SendDlgItemMessage(hwndDlg, IDC_ADDBP_ADDR_START, EM_SETLIMITTEXT, 4, 0);
+			SendDlgItemMessage(hwndDlg, IDC_ADDBP_ADDR_END, EM_SETLIMITTEXT, 4, 0);
+
+			// Don't limit address entry. See: debugcpp offsetStringToInt
+			//DefaultEditCtrlProc = (WNDPROC)SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_ADDBP_ADDR_START), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+			//SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_ADDBP_ADDR_END), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+
 			if (WP_edit >= 0)
 			{
 				SetWindowText(hwndDlg,"Edit Breakpoint...");
@@ -338,7 +345,7 @@ BOOL CALLBACK AddbpCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				if (lParam)
 				{
 					CheckDlgButton(hwndDlg, IDC_ADDBP_MODE_X, BST_CHECKED);
-					sprintf(str, "%04X", lParam);
+					sprintf(str, "%04X", (unsigned int)lParam);
 					SetDlgItemText(hwndDlg,IDC_ADDBP_ADDR_START,str);
 					// also set the condition to only break at this Bank
 					sprintf(str, "K==#%02X", getBank(lParam));
@@ -363,20 +370,20 @@ BOOL CALLBACK AddbpCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 								int tmp = NewBreakWindows(hwndDlg,WP_edit,(BOOL)(watchpoint[WP_edit].flags&WP_E));
 								if (tmp == 2 || tmp == INVALID_BREAKPOINT_CONDITION)
 								{
-									MessageBox(hwndDlg, "Invalid breakpoint condition", "Error", MB_OK);
+									MessageBox(hwndDlg, "Invalid breakpoint condition", "Error", MB_OK | MB_ICONERROR);
 									break;
 								}
 								EndDialog(hwndDlg,1);
 								break;
 							}
 							if ((tmp=AddBreak(hwndDlg)) == TOO_MANY_BREAKPOINTS) {
-								MessageBox(hwndDlg, "Too many breakpoints, please delete one and try again", "Breakpoint Error", MB_OK);
+								MessageBox(hwndDlg, "Too many breakpoints, please delete one and try again", "Breakpoint Error", MB_OK | MB_ICONERROR);
 								goto endaddbrk;
 							}
 							if (tmp == 2) goto endaddbrk;
 							else if (tmp == INVALID_BREAKPOINT_CONDITION)
 							{
-								MessageBox(hwndDlg, "Invalid breakpoint condition", "Error", MB_OK);
+								MessageBox(hwndDlg, "Invalid breakpoint condition", "Error", MB_OK | MB_ICONERROR);
 								break;
 							}
 							EndDialog(hwndDlg,1);
@@ -545,13 +552,14 @@ void Disassemble(HWND hWnd, int id, int scrollid, unsigned int addr)
 				{
 					// make a copy
 					strcpy(debug_str_decoration_comment, node->comment);
-					strcat(debug_str_decoration_comment, "\n");
+					strcat(debug_str_decoration_comment, "\r\n");
 					// divide the debug_str_decoration_comment into strings (Comment1, Comment2, ...)
 					debug_decoration_comment = debug_str_decoration_comment;
-					debug_decoration_comment_end_pos = strstr(debug_decoration_comment, "\n");
+					debug_decoration_comment_end_pos = strstr(debug_decoration_comment, "\r\n");
 					while (debug_decoration_comment_end_pos)
 					{
 						debug_decoration_comment_end_pos[0] = 0;		// set \0 instead of \r
+						debug_decoration_comment_end_pos[1] = 0;		// set \0 instead of \n
 						strcat(debug_str, "; ");
 						strcat(debug_str, debug_decoration_comment);
 						strcat(debug_str, "\n");
@@ -562,7 +570,7 @@ void Disassemble(HWND hWnd, int id, int scrollid, unsigned int addr)
 
 						debug_decoration_comment_end_pos += 2;
 						debug_decoration_comment = debug_decoration_comment_end_pos;
-						debug_decoration_comment_end_pos = strstr(debug_decoration_comment_end_pos, "\n");
+						debug_decoration_comment_end_pos = strstr(debug_decoration_comment_end_pos, "\r\n");
 					}
 				}
 			}
@@ -1228,7 +1236,7 @@ int AddAsmHistory(HWND hwndDlg, int id, char *str) {
 	return 1;
 }
 
-BOOL CALLBACK AssemblerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+INT_PTR CALLBACK AssemblerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 	int romaddr,count,i,j;
 	char str[128],*dasm;
 	static int patchlen,applied,saved,lastundo;
@@ -1295,7 +1303,7 @@ BOOL CALLBACK AssemblerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
 										saved = 1;
 										applied = 0;
 									}
-									else MessageBox(hwndDlg, "Unable to save changes to file", "Error saving to file", MB_OK);
+									else MessageBox(hwndDlg, "Unable to save changes to file", "Error saving to file", MB_OK | MB_ICONERROR);
 								}
 							}
 							break;
@@ -1334,7 +1342,7 @@ BOOL CALLBACK AssemblerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
 									count += opsize[patchdata[i][0]];
 								}
 								if (count > 0x10000) { //note: don't use 0xFFFF!
-									MessageBox(hwndDlg, "Patch data cannot exceed address 0xFFFF", "Address error", MB_OK);
+									MessageBox(hwndDlg, "Patch data cannot exceed address 0xFFFF", "Address error", MB_OK | MB_ICONERROR);
 									break;
 								}
 								SetDlgItemText(hwndDlg,IDC_ASSEMBLER_HISTORY,"");
@@ -1362,7 +1370,7 @@ BOOL CALLBACK AssemblerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
 	return FALSE;
 }
 
-BOOL CALLBACK PatcherCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+INT_PTR CALLBACK PatcherCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 	char str[64]; //mbg merge 7/18/06 changed from unsigned char
 	uint8 *c;
 	int i;
@@ -1399,11 +1407,11 @@ BOOL CALLBACK PatcherCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 							else
 								iapoffset = GetNesFileAddress(GetEditHex(hwndDlg,IDC_ROMPATCHER_OFFSET));
 							if((iapoffset < 16) && (iapoffset != -1)){
-								MessageBox(hDebug, "Sorry, iNes Header editing isn't supported", "Error", MB_OK);
+								MessageBox(hDebug, "Sorry, iNES Header editing isn't supported by this tool. If you want to edit the header, please use iNES Header Editor", "Error", MB_OK | MB_ICONASTERISK);
 								iapoffset = -1;
 							}
 							if((iapoffset > PRGsize[0]) && (iapoffset != -1)){
-								MessageBox(hDebug, "Error: .Nes offset outside of PRG rom", "Error", MB_OK);
+								MessageBox(hDebug, "Error: .Nes offset outside of PRG rom", "Error", MB_OK | MB_ICONERROR);
 								iapoffset = -1;
 							}
 							UpdatePatcher(hwndDlg);
@@ -1420,7 +1428,7 @@ BOOL CALLBACK PatcherCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 							break;
 						case IDC_ROMPATCHER_BTN_SAVE:
 							if (!iNesSave())
-								MessageBox(NULL, "Error Saving", "Error", MB_OK);
+								MessageBox(NULL, "Error Saving", "Error", MB_OK | MB_ICONERROR);
 							break;
 					}
 					break;
@@ -1760,7 +1768,7 @@ BOOL CALLBACK IDC_DEBUGGER_DISASSEMBLY_WndProc(HWND hwndDlg, UINT uMsg, WPARAM w
 	return CallWindowProc(IDC_DEBUGGER_DISASSEMBLY_oldWndProc, hwndDlg, uMsg, wParam, lParam);
 }
 
-BOOL CALLBACK DebuggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK DebuggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	RECT wrect;
 	char str[256] = {0};
@@ -1824,6 +1832,16 @@ BOOL CALLBACK DebuggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 			SendDlgItemMessage(hwndDlg,IDC_DEBUGGER_VAL_PPU,EM_SETLIMITTEXT,4,0);
 			SendDlgItemMessage(hwndDlg,IDC_DEBUGGER_VAL_SPR,EM_SETLIMITTEXT,2,0);
 
+			// limit input
+			// Don't limit address entry. See: debugcpp offsetStringToInt
+			DefaultEditCtrlProc = (WNDPROC)
+			//DefaultEditCtrlProc = (WNDPROC)SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_DEBUGGER_VAL_PCSEEK), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+			SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_DEBUGGER_VAL_PC), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+			SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_DEBUGGER_VAL_A), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+			SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_DEBUGGER_VAL_X), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+			SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_DEBUGGER_VAL_Y), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+			//SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_DEBUGGER_BOOKMARK), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+
 			//I'm lazy, disable the controls which I can't mess with right now
 			SendDlgItemMessage(hwndDlg,IDC_DEBUGGER_VAL_PPU,EM_SETREADONLY,TRUE,0);
 			SendDlgItemMessage(hwndDlg,IDC_DEBUGGER_VAL_SPR,EM_SETREADONLY,TRUE,0);
@@ -1843,7 +1861,7 @@ BOOL CALLBACK DebuggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 			hDisasmcontext = LoadMenu(fceu_hInstance,"DISASMCONTEXTMENUS");
 
 			// subclass editfield
-			IDC_DEBUGGER_DISASSEMBLY_oldWndProc = (WNDPROC)SetWindowLong(GetDlgItem(hwndDlg, IDC_DEBUGGER_DISASSEMBLY), GWL_WNDPROC, (LONG)IDC_DEBUGGER_DISASSEMBLY_WndProc);
+			IDC_DEBUGGER_DISASSEMBLY_oldWndProc = (WNDPROC)SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_DEBUGGER_DISASSEMBLY), GWLP_WNDPROC, (LONG_PTR)IDC_DEBUGGER_DISASSEMBLY_WndProc);
 
 			debugger_open = 1;
 			inDebugger = true;
@@ -2032,7 +2050,7 @@ BOOL CALLBACK DebuggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 			{
 				// Handle certain stubborn context menus for nearly incapable controls.
 
-				if (wParam == (uint32)GetDlgItem(hwndDlg,IDC_DEBUGGER_BP_LIST)) {
+				if (wParam == (INT_PTR)GetDlgItem(hwndDlg,IDC_DEBUGGER_BP_LIST)) {
 					// Only open the menu if a breakpoint is selected
 					if (SendDlgItemMessage(hwndDlg,IDC_DEBUGGER_BP_LIST,LB_GETCURSEL,0,0) >= 0) {
 						hDebugcontextsub = GetSubMenu(hDebugcontext,0);
@@ -2348,7 +2366,7 @@ BOOL CALLBACK DebuggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 							}
 							case IDC_DEBUGGER_BOOKMARK_ADD: AddDebuggerBookmark(hwndDlg); break;
 							case IDC_DEBUGGER_BOOKMARK_DEL: DeleteDebuggerBookmark(hwndDlg); break;
-							case IDC_DEBUGGER_BOOKMARK_NAME: NameDebuggerBookmark(hwndDlg); break;
+							case IDC_DEBUGGER_BOOKMARK_EDIT: EditDebuggerBookmark(hwndDlg); break;
 							case IDC_DEBUGGER_ENABLE_SYMBOLIC:
 							{
 								symbDebugEnabled ^= 1;
@@ -2439,7 +2457,7 @@ void DoPatcher(int address, HWND hParent)
 	if (GameInterface == iNESGI)
 		DialogBox(fceu_hInstance, "ROMPATCHER", hParent, PatcherCallB);
 	else
-		MessageBox(hDebug, "Sorry, The Patcher only works on INES rom images", "Error", MB_OK);
+		MessageBox(hDebug, "Sorry, The Patcher only works on INES rom images", "Error", MB_OK | MB_ICONASTERISK);
 	UpdateDebugger(false);
 }
 
@@ -2479,11 +2497,11 @@ void UpdatePatcher(HWND hwndDlg){
 
 /// Updates debugger controls that should be enabled/disabled if a game is loaded.
 /// @param enable Flag that indicates whether the menus should be enabled (1) or disabled (0). 
-void updateGameDependentMenusDebugger(unsigned int enable) {
+void updateGameDependentMenusDebugger() {
 	if (!hDebug)
 		return;
 
-	//EnableWindow(GetDlgItem(hDebug,DEBUGLOADDEB),(enable ? 0 : 1));
+	// EnableWindow(GetDlgItem(hDebug,DEBUGLOADDEB), GameInfo != 0 ? FALSE : TRUE);
 }
 
 void DoDebug(uint8 halt)
@@ -2505,7 +2523,7 @@ void DoDebug(uint8 halt)
 		ShowWindow(hDebug, SW_SHOWNORMAL);
 		SetForegroundWindow(hDebug);
 		
-		updateGameDependentMenusDebugger(GameInfo != 0);
+		updateGameDependentMenusDebugger();
 
 		if (GameInfo)
 			UpdateDebugger(true);

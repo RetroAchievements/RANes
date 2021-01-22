@@ -332,7 +332,7 @@ char* GetKeyComboName(int c)
 }
 
 //Callback function for the dialog where the user can change hotkeys.
-BOOL CALLBACK ChangeInputDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK ChangeInputDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	static HANDLE hThread = NULL;
 	static DWORD dwThreadId = 0;
@@ -543,7 +543,7 @@ void PopulateMappingDisplay(HWND hwndDlg)
 			lvi.mask = LVIF_TEXT;
 			lvi.iItem = idx;
 			lvi.iSubItem = 1;
-			lvi.pszText = FCEUI_CommandTable[i].name;
+			lvi.pszText = (char*)FCEUI_CommandTable[i].name;
 
 			SendMessage(hwndListView, LVM_SETITEM, (WPARAM)0, (LPARAM)&lvi);
 
@@ -702,7 +702,7 @@ void ApplyDefaultCommandMapping()
 /**
 * Callback function of the Map Input dialog
 **/
-BOOL CALLBACK MapInputDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK MapInputDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch(uMsg)
 	{

@@ -116,6 +116,15 @@ extern bool taseditorEnableAcceleratorKeys;
  #define __COMPILER__STRING__ "unknown"
 #endif
 
+// 64-bit build requires manifest to use common controls 6 (style adapts to windows version)
+#pragma comment(linker, \
+    "\"/manifestdependency:type='win32' "\
+    "name='Microsoft.Windows.Common-Controls' "\
+    "version='6.0.0.0' "\
+    "processorArchitecture='*' "\
+    "publicKeyToken='6595b64144ccf1df' "\
+    "language='*'\"")
+
 // External functions
 extern std::string cfgFile;		//Contains the filename of the config file used.
 extern bool turbo;				//Is game in turbo mode?
@@ -165,8 +174,10 @@ int PauseAfterLoad;
 unsigned int skippy = 0;  //Frame skip
 int frameSkipCounter = 0; //Counter for managing frame skip
 // Contains the names of the overridden standard directories
-// in the order roms, nonvol, states, fdsrom, snaps, cheats, movies, memwatch, macro, input presets, lua scripts, base
-char *directory_names[14] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+// in the order roms, nonvol, states, fdsrom, snaps, cheats, movies, memwatch, basic bot, macro, input presets, lua scripts, avi, base
+char *directory_names[14] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+int edit_id[14] = { EDIT_ROM, EDIT_BATTERY, EDIT_STATE, EDIT_FDSBIOS, EDIT_SCREENSHOT, EDIT_CHEAT, EDIT_MOVIE, EDIT_MEMWATCH, EDIT_BOT, EDIT_MACRO, EDIT_PRESET, EDIT_LUA, EDIT_AVI, EDIT_ROOT };
+int browse_btn_id[14] = {BUTTON_ROM, BUTTON_BATTERY, BUTTON_STATE, BUTTON_FDSBIOS, BUTTON_SCREENSHOT, BUTTON_CHEAT, BUTTON_MOVIE, BUTTON_MEMWATCH, BUTTON_BOT, BUTTON_MACRO, BUTTON_PRESET, BUTTON_LUA, BUTTON_AVI, BUTTON_ROOT };
 std::string cfgFile = "fceux.cfg";
 //Handle of the main window.
 HWND hAppWnd = 0;
@@ -279,7 +290,7 @@ void DefaultDirectoryWalker(void (*callback)(const char*))
 			sprintf(
 				TempArray,
 				"%s\\%s",
-				directory_names[NUMBER_OF_DEFAULT_DIRECTORIES] ? directory_names[NUMBER_OF_DEFAULT_DIRECTORIES] : BaseDirectory.c_str(),
+				directory_names[NUMBER_OF_DEFAULT_DIRECTORIES - 1] ? directory_names[NUMBER_OF_DEFAULT_DIRECTORIES - 1] : BaseDirectory.c_str(),
 				default_directory_names[curr_dir]
 			);
 
@@ -320,88 +331,117 @@ int BlockingCheck()
 	MSG msg;
 	moocow = 1;
 
-	while( PeekMessage( &msg, 0, 0, 0, PM_NOREMOVE ) )
+	while(PeekMessage(&msg, 0, 0, 0, PM_NOREMOVE))
 	{
-		if( GetMessage( &msg, 0,  0, 0)>0 )
+		if(GetMessage(&msg, 0, 0, 0) > 0)
 		{
 			//other accelerator capable dialogs could be added here
-			extern HWND hwndMemWatch;
-
 			int handled = 0;
 
-			if(hCheat)
-				if(IsChild(hCheat, msg.hwnd))
-					handled = IsDialogMessage(hCheat, &msg);
-			if(!handled && hMemFind)
-			{
-				if(IsChild(hMemFind, msg.hwnd))
-					handled = IsDialogMessage(hMemFind, &msg);
-			}
+			// Cheat console
+			if(hCheat && IsChild(hCheat, msg.hwnd))
+				handled = IsDialogMessage(hCheat, &msg);
+
+			// Hex Editor -> Find
+			if(!handled && hMemFind && IsChild(hMemFind, msg.hwnd))
+				handled = IsDialogMessage(hMemFind, &msg);
+
+			// Memory Watch
+			extern HWND hwndMemWatch;
 			if(!handled && hwndMemWatch)
 			{
-				if(IsChild(hwndMemWatch,msg.hwnd))
-					handled = TranslateAccelerator(hwndMemWatch,fceu_hAccel,&msg);
+				if(IsChild(hwndMemWatch, msg.hwnd))
+					handled = TranslateAccelerator(hwndMemWatch, fceu_hAccel, &msg);
 				if(!handled)
 					handled = IsDialogMessage(hwndMemWatch,&msg);
 			}
-			if(!handled && RamSearchHWnd)
-			{
+
+			// RAM Search
+			if(!handled && RamSearchHWnd && IsChild(RamSearchHWnd, msg.hwnd))
 				handled = IsDialogMessage(RamSearchHWnd, &msg);
-			}
+
+			// RAM_Watch
 			if(!handled && RamWatchHWnd)
-			{
-				if(IsDialogMessage(RamWatchHWnd, &msg))
-				{
+				if(handled = IsDialogMessage(RamWatchHWnd, &msg))
 					if(msg.message == WM_KEYDOWN) // send keydown messages to the dialog (for accelerators, and also needed for the Alt key to work)
 						SendMessage(RamWatchHWnd, msg.message, msg.wParam, msg.lParam);
-					handled = true;
-				}
-			}
 
+			// TAS Editor
 			if(!handled && taseditorWindow.hwndTASEditor)
 			{
 				if(taseditorEnableAcceleratorKeys)
 					if(IsChild(taseditorWindow.hwndTASEditor, msg.hwnd))
 						handled = TranslateAccelerator(taseditorWindow.hwndTASEditor, fceu_hAccel, &msg);
-				if(!handled && taseditorWindow.hwndTASEditor){
+				if(!handled){
 					handled = IsDialogMessage(taseditorWindow.hwndTASEditor, &msg);
 				}
 			}
-			if(!handled && taseditorWindow.hwndFindNote)
-			{
-				if(IsChild(taseditorWindow.hwndFindNote, msg.hwnd))
-					handled = IsDialogMessage(taseditorWindow.hwndFindNote, &msg);
-			}
 
+			// TAS Editor -> Find Node
+			if(!handled && taseditorWindow.hwndFindNote && IsChild(taseditorWindow.hwndFindNote, msg.hwnd))
+				handled = IsDialogMessage(taseditorWindow.hwndFindNote, &msg);
+
+			// Sound Config
 			extern HWND uug;
 			if(!handled && uug && IsChild(uug, msg.hwnd))
 				handled = IsDialogMessage(uug, &msg);
-			if(!handled && pwindow && IsChild(pwindow, msg.hwnd))
-				handled = IsDialogMessage(pwindow, &msg);
+
+			// Palette Config
+			extern HWND hWndPal;
+			if(!handled && hWndPal && IsChild(hWndPal, msg.hwnd))
+				handled = IsDialogMessage(hWndPal, &msg);
+
+			// Code/Data Logger
 			if(!handled && hCDLogger && IsChild(hCDLogger, msg.hwnd))
 				handled = IsDialogMessage(hCDLogger, &msg);
+
+			// Trace Logger
 			if(!handled && hTracer && IsChild(hTracer, msg.hwnd))
 				handled = IsDialogMessage(hTracer, &msg);
+
+			// Game Genie Encoder/Decoder
 			extern HWND hGGConv;
 			if(!handled && hGGConv && IsChild(hGGConv, msg.hwnd))
 				handled = IsDialogMessage(hGGConv, &msg);
+
+			// Debugger
 			if(!handled && hDebug && IsChild(hDebug, msg.hwnd))
 				handled = IsDialogMessage(hDebug, &msg);
+
+			// PPU Viewer
 			extern HWND hPPUView;
 			if(!handled && hPPUView && IsChild(hPPUView, msg.hwnd))
 				handled = IsDialogMessage(hPPUView, &msg);
+
+			// Nametable Viewer
 			extern HWND hNTView;
 			if(!handled && hNTView && IsChild(hNTView, msg.hwnd))
 				handled = IsDialogMessage(hNTView, &msg);
+
+			// Text Hooker
 			extern HWND hTextHooker;
 			if(!handled && hTextHooker && IsChild(hTextHooker, msg.hwnd))
 				handled = IsDialogMessage(hTextHooker, &msg);
+
+			// Lua Scripts
 			extern HWND LuaConsoleHWnd;
 			if(!handled && LuaConsoleHWnd && IsChild(LuaConsoleHWnd, msg.hwnd))
 				handled = IsDialogMessage(LuaConsoleHWnd, &msg);
+
+			// Logs
 			extern HWND logwin;
 			if(!handled && logwin && IsChild(logwin, msg.hwnd))
 				handled = IsDialogMessage(logwin, &msg);
+
+			// Header Editor
+			extern HWND hHeadEditor;
+			if (!handled && hHeadEditor && IsChild(hHeadEditor, msg.hwnd))
+				handled = IsDialogMessage(hHeadEditor, &msg);
+
+			// Netplay (Though it's quite dummy and nearly forgotten)
+			extern HWND netwin;
+			if (!handled && netwin && IsChild(netwin, msg.hwnd))
+				handled = IsDialogMessage(netwin, &msg);
 
 			/* //adelikat - Currently no accel keys are used in the main window.  Uncomment this block to activate them.
 			if(!handled)
@@ -414,6 +454,7 @@ int BlockingCheck()
 					}
 				}
 			*/
+
 			if(!handled)
 			{
 				TranslateMessage(&msg);
@@ -476,7 +517,7 @@ void DoFCEUExit()
 	if (FCEUMOV_Mode(MOVIEMODE_TASEDITOR) && !exitTASEditor())
 		return;
 
-	if (CloseMemoryWatch() && AskSave())		//If user was asked to save changes in the memory watch dialog or ram watch, and chose cancel, don't close FCEUX!
+	if (CloseMemoryWatch() && AskSaveRamWatch())		//If user was asked to save changes in the memory watch dialog or ram watch, and chose cancel, don't close FCEUX!
 	{
 		if(goptions & GOO_CONFIRMEXIT)
 		{
@@ -1146,14 +1187,14 @@ void FCEUD_ToggleStatusIcon(void)
 	UpdateCheckedMenuItems();
 }
 
-char *GetRomName()
+char *GetRomName(bool force)
 {
 	//The purpose of this function is to format the ROM name stored in LoadedRomFName
 	//And return a char array with just the name with path or extension
 	//The purpose of this function is to populate a save as dialog with the ROM name as a default filename
 	extern char LoadedRomFName[2048];	//Contains full path of ROM
 	std::string Rom;					//Will contain the formatted path
-	if(GameInfo)						//If ROM is loaded
+	if(GameInfo || force)						//If ROM is loaded
 		{
 		char drv[PATH_MAX], dir[PATH_MAX], name[PATH_MAX], ext[PATH_MAX];
 		splitpath(LoadedRomFName,drv,dir,name,ext);	//Extract components of the ROM path
@@ -1167,14 +1208,14 @@ char *GetRomName()
 	return mystring;
 }
 
-char *GetRomPath()
+char *GetRomPath(bool force)
 {
 	//The purpose of this function is to format the ROM name stored in LoadedRomFName
 	//And return a char array with just the name with path or extension
 	//The purpose of this function is to populate a save as dialog with the ROM name as a default filename
 	extern char LoadedRomFName[2048];	//Contains full path of ROM
 	std::string Rom;					//Will contain the formatted path
-	if(GameInfo)						//If ROM is loaded
+	if(GameInfo || force)						//If ROM is loaded
 		{
 		char drv[PATH_MAX], dir[PATH_MAX], name[PATH_MAX], ext[PATH_MAX];
 		splitpath(LoadedRomFName,drv,dir,name,ext);	//Extract components of the ROM path

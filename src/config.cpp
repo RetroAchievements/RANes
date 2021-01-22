@@ -25,10 +25,10 @@ char *FCEUI_GetAboutString() {
 #endif
 		FCEU_NAME_AND_VERSION "\n\n"
 		"Administrators:\n"
-		"zeromus, punkrockguy318 (Lukas Sabota), feos\n"
+		"zeromus, mjbudd77, feos\n"
 		"\n"
 		"Current Contributors:\n"
-		"CaH4e3, rainwarrior\n"
+		"CaH4e3, rainwarrior, owomomo, punkrockguy318\n"
 		"\n"
 		"Past Contributors:\n"
 		"xhainingx, gocha, AnS\n"

@@ -210,7 +210,7 @@ public:
 	//whether microphone is enabled
 	bool microphone;
 
-	int getNumRecords() { return records.size(); }
+	int getNumRecords() { return (int)records.size(); }
 
 	int RAMInitOption, RAMInitSeed;
 
@@ -309,7 +309,7 @@ void FCEUI_ToggleInputDisplay(void);
 
 void LoadSubtitles(MovieData &);
 void ProcessSubtitles(void);
-void FCEU_DisplaySubtitles(char *format, ...);
+void FCEU_DisplaySubtitles(const char *format, ...);
 
 void poweron(bool shouldDisableBatteryLoading);
 

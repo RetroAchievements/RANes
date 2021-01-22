@@ -64,7 +64,7 @@ bool autoloadCDL = true;
 bool autoresumeCDLogging = false;
 char loadedcdfile[2048] = {0};
 
-BOOL CALLBACK CDLoggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK CDLoggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch(uMsg)
 	{
@@ -139,7 +139,7 @@ BOOL CALLBACK CDLoggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 				FreeCDLog();
 				RenameCDLog("");
 				hCDLogger = 0;
-				EndDialog(hwndDlg, 0);
+				DestroyWindow(hwndDlg);
 			}
 			break;
 		case WM_COMMAND:
@@ -571,8 +571,10 @@ void InitCDLog()
 		cdloggerVideoDataSize = CHRsize[0];
 		cdloggervdata = (unsigned char*)malloc(cdloggerVideoDataSize);
 	} else {
-		cdloggerVideoDataSize = 0;
-		cdloggervdata = (unsigned char*)malloc(8192);
+		if (GameInfo->type != GIT_NSF) {
+			cdloggerVideoDataSize = 0;
+			cdloggervdata = (unsigned char*)malloc(8192);
+		}
 	}
 }
 
@@ -585,8 +587,10 @@ void ResetCDLog()
 		undefinedvromcount = cdloggerVideoDataSize;
 		ZeroMemory(cdloggervdata, cdloggerVideoDataSize);
 	} else {
-		undefinedvromcount = 8192;
-		ZeroMemory(cdloggervdata, 8192);
+		if (GameInfo->type != GIT_NSF) {
+			undefinedvromcount = 8192;
+			ZeroMemory(cdloggervdata, 8192);
+		}
 	}
 }
 

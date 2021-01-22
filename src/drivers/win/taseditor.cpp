@@ -254,7 +254,7 @@ void updateTASEditor()
 	}
 }
 
-BOOL CALLBACK newProjectProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK newProjectProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	static struct NewProjectParameters* p = NULL;
 	switch (message)
@@ -308,11 +308,11 @@ BOOL CALLBACK newProjectProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM l
 					break;
 				case IDC_COPY_INPUT:
 					p->copyCurrentInput ^= 1;
-					CheckDlgButton(hwndDlg, IDC_COPY_INPUT, p->copyCurrentInput?MF_CHECKED : MF_UNCHECKED);
+					CheckDlgButton(hwndDlg, IDC_COPY_INPUT, p->copyCurrentInput? BST_CHECKED : BST_UNCHECKED);
 					break;
 				case IDC_COPY_MARKERS:
 					p->copyCurrentMarkers ^= 1;
-					CheckDlgButton(hwndDlg, IDC_COPY_MARKERS, p->copyCurrentMarkers?MF_CHECKED : MF_UNCHECKED);
+					CheckDlgButton(hwndDlg, IDC_COPY_MARKERS, p->copyCurrentMarkers? BST_CHECKED : BST_UNCHECKED);
 					break;
 				case IDOK:
 				{
@@ -527,7 +527,7 @@ void SaveCompact_GetDialogItems(HWND hwndDlg)
 	else
 		taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_NO;
 }
-BOOL CALLBACK SaveCompactProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK SaveCompactProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
 	{
@@ -664,7 +664,7 @@ void importInputData()
 	}
 }
 
-BOOL CALLBACK aboutWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK aboutWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
 	{
@@ -687,7 +687,7 @@ BOOL CALLBACK aboutWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam
 	return FALSE; 
 }
 
-BOOL CALLBACK savingOptionsWndProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK savingOptionsWndProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
 	{
@@ -777,7 +777,7 @@ BOOL CALLBACK savingOptionsWndProc(HWND hwndDlg, UINT message, WPARAM wParam, LP
 	return FALSE; 
 }
 
-BOOL CALLBACK ExportProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK ExportProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
 	{
@@ -801,7 +801,7 @@ BOOL CALLBACK ExportProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lPara
 					break;
 				}
 			}
-			CheckDlgButton(hwndDlg, IDC_NOTES_TO_SUBTITLES, taseditorConfig.lastExportedSubtitlesStatus?MF_CHECKED : MF_UNCHECKED);
+			CheckDlgButton(hwndDlg, IDC_NOTES_TO_SUBTITLES, taseditorConfig.lastExportedSubtitlesStatus ? BST_CHECKED : BST_UNCHECKED);
 			return TRUE;
 		case WM_COMMAND:
 			switch (LOWORD(wParam))
@@ -817,7 +817,7 @@ BOOL CALLBACK ExportProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lPara
 					break;
 				case IDC_NOTES_TO_SUBTITLES:
 					taseditorConfig.lastExportedSubtitlesStatus ^= 1;
-					CheckDlgButton(hwndDlg, IDC_NOTES_TO_SUBTITLES, taseditorConfig.lastExportedSubtitlesStatus?MF_CHECKED : MF_UNCHECKED);
+					CheckDlgButton(hwndDlg, IDC_NOTES_TO_SUBTITLES, taseditorConfig.lastExportedSubtitlesStatus ? BST_CHECKED : BST_UNCHECKED);
 					break;
 				case IDOK:
 					EndDialog(hwndDlg, 1);

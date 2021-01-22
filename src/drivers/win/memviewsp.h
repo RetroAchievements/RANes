@@ -18,9 +18,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
+#ifndef MEMVIEWSP_H
+#define MEMVIEWSP_H
+
 #include "types.h"
 
 #define ID_FIRST_BOOKMARK               30
+#define ID_BOOKMARKLIST_SEP				(ID_FIRST_BOOKMARK - 1)
 
 typedef struct
 {
@@ -29,11 +33,42 @@ typedef struct
 	int editmode;
 } HexBookmark;
 
-extern HexBookmark hexBookmarks[64];
-extern int nextBookmark;
+typedef struct
+{
+	HexBookmark* bookmark;
+	int bookmark_index;
+	int shortcut_index = -1;
+} HexBookmarkMsg;
 
-int toggleBookmark(HWND hwnd, uint32 address, int mode);
+extern struct HexBookmarkList
+{
+	HexBookmark bookmarks[64];
+	int shortcuts[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+	int bookmarkCount = 0;
+	int shortcutCount = 0;
+
+	HexBookmark& operator[](int index);
+} hexBookmarks;
+
+#define IMPORT_OVERWRITE_NONE 0 // Overwrite nothing
+#define IMPORT_OVERWRITE_BOOKMARK 1 // Overwrite duplicated bookmarks but don't overwrite duplicated shortcuts
+#define IMPORT_OVERWRITE_SHORTCUT 2 // Overwrite duplicated shortcuts but don't overwrite duplicated bookmarks
+#define IMPORT_OVERWRITE_ALL (IMPORT_OVERWRITE_BOOKMARK | IMPORT_OVERWRITE_SHORTCUT), // (3) Overwrite duplicated bookmarks and shortcuts
+#define IMPORT_OVERWRITE_NO_PROMPT 4 // Not confirm for what to do when conflicts
+#define IMPORT_DISCARD_ORIGINAL 8 // Discard all the original bookmarks
+
+extern int importBookmarkProps;
+
+int findBookmark(unsigned int address, int editmode);
+int addBookmark(HWND hwnd, unsigned int address, int editmode);
+int editBookmark(HWND hwnd, unsigned int index);
+int removeBookmark(unsigned int index);
+// int toggleBookmark(HWND hwnd, uint32 address, int mode);
 void updateBookmarkMenus(HMENU menu);
 int handleBookmarkMenu(int bookmark);
 void removeAllBookmarks(HMENU menu);
 
+extern LRESULT APIENTRY FilterEditCtrlProc(HWND hDlg, UINT msg, WPARAM wP, LPARAM lP);
+extern WNDPROC DefaultEditCtrlProc;
+
+#endif

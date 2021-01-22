@@ -46,9 +46,11 @@ void FCEUI_RewindToLastAutosave(void);
 char *FCEUI_GetAboutString();
 
 extern uint64 timestampbase;
+
+// MMC5 external shared buffers/vars
+extern int MMC5Hack;
 extern uint32 MMC5HackVROMMask;
 extern uint8 *MMC5HackExNTARAMPtr;
-extern int MMC5Hack, PEC586Hack, QTAIHack;
 extern uint8 *MMC5HackVROMPTR;
 extern uint8 MMC5HackCHRMode;
 extern uint8 MMC5HackSPMode;
@@ -56,11 +58,18 @@ extern uint8 MMC50x5130;
 extern uint8 MMC5HackSPScroll;
 extern uint8 MMC5HackSPPage;
 
+extern int PEC586Hack;
+
+// VRCV extarnal shared buffers/vars
+extern int QTAIHack;
+extern uint8 QTAINTRAM[2048];
+extern uint8 qtaintramreg;
 
 #define GAME_MEM_BLOCK_SIZE 131072
 
 extern  uint8  *RAM;            //shared memory modifications
 extern int EmulationPaused;
+extern int frameAdvance_Delay;
 
 uint8 FCEU_ReadRomByte(uint32 i);
 void FCEU_WriteRomByte(uint32 i, uint8 value);
@@ -85,6 +94,7 @@ extern int GameAttributes;
 
 extern uint8 PAL;
 extern int dendy;
+extern bool movieSubtitles;
 
 //#include "driver.h"
 
@@ -125,10 +135,10 @@ extern FCEUS FSettings;
 
 bool CheckFileExists(const char* filename);	//Receives a filename (fullpath) and checks to see if that file exists
 
-void FCEU_PrintError(char *format, ...);
-void FCEU_printf(char *format, ...);
-void FCEU_DispMessage(char *format, int disppos, ...);
-void FCEU_DispMessageOnMovie(char *format, ...);
+void FCEU_PrintError(const char *format, ...);
+void FCEU_printf(const char *format, ...);
+void FCEU_DispMessage(const char *format, int disppos, ...);
+void FCEU_DispMessageOnMovie(const char *format, ...);
 void FCEU_TogglePPU();
 
 void SetNESDeemph_OldHacky(uint8 d, int force);
@@ -149,14 +159,20 @@ extern uint8 vsdip;
 
 //#define FCEUDEF_DEBUGGER //mbg merge 7/17/06 - cleaning out conditional compiles
 
-#define JOY_A   1
-#define JOY_B   2
-#define JOY_SELECT      4
-#define JOY_START       8
-#define JOY_UP  0x10
+#define JOY_A           0x01
+#define JOY_B           0x02
+#define JOY_SELECT      0x04
+#define JOY_START       0x08
+#define JOY_UP          0x10
 #define JOY_DOWN        0x20
 #define JOY_LEFT        0x40
 #define JOY_RIGHT       0x80
+
+#define LOADER_INVALID_FORMAT   0
+#define LOADER_OK               1
+#define LOADER_HANDLED_ERROR    2
+#define LOADER_UNHANDLED_ERROR  3
+
 #endif
 
 #define ARRAY_SIZE(a) (sizeof(a)/sizeof(a[0]))

@@ -1,3 +1,6 @@
+#ifndef MEMVIEW_H
+#define MEMVIEW_H
+
 void DoMemView();
 void KillMemView();
 void UpdateMemoryView(int draw_all);
@@ -10,8 +13,11 @@ void UndoLastPatch();
 
 void SetHexEditorAddress(int gotoaddress);
 
+int GetMaxSize(int editingMode);
+
 extern HWND hMemView, hMemFind;
 extern int EditingMode;
 
-extern char EditString[4][20];
+extern char* EditString[4];
 
+#endif
