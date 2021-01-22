@@ -55,7 +55,7 @@
     <ProjectGuid>{6893EF44-FEA3-46DF-B236-C4C200F54294}</ProjectGuid>
     <RootNamespace>fceux</RootNamespace>
     <Keyword>Win32Proj</Keyword>
-    <WindowsTargetPlatformVersion>10.0.15063.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>7.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
@@ -250,20 +250,14 @@
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</LinkIncremental>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='RA-Debug|Win32'">true</LinkIncremental>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RA-Debug|Win32'">
-    <TargetName>RANes</TargetName>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RA-PublicRelease|Win32'">
-    <TargetName>RANes</TargetName>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RA-Release|Win32'">
-    <TargetName>RANes</TargetName>
-  </PropertyGroup>
   <PropertyGroup Condition="'$(Platform)'=='Win32'">
     <TargetName>$(ProjectName)</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Platform)'=='x64'">
     <TargetName>$(ProjectName)64</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(Configuration.StartsWith('RA-'))">
+    <TargetName>RANes</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <PreBuildEvent>
@@ -326,7 +320,7 @@ $(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h R
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>Rpcrt4.lib;comctl32.lib;vfw32.lib;winmm.lib;ws2_32.lib;htmlhelp.lib;../src/drivers/win/directx/dsound.lib;../src/drivers/win/directx/dxguid.lib;../src/drivers/win/directx/ddraw.lib;../src/drivers/win/directx/dinput.lib;../src/drivers/win/lua/win32/lua51.lib;LuaPerks.lib;psapi.lib;mpr.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Rpcrt4.lib;comctl32.lib;vfw32.lib;winmm.lib;winhttp.lib;ws2_32.lib;htmlhelp.lib;../src/drivers/win/directx/dsound.lib;../src/drivers/win/directx/dxguid.lib;../src/drivers/win/directx/ddraw.lib;../src/drivers/win/directx/dinput.lib;../src/drivers/win/lua/win32/lua51.lib;../src/drivers/win/lua/win32/luaperks.lib;psapi.lib;mpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
@@ -343,7 +337,6 @@ $(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h R
     </Manifest>
     <PostBuildEvent>
       <Command>xcopy /y /d "$(ProjectDir)\..\src\drivers\win\7z.dll" "$(OutDir)"
-$(ProjectDir)..\RAInterface\CopyOverlay.bat $(TargetDir)
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -414,7 +407,7 @@ $(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h R
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>Rpcrt4.lib;comctl32.lib;vfw32.lib;winmm.lib;ws2_32.lib;htmlhelp.lib;../src/drivers/win/directx/dsound.lib;../src/drivers/win/directx/dxguid.lib;../src/drivers/win/directx/ddraw.lib;../src/drivers/win/directx/dinput.lib;../src/drivers/win/lua/win32/lua51.lib;luaperks.lib;psapi.lib;mpr.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Rpcrt4.lib;comctl32.lib;vfw32.lib;winmm.lib;winhttp.lib;ws2_32.lib;htmlhelp.lib;../src/drivers/win/directx/dsound.lib;../src/drivers/win/directx/dxguid.lib;../src/drivers/win/directx/ddraw.lib;../src/drivers/win/directx/dinput.lib;../src/drivers/win/lua/win32/lua51.lib;../src/drivers/win/lua/win32/luaperks.lib;psapi.lib;mpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <DelayLoadDLLs>lua51.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
@@ -431,7 +424,6 @@ $(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h R
     </Manifest>
     <PostBuildEvent>
       <Command>xcopy /y /d "$(ProjectDir)\..\src\drivers\win\7z.dll" "$(OutDir)"
-$(ProjectDir)..\RAInterface\CopyOverlay.bat $(TargetDir)
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -503,7 +495,7 @@ $(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h R
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>Rpcrt4.lib;comctl32.lib;vfw32.lib;winmm.lib;ws2_32.lib;htmlhelp.lib;../src/drivers/win/directx/dsound.lib;../src/drivers/win/directx/dxguid.lib;../src/drivers/win/directx/ddraw.lib;../src/drivers/win/directx/dinput.lib;../src/drivers/win/lua/win32/lua51.lib;luaperks.lib;psapi.lib;mpr.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Rpcrt4.lib;comctl32.lib;vfw32.lib;winmm.lib;winhttp.lib;ws2_32.lib;htmlhelp.lib;../src/drivers/win/directx/dsound.lib;../src/drivers/win/directx/dxguid.lib;../src/drivers/win/directx/ddraw.lib;../src/drivers/win/directx/dinput.lib;../src/drivers/win/lua/win32/lua51.lib;../src/drivers/win/lua/win32/luaperks.lib;psapi.lib;mpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <DelayLoadDLLs>lua51.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
@@ -521,7 +513,6 @@ $(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h R
     </Manifest>
     <PostBuildEvent>
       <Command>xcopy /y /d "$(ProjectDir)\..\src\drivers\win\7z.dll" "$(OutDir)"
-$(ProjectDir)..\RAInterface\CopyOverlay.bat $(TargetDir)
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -561,29 +552,29 @@ $(ProjectDir)..\RAInterface\CopyOverlay.bat $(TargetDir)
     </Midl>
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>../zlib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;_DEBUG;MSVC;_CRT_SECURE_NO_DEPRECATE;_WIN32_WINDOWS=0x0410;WINVER=0x0410;NETWORK;LSB_FIRST;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <MinimalRebuild>true</MinimalRebuild>
+      <AdditionalIncludeDirectories>.;../src/drivers/win/zlib;../src/drivers/win/directx/x64;../src;../src/drivers/win/lua/include;userconfig;defaultconfig;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;WIN64;MSVC;_CRT_SECURE_NO_DEPRECATE;_WIN32_WINDOWS=0x0410;WINVER=0x0410;NETWORK;LSB_FIRST;FCEUDEF_DEBUGGER;_USE_SHARED_MEMORY_;NOMINMAX;HAS_vsnprintf;_S9XLUA_H;RETROACHIEVEMENTS;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MinimalRebuild>false</MinimalRebuild>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <DisableLanguageExtensions>false</DisableLanguageExtensions>
       <ForceConformanceInForLoopScope>false</ForceConformanceInForLoopScope>
       <PrecompiledHeader>
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <CompileAs>CompileAsC</CompileAs>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>dxguid.lib;winmm.lib;dinput.lib;ws2_32.lib;ddraw.lib;dsound.lib;../src/drivers/win/lua/x64/lua51.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;ws2_32.lib;vfw32.lib;winmm.lib;winhttp.lib;htmlhelp.lib;../src/drivers/win/directx/x64/dsound.lib;../src/drivers/win/directx/x64/dxguid.lib;../src/drivers/win/directx/x64/ddraw.lib;../src/drivers/win/directx/x64/dinput.lib;../src/drivers/win/lua/x64/lua51.lib;../src/drivers/win/lua/x64/luaperks.lib;psapi.lib;mpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
       <TargetMachine>MachineX64</TargetMachine>
-      <DelayLoadDLLs>lua51.dll</DelayLoadDLLs>
+      <DelayLoadDLLs>lua51.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
     <PreBuildEvent>
-      <Command>"%windir%\Sysnative\cscript" /nologo /E:JScript "defaultconfig\make_scmrev.h.js"</Command>
+      <Command>"%windir%\Sysnative\cscript" /nologo /E:JScript "defaultconfig\make_scmrev.h.js"
+$(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h RANes RANES</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -629,26 +620,28 @@ $(ProjectDir)..\RAInterface\CopyOverlay.bat $(TargetDir)
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <OmitFramePointers>true</OmitFramePointers>
-      <AdditionalIncludeDirectories>../zlib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;NDEBUG;MSVC;_CRT_SECURE_NO_DEPRECATE;_WIN32_WINDOWS=0x0410;WINVER=0x0410;NETWORK;LSB_FIRST;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>.;../src/drivers/win/zlib;../src/drivers/win/directx/x64;../src;../src/drivers/win/lua/include;userconfig;defaultconfig;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;WIN64;MSVC;_CRT_SECURE_NO_DEPRECATE;_WIN32_WINDOWS=0x0410;WINVER=0x0410;NETWORK;LSB_FIRST;FCEUDEF_DEBUGGER;_USE_SHARED_MEMORY_;NOMINMAX;HAS_vsnprintf;_S9XLUA_H;RETROACHIEVEMENTS;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <PrecompiledHeader>
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>dxguid.lib;winmm.lib;dinput.lib;ws2_32.lib;ddraw.lib;dsound.lib;../src/drivers/win/lua/x64/lua51.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;ws2_32.lib;vfw32.lib;winmm.lib;winhttp.lib;htmlhelp.lib;../src/drivers/win/directx/x64/dsound.lib;../src/drivers/win/directx/x64/dxguid.lib;../src/drivers/win/directx/x64/ddraw.lib;../src/drivers/win/directx/x64/dinput.lib;../src/drivers/win/lua/x64/lua51.lib;../src/drivers/win/lua/x64/luaperks.lib;psapi.lib;mpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
       <TargetMachine>MachineX64</TargetMachine>
-      <DelayLoadDLLs>lua51.dll</DelayLoadDLLs>
+      <DelayLoadDLLs>lua51.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
     <PreBuildEvent>
-      <Command>"%windir%\Sysnative\cscript" /nologo /E:JScript "defaultconfig\make_scmrev.h.js"</Command>
+      <Command>"%windir%\Sysnative\cscript" /nologo /E:JScript "defaultconfig\make_scmrev.h.js"
+$(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h RANes RANES</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='PublicRelease|x64'">
@@ -694,34 +687,31 @@ $(ProjectDir)..\RAInterface\CopyOverlay.bat $(TargetDir)
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <OmitFramePointers>true</OmitFramePointers>
-      <AdditionalIncludeDirectories>../zlib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;NDEBUG;MSVC;_CRT_SECURE_NO_DEPRECATE;_WIN32_WINDOWS=0x0410;WINVER=0x0410;NETWORK;LSB_FIRST;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>.;../src/drivers/win/zlib;../src/drivers/win/directx/x64;../src;../src/drivers/win/lua/include;userconfig;defaultconfig;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;WIN64;MSVC;_CRT_SECURE_NO_DEPRECATE;_WIN32_WINDOWS=0x0410;WINVER=0x0410;NETWORK;LSB_FIRST;FCEUDEF_DEBUGGER;_USE_SHARED_MEMORY_;NOMINMAX;HAS_vsnprintf;_S9XLUA_H;RETROACHIEVEMENTS;NDEBUG;MSVC;_CRT_SECURE_NO_DEPRECATE;_WIN32_WINDOWS=0x0410;WINVER=0x0410;NETWORK;LSB_FIRST;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <PrecompiledHeader>
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>dxguid.lib;winmm.lib;dinput.lib;ws2_32.lib;ddraw.lib;dsound.lib;../src/drivers/win/lua/x64/lua51.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;ws2_32.lib;vfw32.lib;winmm.lib;winhttp.lib;htmlhelp.lib;../src/drivers/win/directx/x64/dsound.lib;../src/drivers/win/directx/x64/dxguid.lib;../src/drivers/win/directx/x64/ddraw.lib;../src/drivers/win/directx/x64/dinput.lib;../src/drivers/win/lua/x64/lua51.lib;../src/drivers/win/lua/x64/luaperks.lib;psapi.lib;mpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
       <TargetMachine>MachineX64</TargetMachine>
-      <DelayLoadDLLs>lua51.dll</DelayLoadDLLs>
+      <DelayLoadDLLs>lua51.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
     <PreBuildEvent>
-      <Command>"%windir%\Sysnative\cscript" /nologo /E:JScript "defaultconfig\make_scmrev.h.js"</Command>
+      <Command>"%windir%\Sysnative\cscript" /nologo /E:JScript "defaultconfig\make_scmrev.h.js"
+$(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h RANes RANES</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\RAInterface\RA_Interface.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='PublicRelease|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
-    </ClCompile>
     <ClCompile Include="..\src\boards\01-222.cpp">
       <PreprocessToFile Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</PreprocessToFile>
       <PreprocessToFile Condition="'$(Configuration)|$(Platform)'=='RA-Debug|Win32'">false</PreprocessToFile>
@@ -1120,9 +1110,10 @@ $(ProjectDir)..\RAInterface\CopyOverlay.bat $(TargetDir)
     <ClCompile Include="..\src\input\lcdcompzapper.cpp" />
     <ClCompile Include="..\src\boards\emu2413.c" />
     <ClCompile Include="..\src\retroachievements.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='PublicRelease|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="!$(Configuration.StartsWith('RA-'))">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\RAInterface\RA_Interface.cpp">
+      <ExcludedFromBuild Condition="!$(Configuration.StartsWith('RA-'))">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\src\utils\ConvertUTF.c" />
     <ClCompile Include="..\src\utils\crc32.cpp" />
