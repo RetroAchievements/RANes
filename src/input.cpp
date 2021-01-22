@@ -689,6 +689,10 @@ void FCEUI_ResetNES(void)
 	FCEU_DispMessage("Command: Soft reset", 0);
 	FCEU_QSimpleCommand(FCEUNPCMD_RESET);
 	ResetFrameCounter();
+
+#ifdef RETROACHIEVEMENTS
+	RA_OnReset();
+#endif
 }
 
 //Powers off the NES

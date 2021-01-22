@@ -5,6 +5,7 @@
 
 void RA_Init();
 void RA_IdentifyAndActivateGame();
+void RA_ProcessInputs();
 
 extern int FDS_GameId;
 

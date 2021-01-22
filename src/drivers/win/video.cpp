@@ -27,10 +27,6 @@
 #include "mapinput.h"
 #include <math.h>
 
-#ifdef RETROACHIEVEMENTS
-#include "retroachievements.h"
-#endif
-
 extern bool fullscreenByDoubleclick;
 
 static int RecalcCustom(void);
@@ -88,11 +84,6 @@ DDSURFACEDESC2 ddsdback;
 LPDIRECTDRAWSURFACE7  lpDDSPrimary=0;
 LPDIRECTDRAWSURFACE7  lpDDSDBack=0;
 LPDIRECTDRAWSURFACE7  lpDDSBack=0;
-
-#ifdef RETROACHIEVEMENTS
-LPDIRECTDRAWSURFACE7  lpDDSAchievements=0;
-DDSURFACEDESC2 ddsdach;
-#endif
 
 DDBLTFX blitfx = { sizeof(DDBLTFX) };
 
@@ -308,35 +299,6 @@ void recalculateBestFitRect(int width, int height)
 	}
 }
 
-#ifdef RETROACHIEVEMENTS
-void RecreateAchievementSurface(const RECT& rcDest)
-{
-	if (lpDD7 == NULL)
-		return;
-
-	if (lpDDSAchievements != NULL)
-	{
-		lpDDSAchievements->Release();
-		lpDDSAchievements = NULL;
-	}
-
-	memset(&ddsdach,0,sizeof(ddsdach));
-	ddsdach.dwSize = sizeof(ddsdach);
-	ddsdach.dwFlags = DDSD_CAPS|DDSD_WIDTH|DDSD_HEIGHT;
-	ddsdach.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN|DDSCAPS_SYSTEMMEMORY;	//?
-
-	ddsdach.dwWidth = rcDest.right - rcDest.left;
-	ddsdach.dwHeight = rcDest.bottom - rcDest.top;
-
-	ddrval = IDirectDraw7_CreateSurface ( lpDD7, &ddsdach, &lpDDSAchievements,(IUnknown FAR*)NULL);
-	if (ddrval != DD_OK)
-	{
-		FCEU_printf("Error creating achievements surface.\n");
-		assert(0);
-	}
-}
-#endif
-
 int SetVideoMode(int fs)
 {
 	int specmul = 1;    // Special scaler size multiplier
@@ -399,12 +361,6 @@ int SetVideoMode(int fs)
 			FCEU_printf("Error creating primary surface.\n");
 			return 1;
 		}
-
-#ifdef RETROACHIEVEMENTS
-		RECT rc;
-		GetClientRect(hAppWnd, &rc);
-		RecreateAchievementSurface(rc);
-#endif
 
 		memset(&ddsdback,0,sizeof(ddsdback));
 		ddsdback.dwSize=sizeof(ddsdback);
@@ -697,7 +653,6 @@ static void BlitScreenWindow(unsigned char *XBuf)
 
 	FCEUD_VerticalSync();		// aquanull 2011-11-28 fix tearing
 
-#ifndef RETROACHIEVEMENTS
 	if (eoptions & EO_BESTFIT && (bestfitRect.top || bestfitRect.left))
 	{
 		// blit with resizing
@@ -772,58 +727,6 @@ static void BlitScreenWindow(unsigned char *XBuf)
 			}
 		}
 	}
-#else
-								// blit without resizing
-	if(IDirectDrawSurface7_Blt(lpDDSAchievements, NULL, lpDDSBack, &srect, DDBLT_ASYNC, 0) != DD_OK)
-	{
-		ddrval = IDirectDrawSurface7_Blt(lpDDSAchievements, NULL, lpDDSBack, &srect, DDBLT_WAIT, 0);
-		if(ddrval != DD_OK)
-		{
-			if(ddrval == DDERR_SURFACELOST)
-			{
-				RestoreDD(1);
-				RestoreDD(0);
-			}
-			return;
-		}
-	}
-
-	HDC hDC;
-	if(lpDDSAchievements->GetDC(&hDC) == DD_OK)
-	{
-		ControllerInput input;
-		if (RA_IsOverlayFullyVisible())
-		{
-			FCEUD_UpdateInput();
-
-			int nIn = *(int*)(joyports[0].ptr);
-			input.m_bUpPressed = (nIn & 0x10);
-			input.m_bDownPressed = (nIn & 0x20);
-			input.m_bLeftPressed = (nIn & 0x40);
-			input.m_bRightPressed = (nIn & 0x80);
-			input.m_bCancelPressed = (nIn & 0x02);
-			input.m_bConfirmPressed = (nIn & 0x01);
-			input.m_bQuitPressed = (nIn & 0x08); //(nIn&0x04)
-		}
-		else
-		{
-			memset(&input, 0, sizeof(input));
-		}
-
-		static int nOldTime = GetTickCount();
-		int nNewTime = GetTickCount();
-		int nDelta = nNewTime - nOldTime;
-		nOldTime = nNewTime;
-
-		RECT rcSize;
-		SetRect(&rcSize, 0, 0, wrect.right - wrect.left, wrect.bottom - wrect.top);
-		RA_UpdateRenderOverlay(hDC, &input, ((float)nDelta / 1000.0f), &rcSize, fullscreen != 0, FCEUI_EmulationPaused() != 0);
-
-		lpDDSAchievements->ReleaseDC(hDC);
-	}
-
-	IDirectDrawSurface7_Blt(lpDDSPrimary, &wrect, lpDDSAchievements, NULL, DDBLT_WAIT | DDBLT_ASYNC, 0);
-#endif
 }
 
 static void DD_FillRect(LPDIRECTDRAWSURFACE7 surf, int left, int top, int right, int bottom, DWORD color)
@@ -1108,9 +1011,6 @@ void ResetVideo(void)
 		}
 
 	RELEASE(lpddpal);
-#ifdef RETROACHIEVEMENTS
-	RELEASE(lpDDSAchievements);
-#endif
 	RELEASE(lpDDSBack);
 	RELEASE(lpDDSPrimary);
 	RELEASE(lpClipper);

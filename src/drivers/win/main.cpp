@@ -891,10 +891,6 @@ int main(int argc,char *argv[])
 doloopy:
 	UpdateFCEUWindow();
 
-#ifdef RETROACHIEVEMENTS
-	RA_HandleHTTPResults();
-#endif
-
 	if(GameInfo)
 	{
 		while(GameInfo)
@@ -919,10 +915,6 @@ doloopy:
 
 			}
 			else skippy = 0;
-
-#ifdef RETROACHIEVEMENTS
-			RA_HandleHTTPResults();
-#endif
 
 			if(FCEU_LuaFrameskip())
 				skippy = true;
@@ -1077,7 +1069,10 @@ void FCEUD_Update(uint8 *XBuf, int32 *Buffer, int Count)
 	//make sure to update the input once per frame
 	FCEUD_UpdateInput();
 
-
+#ifdef RETROACHIEVEMENTS
+	// handle inputs (navigate overlay)
+	RA_ProcessInputs();
+#endif
 }
 
 static void FCEUD_MakePathDirs(const char *fname)
