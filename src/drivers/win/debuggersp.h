@@ -41,8 +41,7 @@ struct MemoryMappedRegister
 
 extern bool symbDebugEnabled;
 extern bool symbRegNames;
-extern std::vector<unsigned int> bookmarks_addr;
-extern std::vector<std::string> bookmarks_name;
+extern std::vector<std::pair<unsigned int, std::string>> bookmarks;
 extern int debuggerWasActive;
 
 int checkCondition(const char* buffer, int num);
@@ -56,15 +55,15 @@ void setNamesPointerForAddress(uint16 address, Name* newNode);
 void loadNameFiles();
 void replaceNames(Name* list, char* str, std::vector<uint16>* addressesLog = 0);
 void AddDebuggerBookmark(HWND hwnd);
-void AddDebuggerBookmark2(HWND hwnd, unsigned int addr);
 void DeleteDebuggerBookmark(HWND hwnd);
-void NameDebuggerBookmark(HWND hwnd);
+void EditDebuggerBookmark(HWND hwnd);
 void DeleteAllDebuggerBookmarks();
 void FillDebuggerBookmarkListbox(HWND hwnd);
 
 void GoToDebuggerBookmark(HWND hwnd);
-int isHex(char c);
+extern bool IsLetterLegalHex(char c);
 
 bool DoSymbolicDebugNaming(int offset, HWND parentHWND);
-void AddNewSymbolicName(uint16 newAddress, char* newOffset, char* newName, char* newComment);
+void AddNewSymbolicName(uint16 newAddress, char* newOffset, char* newName, char* newComment, int size, int init, bool nameOverwrite, bool commentHeadOnly, bool commentOverwrite);
+void DeleteSymbolicName(uint16 address, int size);
 void WriteNameFileToDisk(const char* filename, Name* node);

@@ -62,8 +62,9 @@ int debuggerWasActive = 0;
 char temp_chr[40] = {0};
 char delimiterChar[2] = "#";
 
-extern BOOL CALLBACK nameBookmarkCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
-extern char bookmarkDescription[];
+INT_PTR CALLBACK nameDebuggerBookmarkCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
+extern WNDPROC DefaultEditCtrlProc;
+extern LRESULT APIENTRY FilterEditCtrlProc(HWND hDlg, UINT uMsg, WPARAM wP, LPARAM lP);
 
 MemoryMappedRegister RegNames[] = {
 	{"$2000", "PPU_CTRL"},
@@ -101,17 +102,6 @@ MemoryMappedRegister RegNames[] = {
 };
 
 int RegNameCount = sizeof(RegNames)/sizeof(MemoryMappedRegister);
-
-/**
-* Tests whether a char is a valid hexadecimal character.
-* 
-* @param c The char to test
-* @return True or false.
-**/
-int isHex(char c)
-{
-	return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
-}
 
 /**
 * Parses a line from a NL file.
@@ -164,10 +154,10 @@ int parseLine(char* line, Name* n)
 	if (llen == 5) // Offset size of normal lines of the form $XXXX
 	{
 		if (line[0] != '$'
-			|| !isHex(line[1])
-			|| !isHex(line[2])
-			|| !isHex(line[3])
-			|| !isHex(line[4])
+			|| !IsLetterLegalHex(line[1])
+			|| !IsLetterLegalHex(line[2])
+			|| !IsLetterLegalHex(line[3])
+			|| !IsLetterLegalHex(line[4])
 		)
 		{
 			return 4;
@@ -177,10 +167,10 @@ int parseLine(char* line, Name* n)
 	{
 		int i;
 		if (line[0] != '$'
-			|| !isHex(line[1])
-			|| !isHex(line[2])
-			|| !isHex(line[3])
-			|| !isHex(line[4])
+			|| !IsLetterLegalHex(line[1])
+			|| !IsLetterLegalHex(line[2])
+			|| !IsLetterLegalHex(line[3])
+			|| !IsLetterLegalHex(line[4])
 			|| line[5] != '/'
 		)
 		{
@@ -189,7 +179,7 @@ int parseLine(char* line, Name* n)
 		
 		for (i=6;line[i];i++)
 		{
-			if (!isHex(line[i]))
+			if (!IsLetterLegalHex(line[i]))
 			{
 				return 6;
 			}
@@ -367,7 +357,7 @@ Name* parse(char* lines, const char* filename)
 		
 		size = strstr(cur->offset, "/");
 			
-		if (size) // Array definition line
+		if (size && cur->name) // Array definition line
 		{
 			int arrlen, offset;
 			
@@ -380,7 +370,7 @@ Name* parse(char* lines, const char* filename)
 				int i;
 				
 				// Create a node for each element of the array
-				for (i=0;i<=arrlen;i++)
+				for (i = 0; i < arrlen; i++)
 				{
 					char numbuff[10] = {0};
 
@@ -484,7 +474,6 @@ Name* parseNameFile(const char* filename)
 			n = parse(buffer, filename);
 
 			fclose(f);
-			
 			free(buffer);
 		}
 	}
@@ -752,8 +741,7 @@ void loadNameFiles()
 }
 
 // bookmarks
-std::vector<unsigned int> bookmarks_addr;
-std::vector<std::string> bookmarks_name;
+std::vector <std::pair<unsigned int, std::string>> bookmarks; // first:address second:name
 
 /**
 * Returns the bookmark address of a CPU bookmark identified by its index.
@@ -764,35 +752,10 @@ std::vector<std::string> bookmarks_name;
 **/
 unsigned int getBookmarkAddress(unsigned int index)
 {
-	if (index < bookmarks_addr.size())
-		return bookmarks_addr[index];
+	if (index < bookmarks.size())
+		return bookmarks[index].first;
 	else
 		return 0;
-}
-
-/**
-* Adds a debugger bookmark to the list on the debugger window.
-*
-* @param hwnd HWMD of the debugger window
-* @param buffer Text of the debugger bookmark
-**/
-void AddDebuggerBookmark2(HWND hwnd, unsigned int addr)
-{
-	int index = bookmarks_addr.size();
-	bookmarks_addr.push_back(addr);
-	// try to find Symbolic name for this address
-	Name* node = findNode(getNamesPointerForAddress(addr), addr);
-	if (node && node->name)
-		bookmarks_name.push_back(node->name);
-	else
-		bookmarks_name.push_back("");
-
-	// add new item to ListBox
-	char buffer[256];
-	sprintf(buffer, "%04X %s", bookmarks_addr[index], bookmarks_name[index].c_str());
-	SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_ADDSTRING, 0, (LPARAM)buffer);
-	// select this item
-	SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_SETCURSEL, index, 0);
 }
 
 /**
@@ -803,18 +766,44 @@ void AddDebuggerBookmark2(HWND hwnd, unsigned int addr)
 **/
 void AddDebuggerBookmark(HWND hwnd)
 {
-	int n;
 	char buffer[5] = {0};
-	
 	GetDlgItemText(hwnd, IDC_DEBUGGER_BOOKMARK, buffer, 5);
-	n = offsetStringToInt(BT_C, buffer);
+	int address = offsetStringToInt(BT_C, buffer);
 	// Make sure the offset is valid
-	if (n == -1 || n > 0xFFFF)
+	if (address == -1 || address > 0xFFFF)
 	{
 		MessageBox(hwnd, "Invalid offset", "Error", MB_OK | MB_ICONERROR);
 		return;
 	}
-	AddDebuggerBookmark2(hwnd, n);
+/*
+	int index = 0;
+	for (std::vector<std::pair<unsigned int, std::string>>::iterator it = bookmarks.begin(); it != bookmarks.end(); ++it)
+	{
+		if (it->first == address)
+		{
+			// select this bookmark to notify it already have a bookmark
+			SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_SETCURSEL, index, 0);
+			return;
+		}
+		++index;
+	}
+	*/
+
+	int index = bookmarks.size();
+	// try to find Symbolic name for this address
+	Name* node = findNode(getNamesPointerForAddress(address), address);
+	std::pair<unsigned int, std::string> bookmark(address, node && node->name ? node->name : "");
+	if (DialogBoxParam(fceu_hInstance, "NAMEBOOKMARKDLGDEBUGGER", hwnd, nameDebuggerBookmarkCallB, (LPARAM)&bookmark))
+	{
+		bookmarks.push_back(bookmark);
+		// add new item to ListBox
+		char buffer[256];
+		sprintf(buffer, "%04X %s", bookmark.first, bookmark.second.c_str());
+		SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_ADDSTRING, 0, (LPARAM)buffer);
+		// select this item
+		SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_SETCURSEL, index, 0);
+	}
+
 }
 
 /**
@@ -834,53 +823,49 @@ void DeleteDebuggerBookmark(HWND hwnd)
 	} else
 	{
 		// Erase the selected bookmark
-		bookmarks_addr.erase(bookmarks_addr.begin() + selectedItem);
-		bookmarks_name.erase(bookmarks_name.begin() + selectedItem);
+		bookmarks.erase(bookmarks.begin() + selectedItem);
 		SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_DELETESTRING, selectedItem, 0);
 		// Select next item
-		if (selectedItem >= (bookmarks_addr.size() - 1))
+		if (selectedItem >= (bookmarks.size() - 1))
 			// select last item
-			SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_SETCURSEL, bookmarks_addr.size() - 1, 0);
+			SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_SETCURSEL, bookmarks.size() - 1, 0);
 		else
 			SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_SETCURSEL, selectedItem, 0);
 
 	}
 }
 
-void NameDebuggerBookmark(HWND hwnd)
+void EditDebuggerBookmark(HWND hwnd)
 {
 	// Get the selected bookmark
 	int selectedItem = SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_GETCURSEL, 0, 0);
-	if (selectedItem == LB_ERR || selectedItem >= (int)bookmarks_name.size())
+	if (selectedItem == LB_ERR || selectedItem >= (int)bookmarks.size())
 	{
 		MessageBox(hwnd, "Please select a bookmark from the list", "Error", MB_OK | MB_ICONERROR);
 		return;
 	} else
 	{
-		if (bookmarks_name[selectedItem].size())
+		std::pair<unsigned int, std::string> bookmark = bookmarks[selectedItem];
+		if (!bookmark.second.size())
 		{
-			strcpy(bookmarkDescription, bookmarks_name[selectedItem].c_str());
-		} else
-		{
-			bookmarkDescription[0] = 0;
 			// try to find the same address in bookmarks
-			for (int i = bookmarks_addr.size() - 1; i>= 0; i--)
+			for (int i = bookmarks.size() - 1; i>= 0; i--)
 			{
-				if (i != selectedItem && bookmarks_addr[i] == bookmarks_addr[selectedItem] && bookmarks_name[i].size())
+				if (i != selectedItem && bookmarks[i].first == bookmarks[selectedItem].first && bookmarks[i].second.size())
 				{
-					strcpy(bookmarkDescription, bookmarks_name[i].c_str());
+					bookmark.second = bookmarks[i].second;
 					break;
 				}
 			}
 		}
 		// Show the bookmark name dialog
-		if (DialogBox(fceu_hInstance, "NAMEBOOKMARKDLG", hwnd, nameBookmarkCallB))
+		if (DialogBoxParam(fceu_hInstance, "NAMEBOOKMARKDLGDEBUGGER", hwnd, nameDebuggerBookmarkCallB, (LPARAM)&bookmark))
 		{
 			// Rename the selected bookmark
-			bookmarks_name[selectedItem] = bookmarkDescription;
+			bookmarks[selectedItem] = bookmark;
 			SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_DELETESTRING, selectedItem, 0);
 			char buffer[256];
-			sprintf(buffer, "%04X %s", bookmarks_addr[selectedItem], bookmarks_name[selectedItem].c_str());
+			sprintf(buffer, "%04X %s", bookmarks[selectedItem].first, bookmarks[selectedItem].second.c_str());
 			SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_INSERTSTRING, selectedItem, (LPARAM)buffer);
 			// Reselect the item (selection disappeared when it was deleted)
 			SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_SETCURSEL, selectedItem, 0);
@@ -890,17 +875,16 @@ void NameDebuggerBookmark(HWND hwnd)
 
 void DeleteAllDebuggerBookmarks()
 {
-	bookmarks_addr.resize(0);
-	bookmarks_name.resize(0);
+	bookmarks.resize(0);
 }
 
 void FillDebuggerBookmarkListbox(HWND hwnd)
 {		
 	SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_RESETCONTENT, 0, 0);
 	char buffer[256];
-	for (unsigned int i = 0; i < bookmarks_addr.size(); ++i)
+	for (unsigned int i = 0; i < bookmarks.size(); ++i)
 	{
-		sprintf(buffer, "%04X %s", bookmarks_addr[i], bookmarks_name[i].c_str());
+		sprintf(buffer, "%04X %s", bookmarks[i].first, bookmarks[i].second.c_str());
 		SendDlgItemMessage(hwnd, LIST_DEBUGGER_BOOKMARKS, LB_ADDSTRING, 0, (LPARAM)buffer);
 	}
 }
@@ -919,7 +903,7 @@ void GoToDebuggerBookmark(HWND hwnd)
 	Disassemble(hwnd, IDC_DEBUGGER_DISASSEMBLY, IDC_DEBUGGER_DISASSEMBLY_VSCR, n);
 }
 
-BOOL CALLBACK SymbolicNamingCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK SymbolicNamingCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch(uMsg)
 	{
@@ -941,11 +925,20 @@ BOOL CALLBACK SymbolicNamingCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
 				if (node->comment && node->comment[0])
 					SetDlgItemText(hwndDlg, IDC_SYMBOLIC_COMMENT, node->comment);
 			}
+			SetDlgItemText(hwndDlg, IDC_EDIT_SYMBOLIC_ARRAY, "10");
+			SetDlgItemText(hwndDlg, IDC_EDIT_SYMBOLIC_INIT, "0");
 			// set focus to IDC_SYMBOLIC_NAME
 			SendMessage(hwndDlg, WM_NEXTDLGCTL, (WPARAM)GetDlgItem(hwndDlg, IDC_SYMBOLIC_NAME), true);
 			//always set the limits
 			SendDlgItemMessage(hwndDlg, IDC_SYMBOLIC_NAME, EM_SETLIMITTEXT, NL_MAX_NAME_LEN, 0);
 			SendDlgItemMessage(hwndDlg, IDC_SYMBOLIC_COMMENT, EM_SETLIMITTEXT, NL_MAX_MULTILINE_COMMENT_LEN, 0);
+			SendDlgItemMessage(hwndDlg, IDC_EDIT_SYMBOLIC_ARRAY, EM_SETLIMITTEXT, 2, 0);
+			SendDlgItemMessage(hwndDlg, IDC_EDIT_SYMBOLIC_INIT, EM_SETLIMITTEXT, 2, 0);
+			DefaultEditCtrlProc = (WNDPROC)SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_EDIT_SYMBOLIC_ARRAY), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+			DefaultEditCtrlProc = (WNDPROC)SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_EDIT_SYMBOLIC_INIT), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+
+			CheckDlgButton(hwndDlg, IDC_CHECK_SYMBOLIC_NAME_OVERWRITE, BST_CHECKED);
+			CheckDlgButton(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_ARRAY_HEAD, BST_CHECKED);
 			break;
 		}
 		case WM_CLOSE:
@@ -959,19 +952,86 @@ BOOL CALLBACK SymbolicNamingCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
 				{
 					switch(LOWORD(wParam))
 					{
+						case IDC_CHECK_SYMBOLIC_DELETE:
+						{
+							bool delete_mode = IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_DELETE) == BST_CHECKED;
+							EnableWindow(GetDlgItem(hwndDlg, IDC_STATIC_SYMBOLIC_NAME), !delete_mode);
+							EnableWindow(GetDlgItem(hwndDlg, IDC_STATIC_SYMBOLIC_COMMENT), !delete_mode);
+							EnableWindow(GetDlgItem(hwndDlg, IDC_SYMBOLIC_NAME), !delete_mode);
+							EnableWindow(GetDlgItem(hwndDlg, IDC_SYMBOLIC_COMMENT), !delete_mode);
+							EnableWindow(GetDlgItem(hwndDlg, IDC_CHECK_SYMBOLIC_NAME_OVERWRITE), !delete_mode);
+							if (delete_mode)
+							{
+								EnableWindow(GetDlgItem(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_OVERWRITE), FALSE);
+								EnableWindow(GetDlgItem(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_ARRAY_HEAD), FALSE);
+								EnableWindow(GetDlgItem(hwndDlg, IDC_STATIC_SYMBOLIC_INIT), FALSE);
+								EnableWindow(GetDlgItem(hwndDlg, IDC_EDIT_SYMBOLIC_INIT), FALSE);
+							} else
+							{
+								bool array_chk = IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_ARRAY) == BST_CHECKED;
+								bool comment_head_only = IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_ARRAY_HEAD) == BST_CHECKED;
+								EnableWindow(GetDlgItem(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_ARRAY_HEAD), array_chk);
+								EnableWindow(GetDlgItem(hwndDlg, IDC_CHECK_SYMBOLIC_NAME_OVERWRITE), array_chk);
+								EnableWindow(GetDlgItem(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_OVERWRITE), array_chk && !comment_head_only);
+								EnableWindow(GetDlgItem(hwndDlg, IDC_STATIC_SYMBOLIC_INIT), array_chk);
+								EnableWindow(GetDlgItem(hwndDlg, IDC_EDIT_SYMBOLIC_INIT), array_chk);
+							}
+							break;
+						}
+						case IDC_CHECK_SYMBOLIC_ARRAY:
+						{
+							bool array_chk = IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_ARRAY) == BST_CHECKED;
+							bool delete_mode = IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_DELETE) == BST_CHECKED;
+							bool comment_head_only = IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_ARRAY_HEAD) == BST_CHECKED;
+							EnableWindow(GetDlgItem(hwndDlg, IDC_CHECK_SYMBOLIC_NAME_OVERWRITE), array_chk && !delete_mode);
+							EnableWindow(GetDlgItem(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_ARRAY_HEAD), array_chk && !delete_mode);
+							EnableWindow(GetDlgItem(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_OVERWRITE), array_chk && !comment_head_only && !delete_mode);
+							EnableWindow(GetDlgItem(hwndDlg, IDC_EDIT_SYMBOLIC_ARRAY), array_chk);
+							EnableWindow(GetDlgItem(hwndDlg, IDC_STATIC_SYMBOLIC_BYTE), array_chk);
+							EnableWindow(GetDlgItem(hwndDlg, IDC_STATIC_SYMBOLIC_INIT), array_chk && !delete_mode);
+							EnableWindow(GetDlgItem(hwndDlg, IDC_EDIT_SYMBOLIC_INIT), array_chk && !delete_mode);
+							break;
+						}
+						case IDC_CHECK_SYMBOLIC_COMMENT_ARRAY_HEAD:
+						{
+							bool comment_head_only = IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_ARRAY_HEAD) == BST_CHECKED;
+							EnableWindow(GetDlgItem(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_OVERWRITE), !comment_head_only);
+							break;
+						}
 						case IDOK:
 						{
 							unsigned int newAddress = 0;
-							char newOffset[6] = {0};
+							char newOffset[6] = { 0 };
 							GetDlgItemText(hwndDlg, IDC_SYMBOLIC_ADDRESS, newOffset, 6);
 							if (sscanf(newOffset, "%*[$]%4X", &newAddress) != EOF)
 							{
-								char newName[NL_MAX_NAME_LEN + 1] = {0};
-								GetDlgItemText(hwndDlg, IDC_SYMBOLIC_NAME, newName, NL_MAX_NAME_LEN + 1);
-								char newComment[NL_MAX_MULTILINE_COMMENT_LEN + 1] = {0};
-								GetDlgItemText(hwndDlg, IDC_SYMBOLIC_COMMENT, newComment, NL_MAX_MULTILINE_COMMENT_LEN + 1);
-								
-								AddNewSymbolicName(newAddress, newOffset, newName, newComment);
+
+								unsigned int arraySize = 0;
+								unsigned int arrayInit = 0;
+								if (IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_ARRAY) == BST_CHECKED)
+								{
+									char strArraySize[6] = { 0 };
+									GetDlgItemText(hwndDlg, IDC_EDIT_SYMBOLIC_ARRAY, strArraySize, 6);
+									if (*strArraySize)
+										sscanf(strArraySize, "%4X", &arraySize);
+								}
+
+								if (IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_DELETE) == BST_UNCHECKED)
+								{
+									char newName[NL_MAX_NAME_LEN + 1] = { 0 };
+									GetDlgItemText(hwndDlg, IDC_SYMBOLIC_NAME, newName, NL_MAX_NAME_LEN + 1);
+									char newComment[NL_MAX_MULTILINE_COMMENT_LEN + 1] = { 0 };
+									GetDlgItemText(hwndDlg, IDC_SYMBOLIC_COMMENT, newComment, NL_MAX_MULTILINE_COMMENT_LEN + 1);
+
+									char strArrayInit[6] = { 0 };
+									GetDlgItemText(hwndDlg, IDC_EDIT_SYMBOLIC_INIT, strArrayInit, 6);
+									if (*strArrayInit)
+										sscanf(strArrayInit, "%4X", &arrayInit);
+
+									AddNewSymbolicName(newAddress, newOffset, newName, newComment, arraySize, arrayInit, IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_NAME_OVERWRITE) == BST_CHECKED, IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_ARRAY_HEAD) == BST_CHECKED, IsDlgButtonChecked(hwndDlg, IDC_CHECK_SYMBOLIC_COMMENT_OVERWRITE) == BST_CHECKED);
+								} else
+									DeleteSymbolicName(newAddress, arraySize);
+
 								WriteNameFileToDisk(generateNLFilenameForAddress(newAddress), getNamesPointerForAddress(newAddress));
 							}
 							EndDialog(hwndDlg, 1);
@@ -1003,11 +1063,8 @@ bool DoSymbolicDebugNaming(int offset, HWND parentHWND)
 	return false;
 }
 
-void AddNewSymbolicName(uint16 newAddress, char* newOffset, char* newName, char* newComment)
+void AddNewSymbolicName(uint16 newAddress, char* newOffset, char* newName, char* newComment, int size, int init, bool nameOverwrite, bool commentHeadOnly, bool commentOverwrite)
 {
-	Name* initialNode = getNamesPointerForAddress(newAddress);
-	Name* node = initialNode;
-	
 	// remove all delimiterChars from name and comment
 	char* pos = newName;
 	while (pos < newName + strlen(newName))
@@ -1028,103 +1085,174 @@ void AddNewSymbolicName(uint16 newAddress, char* newOffset, char* newName, char*
 			break;
 	}
 
-	if (*newName)
+	if (*newName || *newComment)
 	{
-		if (!initialNode)
-		{
-			// no previous data, create new list
-			node = (Name*)malloc(sizeof(Name));
-			node->offset = (char*)malloc(strlen(newOffset) + 1);
-			strcpy(node->offset, newOffset);
-			node->offsetNumeric = newAddress;
-			node->name = (char*)malloc(strlen(newName) + 1);
-			strcpy(node->name, newName);
-			if (strlen(newComment))
+		int i = 0;
+		char* tmpNewOffset = (char*)malloc(strlen(newOffset) + 1);
+		strcpy(tmpNewOffset, newOffset);
+		uint16 tmpNewAddress = newAddress;
+		int tmpInit = init;
+		do {
+			Name* node = getNamesPointerForAddress(tmpNewAddress);
+			if (!node)
 			{
-				node->comment = (char*)malloc(strlen(newComment) + 1);
-				strcpy(node->comment, newComment);
-			} else
-			{
-				node->comment = 0;
-			}
-			node->next = 0;
-			setNamesPointerForAddress(newAddress, node);
-		} else
-		{
-			// search the list
-			while (node)
-			{
-				if (node->offsetNumeric == newAddress)
+				node = (Name*)malloc(sizeof(Name));
+				node->offset = (char*)malloc(strlen(tmpNewOffset) + 1);
+				strcpy(node->offset, tmpNewOffset);
+				node->offsetNumeric = tmpNewAddress;
+
+				// Node name
+				if (strlen(newName))
 				{
-					// found matching address - replace its name and comment
-					if (node->name)
-						free(node->name);
-					node->name = (char*)malloc(strlen(newName) + 1);
-					strcpy(node->name, newName);
-					if (node->comment)
+					if (size)
 					{
-						free(node->comment);
-						node->comment = 0;
+						char arr_index[16];
+						sprintf(arr_index, "[%X]", tmpInit);
+						node->name = (char*)malloc(strlen(newName) + strlen(arr_index) + 1);
+						strcpy(node->name, newName);
+						strcat(node->name, arr_index);
 					}
-					if (strlen(newComment))
+					else
 					{
-						node->comment = (char*)malloc(strlen(newComment) + 1);
-						strcpy(node->comment, newComment);
+						node->name = (char*)malloc(strlen(newName) + 1);
+						strcpy(node->name, newName);
 					}
-					break;
 				}
-				if (node->next)
+				else
+					node->name = 0;
+
+				if ((i == 0 || !commentHeadOnly) && strlen(newComment))
 				{
-					node = node->next;
-				} else
+					node->comment = (char*)malloc(strlen(newComment) + 1);
+					strcpy(node->comment, newComment);
+				}
+				else
+					node->comment = 0;
+
+				node->next = 0;
+				setNamesPointerForAddress(tmpNewAddress, node);
+			}
+			else
+			{
+				while (node)
 				{
-					// this is the last node in the list - so just append the address
-					Name* newNode = (Name*)malloc(sizeof(Name));
-					node->next = newNode;
-					newNode->offset = (char*)malloc(strlen(newOffset) + 1);
-					strcpy(newNode->offset, newOffset);
-					newNode->offsetNumeric = newAddress;
-					newNode->name = (char*)malloc(strlen(newName) + 1);
-					strcpy(newNode->name, newName);
-					if (strlen(newComment))
+					if (node->offsetNumeric == tmpNewAddress)
 					{
-						newNode->comment = (char*)malloc(strlen(newComment) + 1);
-						strcpy(newNode->comment, newComment);
-					} else
-					{
-						newNode->comment = 0;
+						// found matching address, proccessing its name and comment based on the configuration
+						if ((i == 0 || nameOverwrite) && node->name)
+						{
+							free(node->name);
+							node->name = 0;
+						}
+						if (!node->name && strlen(newName))
+						{
+							if (size)
+							{
+								char arr_index[16];
+								sprintf(arr_index, "[%X]", tmpInit);
+								node->name = (char*)malloc(strlen(newName) + strlen(arr_index) + 1);
+								strcpy(node->name, newName);
+								strcat(node->name, arr_index);
+							}
+							else
+							{
+								node->name = (char*)malloc(strlen(newName) + 1);
+								strcpy(node->name, newName);
+							}
+						}
+
+						if ((i == 0 || !commentHeadOnly && commentOverwrite) && node->comment)
+						{
+							free(node->comment);
+							node->comment = 0;
+						}
+						if (!node->comment && strlen(newComment))
+						{
+							node->comment = (char*)malloc(strlen(newComment) + 1);
+							strcpy(node->comment, newComment);
+						}
+
+						break;
 					}
-					newNode->next = 0;
-					break;
+
+					if (node->next)
+						node = node->next;
+					else {
+						// this is the last node in the list - so just append the address
+						Name* newNode = (Name*)malloc(sizeof(Name));
+						newNode->offset = (char*)malloc(strlen(tmpNewOffset) + 1);
+						strcpy(newNode->offset, tmpNewOffset);
+						newNode->offsetNumeric = tmpNewAddress;
+
+						// Node name
+						if (strlen(newName))
+						{
+							if (size)
+							{
+								char arr_index[16];
+								sprintf(arr_index, "[%X]", tmpInit);
+								newNode->name = (char*)malloc(strlen(newName) + strlen(arr_index) + 1);
+								strcpy(newNode->name, newName);
+								strcat(newNode->name, arr_index);
+							}
+							else
+							{
+								newNode->name = (char*)malloc(strlen(newName) + 1);
+								strcpy(newNode->name, newName);
+							}
+						}
+						else
+							newNode->name = 0;
+
+						if ((i == 0 || !commentHeadOnly) && strlen(newComment))
+						{
+							newNode->comment = (char*)malloc(strlen(newComment) + 1);
+							strcpy(newNode->comment, newComment);
+						}
+						else
+							newNode->comment = 0;
+
+						newNode->next = 0;
+						node->next = newNode;
+						break;
+					}
 				}
 			}
-		}
-	} else
-	{
-		// name field is empty - remove the address from the list
-		Name* previousNode = 0;
+			++tmpNewAddress;
+			++tmpInit;
+			sprintf(tmpNewOffset, "$%04X", tmpNewAddress);
+		} while (++i < size);
+	}
+}
+
+void DeleteSymbolicName(uint16 address, int size)
+{
+	int i = 0;
+	uint16 tmpAddress = address;
+	do {
+		Name* prev = 0;
+		Name* initialNode = getNamesPointerForAddress(tmpAddress);
+		Name* node = initialNode;
 		while (node)
 		{
-			if (node->offsetNumeric == newAddress)
+			if (node->offsetNumeric == tmpAddress)
 			{
-				// found matching address - delete it
 				if (node->offset)
 					free(node->offset);
 				if (node->name)
 					free(node->name);
-				if (node->comment)
-					free(node->comment);
-				if (previousNode)
-					previousNode->next = node->next;
+				if (prev)
+					prev->next = node->next;
 				if (node == initialNode)
-					setNamesPointerForAddress(newAddress, node->next);
+					setNamesPointerForAddress(tmpAddress, node->next);
 				free(node);
 				break;
 			}
-			previousNode = node;
+			prev = node;
 			node = node->next;
 		}
-	}
+		++tmpAddress;
+	} while (++i < size);
 }
 
 void WriteNameFileToDisk(const char* filename, Name* node)
@@ -1169,4 +1297,88 @@ void WriteNameFileToDisk(const char* filename, Name* node)
 	}
 }
 
+INT_PTR CALLBACK nameDebuggerBookmarkCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	static std::pair<unsigned int, std::string>* debuggerBookmark;
+
+	switch (uMsg)
+	{
+		case WM_INITDIALOG:
+		{
+			// Limit bookmark descriptions to 50 characters
+			SendDlgItemMessage(hwndDlg, IDC_BOOKMARK_DESCRIPTION, EM_SETLIMITTEXT, 50, 0);
+
+			// Limit the address text
+			SendDlgItemMessage(hwndDlg, IDC_BOOKMARK_ADDRESS, EM_SETLIMITTEXT, 4, 0);
+			DefaultEditCtrlProc = (WNDPROC)SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_BOOKMARK_ADDRESS), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
+
+			debuggerBookmark = (std::pair<unsigned int, std::string>*)lParam;
+			char addr[8];
+			sprintf(addr, "%04X", debuggerBookmark->first);
+
+			// Set address and description
+			sprintf(addr, "%04X", debuggerBookmark->first);
+			SetDlgItemText(hwndDlg, IDC_BOOKMARK_ADDRESS, addr);
+			SetDlgItemText(hwndDlg, IDC_BOOKMARK_DESCRIPTION, debuggerBookmark->second.c_str());
+
+			// Set focus to the edit field.
+			SetFocus(GetDlgItem(hwndDlg, IDC_BOOKMARK_DESCRIPTION));
+			SendDlgItemMessage(hwndDlg, IDC_BOOKMARK_DESCRIPTION, EM_SETSEL, 0, 52);
+
+			break;
+		}
+		case WM_QUIT:
+		case WM_CLOSE:
+			EndDialog(hwndDlg, 0);
+			break;
+		case WM_COMMAND:
+			switch (HIWORD(wParam))
+			{
+				case BN_CLICKED:
+					switch (LOWORD(wParam))
+					{
+						case IDOK:
+						{
+							char addr_str[8];
+							GetDlgItemText(hwndDlg, IDC_BOOKMARK_ADDRESS, addr_str, 8);
+							sscanf(addr_str, "%X", &debuggerBookmark->first);
+
+							if (debuggerBookmark->first > 0xFFFE)
+							{
+								// if the address is out of range
+								char errmsg[64];
+								sprintf(errmsg, "The address must be in range of 0-%X", 0xFFFE);
+								MessageBox(hwndDlg, errmsg, "Address out of range", MB_OK | MB_ICONERROR);
+								SetFocus(GetDlgItem(hwndDlg, IDC_BOOKMARK_ADDRESS));
+								return FALSE;
+							}
+
+						/*
+							extern std::vector<std::pair<unsigned int, std::string>> bookmarks;
+							for (std::vector<std::pair<unsigned int, std::string>>::iterator it = bookmarks.begin(); it != bookmarks.end(); ++it)
+							{
+								if (it->first == debuggerBookmark->first && it->second == debuggerBookmark->second)
+								{
+									// if the address already have a bookmark
+									MessageBox(hwndDlg, "This address already have a bookmark", "Bookmark duplicated", MB_OK | MB_ICONASTERISK);
+									return FALSE;
+								}
+							}
+						*/
+
+							// Update the description
+							char description[51];
+							GetDlgItemText(hwndDlg, IDC_BOOKMARK_DESCRIPTION, description, 50);
+							debuggerBookmark->second = description;
+							EndDialog(hwndDlg, 1);
+							break;
+						}
+						case IDCANCEL:
+							EndDialog(hwndDlg, 0);
+					}
+			}
+	}
+
+	return FALSE;
+}
 

@@ -1,6 +1,6 @@
 ﻿
-Microsoft Visual Studio Solution File, Format Version 11.00
-# Visual Studio 2015
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 14
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "fceux", "vc14_fceux.vcxproj", "{6893EF44-FEA3-46DF-B236-C4C200F54294}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{11D7E52F-E091-4E64-968D-66469F2DC71E}"
@@ -26,7 +26,8 @@ Global
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Debug|Win32.ActiveCfg = Debug|Win32
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Debug|Win32.Build.0 = Debug|Win32
-		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Debug|x64.ActiveCfg = Debug|Win32
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Debug|x64.ActiveCfg = Debug|x64
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Debug|x64.Build.0 = Debug|x64
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.PublicRelease|Win32.ActiveCfg = PublicRelease|Win32
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.PublicRelease|Win32.Build.0 = PublicRelease|Win32
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.PublicRelease|x64.ActiveCfg = PublicRelease|x64
@@ -45,7 +46,8 @@ Global
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.RA-Release|x64.Build.0 = RA-Release|x64
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Release|Win32.ActiveCfg = Release|Win32
 		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Release|Win32.Build.0 = Release|Win32
-		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Release|x64.ActiveCfg = Release|Win32
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Release|x64.ActiveCfg = Release|x64
+		{6893EF44-FEA3-46DF-B236-C4C200F54294}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -56,6 +56,9 @@ extern bool rightClickEnabled;
 extern bool fullscreenByDoubleclick;
 extern int CurrentState;
 extern bool pauseWhileActive; //adelikat: Cheats dialog
+extern int globalCheatDisabled;
+extern int disableAutoLSCheats;
+extern bool disableShowGG;
 extern bool enableHUDrecording;
 extern bool disableMovieMessages;
 extern bool replaceP2StartWithMicrophone;
@@ -129,6 +132,7 @@ extern int RomFreezeColorB;
 extern int HexBoundColorR;
 extern int HexBoundColorG;
 extern int HexBoundColorB;
+extern int importBookmarkProps;
 
 //adelikat:  Hacky fix for Ram Watch recent menu
 char* ramWatchRecent[] = {0, 0, 0, 0, 0};
@@ -456,6 +460,7 @@ static CFGSTRUCT fceuconfig[] =
 	AC(HexBoundColorR),
 	AC(HexBoundColorG),
 	AC(HexBoundColorB),
+	AC(importBookmarkProps),
 	//ACS(memwLastfile[2048]),
 
 	AC(AutoRWLoad),
@@ -466,6 +471,9 @@ static CFGSTRUCT fceuconfig[] =
 	AC(backupSavestates),
 	AC(compressSavestates),
 	AC(pauseWhileActive),
+	AC(disableAutoLSCheats),
+	AC(disableShowGG),
+	AC(globalCheatDisabled),
 	AC(enableHUDrecording),
 	AC(disableMovieMessages),
 	AC(replaceP2StartWithMicrophone),

@@ -18,6 +18,8 @@ void SilenceSound(int s); /* DOS and SDL */
 
 int InitJoysticks(void);
 int KillJoysticks(void);
+int AddJoystick( int which );
+int RemoveJoystick( int which );
 uint32 *GetJSOr(void);
 
 int InitVideo(FCEUGI *gi);
@@ -27,7 +29,7 @@ void LockConsole(void);
 void UnlockConsole(void);
 void ToggleFS();		/* SDL */
 
-int LoadGame(const char *path);
+int LoadGame(const char *path, bool silent);
 //int CloseGame(void);
 
 void Giggles(int);

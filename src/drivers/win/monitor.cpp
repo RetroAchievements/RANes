@@ -108,7 +108,7 @@ BOOL updateResults(HWND hwndDlg, int rule)
 	int chosen_rules[NUMBER_OF_RULES] = { 0 };
 	unsigned int values[NUMBER_OF_RULES] = { 0 };
 	
-	for (int i=0;i<sizeof(chosen_rules) && i <= rule;i++)
+	for (int i=0;i<NUMBER_OF_RULES && i <= rule;i++)
 	{
 		chosen_rules[i] = SendDlgItemMessage(hwndDlg, RULE_BOX_1 + i, CB_GETCURSEL, 0, 0);
 		
@@ -120,7 +120,7 @@ BOOL updateResults(HWND hwndDlg, int rule)
 			
 			for (unsigned int j=0;j<len;j++)
 			{
-				if (isHex(input_buff[j]) == FALSE)
+				if (IsLetterLegalHex(input_buff[j]) == FALSE)
 				{
 					return FALSE;
 				}
@@ -219,7 +219,7 @@ unsigned int ruleBox_to_ruleInput(unsigned int ruleBox)
 	return ruleBox - RULE_BOX_1 + RULE_INPUT_1;
 }
 
-BOOL CALLBACK MonitorCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK MonitorCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch(uMsg) {
 		case WM_MOVE: {

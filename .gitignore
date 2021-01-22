@@ -8,6 +8,7 @@
 /vc/vc10_obj_Debug
 /vc/vc10_obj_Release
 /vc/vc10_obj_PublicRelease
+/vc/x64
 /vc/*.user
 /vc/*.sdf
 /vc/*.opensdf
@@ -23,6 +24,8 @@
 /output/sav/*.sav
 /output/fcs/*.fc*
 /vc/userconfig/scmrev.h
+/vc/fceux.zip
+/vc/fceux64.zip
 
 # retroachievements
 /src/RA_BuildVer.h
@@ -49,3 +52,10 @@ fceux-net-server
 .sconsign.dblite
 .deps
 .dirstamp
+/output/movies
+/output/cheats
+/output/snaps
+/output/sav
+
+# typical CMake build directory
+/build

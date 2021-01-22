@@ -16,6 +16,7 @@
 #include "sdl.h"
 #include "sdl-video.h"
 #include "unix-netplay.h"
+#include "glxwin.h"
 
 #include "../common/configSys.h"
 #include "../../oldmovie.h"
@@ -33,6 +34,8 @@
 #include <gtk/gtk.h>
 #include "gui.h"
 #endif
+
+#include "fceux_git_info.h"
 
 #include <unistd.h>
 #include <csignal>
@@ -56,6 +59,7 @@ extern bool MaxSpeed;
 int isloaded;
 
 bool turbo = false;
+bool gtk_gui_run = true;
 
 int closeFinishedMovie = 0;
 
@@ -75,6 +79,8 @@ static int noconfig;
 int pal_emulation;
 int dendy;
 bool swapDuty;
+
+static bool luaScriptRunning = false;
 
 // -Video Modes Tag- : See --special
 static const char *DriverUsage=
@@ -171,18 +177,25 @@ static void ShowUsage(char *prog)
 #endif
 	puts("");
 	printf("Compiled with SDL version %d.%d.%d\n", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL );
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-	SDL_version* v; 
-	SDL_GetVersion(v);
-#else
-	const SDL_version* v = SDL_Linked_Version();
-#endif
-	printf("Linked with SDL version %d.%d.%d\n", v->major, v->minor, v->patch);
+	SDL_version v; 
+	SDL_GetVersion(&v);
+	printf("Linked with SDL version %d.%d.%d\n", v.major, v.minor, v.patch);
 #ifdef GTK
 	printf("Compiled with GTK version %d.%d.%d\n", GTK_MAJOR_VERSION, GTK_MINOR_VERSION, GTK_MICRO_VERSION );
 	//printf("Linked with GTK version %d.%d.%d\n", GTK_MAJOR_VERSION, GTK_MINOR_VERSION, GTK_MICRO_VERSION );
 #endif
+	printf("git URL: %s\n", fceu_get_git_url() );
+	printf("git Rev: %s\n", fceu_get_git_rev() );
 	
+}
+
+/**
+ * Reloads last game.
+ */
+int reloadLastGame() {
+	std::string lastRom;
+	g_config->getOption(std::string("SDL.LastOpenFile"), &lastRom);
+	return LoadGame(lastRom.c_str());
 }
 
 /**
@@ -191,12 +204,12 @@ static void ShowUsage(char *prog)
  * provides data necessary for the driver code(number of scanlines to
  * render, what virtual input devices to use, etc.).
  */
-int LoadGame(const char *path)
+int LoadGame(const char *path, bool silent)
 {
-    if (isloaded){
-        CloseGame();
-    }
-	if(!FCEUI_LoadGame(path, 1)) {
+	if (isloaded){
+		CloseGame();
+	}
+	if(!FCEUI_LoadGame(path, 1, silent)) {
 		return 0;
 	}
 
@@ -333,8 +346,8 @@ DriverKill()
 	if (!noconfig)
 		g_config->save();
 
-	if(inited&2)
-		KillJoysticks();
+	KillJoysticks();
+
 	if(inited&4)
 		KillVideo();
 	if(inited&1)
@@ -351,6 +364,7 @@ FCEUD_Update(uint8 *XBuf,
 			 int32 *Buffer,
 			 int Count)
 {
+	int blitDone = 0;
 	extern int FCEUDnetplay;
 
 	#ifdef CREATE_AVI
@@ -377,8 +391,8 @@ FCEUD_Update(uint8 *XBuf,
 		if (!mutecapture)
 		  if(Count > 0 && Buffer) WriteSound(Buffer,Count);   
 	  }
-	  if(inited & 2)
-		FCEUD_UpdateInput();
+	//  if(inited & 2)
+	//	FCEUD_UpdateInput();
 	  if(XBuf && (inited & 4)) BlitScreen(XBuf);
 	  
 	  //SpeedThrottle();
@@ -410,7 +424,9 @@ FCEUD_Update(uint8 *XBuf,
 		// don't underflow when scaling fps
 		if(g_fpsScale>1.0 || ((tmpcan < Count*0.90) && !uflow)) {
 			if(XBuf && (inited&4) && !(NoWaiting & 2))
-				BlitScreen(XBuf);
+			{
+				BlitScreen(XBuf); blitDone = 1;
+			}
 			Buffer+=can;
 			Count-=can;
 			if(Count) {
@@ -445,24 +461,23 @@ FCEUD_Update(uint8 *XBuf,
 		}
 
 	} else {
-		if(!NoWaiting && (!(eoptions&EO_NOTHROTTLE) || FCEUI_EmulationPaused()))
-		while (SpeedThrottle())
+		//if(!NoWaiting && (!(eoptions&EO_NOTHROTTLE) || FCEUI_EmulationPaused()))
+		//while (SpeedThrottle())
+		//{
+		//	FCEUD_UpdateInput();
+		//}
+		if (XBuf && (inited&4)) 
 		{
-			FCEUD_UpdateInput();
-		}
-		if(XBuf && (inited&4)) {
-			BlitScreen(XBuf);
+			BlitScreen(XBuf); blitDone = 1;
 		}
 	}
-	FCEUD_UpdateInput();
-	//if(!Count && !NoWaiting && !(eoptions&EO_NOTHROTTLE))
-	// SpeedThrottle();
-	//if(XBuf && (inited&4))
-	//{
-	// BlitScreen(XBuf);
-	//}
-	//if(Count)
-	// WriteSound(Buffer,Count,NoWaiting);
+	if ( !blitDone )
+	{
+		if (XBuf && (inited&4)) 
+		{
+			BlitScreen(XBuf); blitDone = 1;
+		}
+	}
 	//FCEUD_UpdateInput();
 }
 
@@ -496,12 +511,12 @@ FILE *FCEUD_UTF8fopen(const char *fn, const char *mode)
 	return(fopen(fn,mode));
 }
 
-static char *s_linuxCompilerString = "g++ " __VERSION__;
+static const char *s_linuxCompilerString = "g++ " __VERSION__;
 /**
  * Returns the compiler string.
  */
 const char *FCEUD_GetCompilerString() {
-	return (const char *)s_linuxCompilerString;
+	return s_linuxCompilerString;
 }
 
 /**
@@ -518,6 +533,10 @@ void FCEUD_TraceInstruction() {
 	return;
 }
 
+void fceuWrapperRequestAppExit(void)
+{
+	gtk_gui_run = false;
+}
 
 #ifdef _GTK
 	int noGui = 0;
@@ -555,14 +574,19 @@ int main(int argc, char *argv[])
 #endif
 
 	/* SDL_INIT_VIDEO Needed for (joystick config) event processing? */
-	if(SDL_Init(SDL_INIT_VIDEO)) {
+	if (SDL_Init(SDL_INIT_VIDEO))
+	{
 		printf("Could not initialize SDL: %s.\n", SDL_GetError());
 		return(-1);
 	}
+	if ( SDL_SetHint( SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1" ) == SDL_FALSE )
+	{
+		printf("Error setting SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS\n");
+	}
 
-#ifdef OPENGL
-	SDL_GL_LoadLibrary(0);
-#endif
+//#ifdef OPENGL
+//	SDL_GL_LoadLibrary(0);
+//#endif
 
 	// Initialize the configuration system
 	g_config = InitConfig();
@@ -593,7 +617,7 @@ int main(int argc, char *argv[])
 		else if(strcmp(argv[i], "--nogui") == 0)
 		{
 			noGui = 1;
-			argv[i] = "";
+			//argv[i] = "";
 		}
 #endif
 	}
@@ -611,12 +635,14 @@ int main(int argc, char *argv[])
 	
 	std::string s;
 
-	g_config->getOption("SDL.InputCfg", &s);
-	if(s.size() != 0)
-	{
-	InitVideo(GameInfo);
-	InputCfg(s);
-	}
+	//g_config->getOption("SDL.InputCfg", &s);
+	//
+	//if(s.size() != 0)
+	//{
+	//	InitVideo(GameInfo);
+	//	InputCfg(s);
+	//}
+	
 	// set the FAMICOM PAD 2 Mic thing 
 	{
 	int t;
@@ -627,18 +653,6 @@ int main(int argc, char *argv[])
 
     // update the input devices
 	UpdateInput(g_config);
-
-	// check if opengl is enabled with a scaler and display an error and bail	
-	int opengl;
-	int scaler;
-	g_config->getOption("SDL.OpenGL", &opengl);
-	g_config->getOption("SDL.SpecialFilter", &scaler);
-	if(opengl && scaler)
-	{
-		printf("Scalers are not supported in OpenGL mode.  Terminating.\n");
-		exit(2);
-	}
-
 
 	// check for a .fcm file to convert to .fm2
 	g_config->getOption ("SDL.FCMConvert", &s);
@@ -679,41 +693,6 @@ int main(int argc, char *argv[])
 	int yres, xres;
 	g_config->getOption("SDL.XResolution", &xres);
 	g_config->getOption("SDL.YResolution", &yres);
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-	// TODO _ SDL 2.0
-#else
-	const SDL_VideoInfo* vid_info = SDL_GetVideoInfo();
-	if(xres == 0) 
-    {
-        if(vid_info != NULL)
-        {
-			g_config->setOption("SDL.LastXRes", vid_info->current_w);
-        }
-        else
-        {
-			g_config->setOption("SDL.LastXRes", 512);
-        }
-    }
-	else
-	{
-		g_config->setOption("SDL.LastXRes", xres);
-	}	
-    if(yres == 0)
-    {
-        if(vid_info != NULL)
-        {
-			g_config->setOption("SDL.LastYRes", vid_info->current_h);
-        }
-        else
-        {
-			g_config->setOption("SDL.LastYRes", 448);
-        }
-    } 
-	else
-	{
-		g_config->setOption("SDL.LastYRes", yres);
-	}
-#endif
 	
 	int autoResume;
 	g_config->getOption("SDL.AutoResume", &autoResume);
@@ -847,7 +826,6 @@ int main(int argc, char *argv[])
 		input_display = id;
 		// not exactly an id as an true/false switch; still better than creating another int for that
 		g_config->getOption("SDL.SubtitleDisplay", &id); 
-		extern int movieSubtitles;
 		movieSubtitles = id;
 	}
 	
@@ -857,14 +835,20 @@ int main(int argc, char *argv[])
 #ifdef _GTK
 	if(noGui == 0)
 	{
+		spawn_glxwin(0); // even though it is not spawning a window, still needed for shared memory segment.
 		gtk_init(&argc, &argv);
 		InitGTKSubsystem(argc, argv);
+		while(gtk_events_pending())
+			gtk_main_iteration_do(FALSE);
+      // Ensure that the GUI has fully initialized. 
+      // Give the X-server a small amount of time to init.
+      usleep(100000);
 		while(gtk_events_pending())
 			gtk_main_iteration_do(FALSE);
 	}
 #endif
 
-  if(romIndex >= 0)
+	if(romIndex >= 0)
 	{
 		// load the specified game
 		error = LoadGame(argv[romIndex]);
@@ -915,6 +899,15 @@ int main(int argc, char *argv[])
 	g_config->setOption("SDL.LuaScript", "");
 	if (s != "")
 	{
+#ifdef __linux
+		// Resolve absolute path to file
+		char fullpath[2048];
+		if ( realpath( s.c_str(), fullpath ) != NULL )
+		{
+			//printf("Fullpath: '%s'\n", fullpath );
+			s.assign( fullpath );
+		}
+#endif
 		FCEU_LoadLuaCode(s.c_str());
 	}
 #endif
@@ -931,15 +924,24 @@ int main(int argc, char *argv[])
 #ifdef _GTK
 	if(noGui == 0)
 	{
-		while(1)
+		while ( gtk_gui_run )
 		{
 			if(GameInfo)
+			{
 				DoFun(frameskip, periodic_saves);
+			}
 			else
-				SDL_Delay(1);
+			{
+				SDL_Delay(10);
+			}
+			FCEUD_UpdateInput();
+
 			while(gtk_events_pending())
-			gtk_main_iteration_do(FALSE);
+			{
+				gtk_main_iteration_do(FALSE);
+			}
 		}
+		printf("Exiting GUI Main Loop...\n");
 	}
 	else
 	{
@@ -952,11 +954,34 @@ int main(int argc, char *argv[])
 		DoFun(frameskip, periodic_saves);
 	}
 #endif
+	printf("Closing Game...\n");
 	CloseGame();
 
+	printf("Exiting Infrastructure...\n");
 	// exit the infrastructure
 	FCEUI_Kill();
 	SDL_Quit();
+
+#ifdef _GTK
+	usleep(50000);
+	if ( MainWindow != NULL )
+	{
+		printf("Destroying GUI Window...\n");
+		gtk_widget_destroy( MainWindow ); MainWindow = NULL;
+	}
+	usleep(50000);
+	while(gtk_events_pending())
+	{
+		//printf("Processing the last of the events...\n");
+		gtk_main_iteration_do(FALSE);
+	}
+#endif
+	// LoadGame() checks for an IP and if it finds one begins a network session
+	// clear the NetworkIP field so this doesn't happen unintentionally
+	g_config->setOption ("SDL.NetworkIP", "");
+	g_config->save ();
+
+	printf("Done!\n");
 	return 0;
 }
 
@@ -1017,6 +1042,64 @@ void FCEUD_PrintError(const char *errormsg)
 
 	fprintf(stderr, "%s\n", errormsg);
 }
+
+//----------------------------------------------------
+void WinLuaOnStart(intptr_t hDlgAsInt)
+{
+	luaScriptRunning = true;
+
+	//printf("Lua Script Running: %i \n", luaScriptRunning );
+}
+//----------------------------------------------------
+void WinLuaOnStop(intptr_t hDlgAsInt)
+{
+	luaScriptRunning = false;
+
+	//printf("Lua Script Running: %i \n", luaScriptRunning );
+}
+//----------------------------------------------------
+void PrintToWindowConsole(intptr_t hDlgAsInt, const char* str)
+{
+	printf("Lua Output: %s\n", str );
+}
+//----------------------------------------------------
+int LuaKillMessageBox(void)
+{
+	int kill = 0;
+	fprintf(stderr, "The Lua script running has been running a long time.\nIt may have gone crazy. Kill it? (I won't ask again if you say No)\n");
+	char buffer[64];
+	while (true) {
+		fprintf(stderr, "(y/n): ");
+		fgets(buffer, sizeof(buffer), stdin);
+		if (buffer[0] == 'y' || buffer[0] == 'Y') {
+			kill = 1;
+			break;
+		}
+
+		if (buffer[0] == 'n' || buffer[0] == 'N')
+			break;
+	}
+	return 0;
+}
+//----------------------------------------------------
+#ifdef  WIN32
+int LuaPrintfToWindowConsole(_In_z_ _Printf_format_string_ const char* const format, ...) 
+#else
+int LuaPrintfToWindowConsole(const char *__restrict format, ...)  throw()
+#endif
+{
+   int retval;
+   va_list args;
+	char msg[2048];
+   va_start( args, format );
+   retval = ::vfprintf( stdout, format, args );
+   va_end(args);
+
+	msg[ sizeof(msg)-1 ] = 0;
+
+   return(retval);
+};
+//----------------------------------------------------
 
 
 // dummy functions

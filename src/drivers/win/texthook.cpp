@@ -777,7 +777,7 @@ int TextHookerSaveTableFile(){
  * Looking for comments?  Inqure within!
  *
  */
-BOOL CALLBACK TextHookerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+INT_PTR CALLBACK TextHookerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 	RECT wrect;
 	char str[2048];
 	char bufferstr[10240]; //holds the entire buffer, so it needs to be big...
@@ -1494,7 +1494,7 @@ int excitecojp() {
 	memset( buffer, 0, 2048 );
 	
 	//form the http request
-	sprintf( buffer, "POST /world/english/ HTTP/1.1\r\nHost: www.excite.co.jp\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n\r\nbefore=%s&wb_lp=JAEN&start=%%96%%7C+%%96%%F3", strlen( urlEscapedText ) + 38, urlEscapedText );
+	sprintf( buffer, "POST /world/english/ HTTP/1.1\r\nHost: www.excite.co.jp\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n\r\nbefore=%s&wb_lp=JAEN&start=%%96%%7C+%%96%%F3", (int)strlen( urlEscapedText ) + 38, urlEscapedText );
 		
 	//this was needed before in order to make it work, keeping it here in case it starts acting up again
 	//memset( textToTrans, 0, 1024 );

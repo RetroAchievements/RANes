@@ -46,8 +46,8 @@ pal palette_game[64*8]; //custom palette for an individual game. (formerly palet
 pal palette_user[64*8]; //user's overridden palette (formerly palettec)
 pal palette_ntsc[64*8]; //mathematically generated NTSC palette (formerly paletten)
 
-static bool palette_game_available; //whether palette_game is available
-static bool palette_user_available; //whether palette_user is available
+static bool palette_game_available=false; //whether palette_game is available
+static bool palette_user_available=false; //whether palette_user is available
 
 //ntsc parameters:
 bool ntsccol_enable = false; //whether NTSC palette is selected
@@ -72,7 +72,7 @@ static void ChoosePalette(void);
 static void WritePalette(void);
 
 //points to the actually selected current palette
-pal *palo;
+pal *palo = NULL;
 
 #define RGB_TO_YIQ( r, g, b, y, i ) (\
 	(y = (r) * 0.299f + (g) * 0.587f + (b) * 0.114f),\
@@ -287,6 +287,11 @@ static void ApplyDeemphasisComplete(pal* pal512)
 			ApplyDeemphasisBisqwit(idx,pal512[idx].r,pal512[idx].g,pal512[idx].b);
 		}
 	}
+}
+
+bool  FCEUI_GetUserPaletteAvail( void )
+{
+	return palette_user_available;
 }
 
 void FCEUI_SetUserPalette(uint8 *pal, int nEntries)

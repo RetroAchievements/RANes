@@ -1,8 +1,16 @@
 #ifdef __linux
+#include <stdlib.h>
 #include <unistd.h>
 #define SetCurrentDir chdir
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <libgen.h>
+#elif   __APPLE__
+#include <stdlib.h>
+#include <unistd.h>
+#include <libgen.h>
+#include <mach-o/dyld.h>
+#define SetCurrentDir chdir
 #endif
 
 #ifdef WIN32
@@ -40,6 +48,18 @@ extern char FileBase[];
 #include "drivers/win/taseditor/taseditor_lua.h"
 #include "drivers/win/cdlogger.h"
 extern TASEDITOR_LUA taseditor_lua;
+#endif
+
+#ifdef __SDL__
+
+#ifdef __QT_DRIVER__
+#include "drivers/Qt/fceuWrapper.h"
+#else
+int LoadGame(const char *path, bool silent = false);
+int reloadLastGame(void);
+void fceuWrapperRequestAppExit(void);
+#endif
+
 #endif
 
 #include <cstdio>
@@ -163,18 +183,32 @@ struct LuaSaveState {
 	}
 };
 
-static void(*info_print)(int uid, const char* str);
-static void(*info_onstart)(int uid);
-static void(*info_onstop)(int uid);
-static int info_uid;
+static void(*info_print)(intptr_t uid, const char* str);
+static void(*info_onstart)(intptr_t uid);
+static void(*info_onstop)(intptr_t uid);
+static intptr_t info_uid;
 #ifdef WIN32
 extern HWND LuaConsoleHWnd;
 extern INT_PTR CALLBACK DlgLuaScriptDialog(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
-extern void PrintToWindowConsole(int hDlgAsInt, const char* str);
-extern void WinLuaOnStart(int hDlgAsInt);
-extern void WinLuaOnStop(int hDlgAsInt);
 void TaseditorDisableManualFunctionIfNeeded();
+
+#else
+int LuaKillMessageBox(void);
+#ifdef __linux__
+
+#ifndef __THROWNL
+#define __THROWNL throw () // Build fix Alpine Linux libc
 #endif
+int LuaPrintfToWindowConsole(const char *__restrict format, ...) 
+                  __THROWNL __attribute__ ((__format__ (__printf__, 1, 2)));
+#else
+int LuaPrintfToWindowConsole(const char *__restrict format, ...) throw();
+#endif
+
+#endif
+extern void PrintToWindowConsole(intptr_t hDlgAsInt, const char* str);
+extern void WinLuaOnStart(intptr_t hDlgAsInt);
+extern void WinLuaOnStop(intptr_t hDlgAsInt);
 
 static lua_State *L;
 
@@ -207,6 +241,11 @@ static int wasPaused = FALSE;
 
 // Transparency strength. 255=opaque, 0=so transparent it's invisible
 static int transparencyModifier = 255;
+
+// Our zapper.
+static int luazapperx = -1;
+static int luazappery = -1;
+static int luazapperfire = -1;
 
 // Our joypads.
 static uint8 luajoypads1[4]= { 0xFF, 0xFF, 0xFF, 0xFF }; //x1
@@ -272,12 +311,17 @@ CTASSERT(sizeof(luaMemHookTypeStrings)/sizeof(*luaMemHookTypeStrings) ==  LUAMEM
 static char* rawToCString(lua_State* L, int idx=0);
 static const char* toCString(lua_State* L, int idx=0);
 
+static int exitScheduled = FALSE;
+
 /**
  * Resets emulator speed / pause states after script exit.
  */
 static void FCEU_LuaOnStop()
 {
 	luaRunning = FALSE;
+	luazapperx = -1;
+	luazappery = -1;
+	luazapperfire = -1;
 	for (int i = 0 ; i < 4 ; i++ ){
 		luajoypads1[i]= 0xFF;	// Set these back to pass-through
 		luajoypads2[i]= 0x00;
@@ -506,22 +550,64 @@ static int emu_getdir(lua_State *L) {
 	lua_pushstring(L, finalPath);
 
 	return 1;
+#elif __linux__
+	char exePath[ 2048 ];
+   ssize_t count = ::readlink( "/proc/self/exe", exePath, sizeof(exePath)-1 );
+
+	if ( count > 0 )
+	{
+		char *dir;
+		exePath[count] = 0;
+		//printf("EXE Path: '%s' \n", exePath );
+
+		dir = ::dirname( exePath );
+
+		if ( dir )
+		{
+			//printf("DIR Path: '%s' \n", dir );
+	   	lua_pushstring(L, dir);
+			return 1;
+		}
+	}
+#elif	  __APPLE__
+	char exePath[ 2048 ];
+	uint32_t bufSize = sizeof(exePath);
+	int result = _NSGetExecutablePath( exePath, &bufSize );
+
+	if ( result == 0 )
+	{
+		char *dir;
+		exePath[ bufSize ] = 0;
+		//printf("EXE Path: '%s' \n", exePath );
+
+		dir = ::dirname( exePath );
+
+		if ( dir )
+		{
+			//printf("DIR Path: '%s' \n", dir );
+			lua_pushstring(L, dir);
+			return 1;
+		}
+	}
 #endif
+	return 0;
 }
 
 
 extern void ReloadRom(void);
 
+
 // emu.loadrom(string filename)
 //
 //  Loads the rom from the directory relative to the lua script or from the absolute path.
-//  If the rom can't e loaded, loads the most recent one.
-static int emu_loadrom(lua_State *L) {
+//  If the rom can't be loaded, loads the most recent one.
+static int emu_loadrom(lua_State *L) 
+{
 #ifdef WIN32
 	const char* str = lua_tostring(L,1);
 
 	//special case: reload rom
-	if(!str) {
+	if (!str) {
 		ReloadRom();
 		return 0;
 	}
@@ -532,13 +618,47 @@ static int emu_loadrom(lua_State *L) {
 	if (!ALoad(nameo)) {
 		extern void LoadRecentRom(int slot);
 		LoadRecentRom(0);
-		return 0;
-	} else {
+	}
+	if ( GameInfo )
+	{
+		//printf("Currently Loaded ROM: '%s'\n", GameInfo->filename );
+		lua_pushstring(L, GameInfo->filename);
 		return 1;
 	}
+	return 0;
+#else
+	const char *nameo2 = luaL_checkstring(L,1);
+	char nameo[2048];
+
+	if ( realpath( nameo2, nameo ) == NULL )
+	{
+		strncpy(nameo, nameo2, sizeof(nameo));
+	}
+	//printf("Attempting to Load ROM: '%s'\n", nameo );
+	if (!LoadGame(nameo, true)) 
+	{
+		//printf("Failed to Load ROM: '%s'\n", nameo );
+		reloadLastGame();
+	}
+	if ( GameInfo )
+	{
+		//printf("Currently Loaded ROM: '%s'\n", GameInfo->filename );
+		lua_pushstring(L, GameInfo->filename);
+		return 1;
+	} else {
+		return 0;
+	}
 #endif
+	return 0;
 }
 
+// emu.exit()
+//
+// Closes the fceux
+static int emu_exit(lua_State *L) {
+	exitScheduled = TRUE;
+	return 0;
+}
 
 static int emu_registerbefore(lua_State *L) {
 	if (!lua_isnil(L,1))
@@ -1249,6 +1369,7 @@ void CallRegisteredLuaSaveFunctions(int savestateNumber, LuaSaveData& saveData)
 #ifdef WIN32
 				MessageBox(hAppWnd, lua_tostring(L, -1), "Lua Error in SAVE function", MB_OK);
 #else
+				LuaPrintfToWindowConsole("Lua error in registersave function: %s\n", lua_tostring(L, -1));
 				fprintf(stderr, "Lua error in registersave function: %s\n", lua_tostring(L, -1));
 #endif
 			}
@@ -1301,6 +1422,7 @@ void CallRegisteredLuaLoadFunctions(int savestateNumber, const LuaSaveData& save
 #ifdef WIN32
 				MessageBox(hAppWnd, lua_tostring(L, -1), "Lua Error in LOAD function", MB_OK);
 #else
+				LuaPrintfToWindowConsole("Lua error in registerload function: %s\n", lua_tostring(L, -1));
 				fprintf(stderr, "Lua error in registerload function: %s\n", lua_tostring(L, -1));
 #endif
 			}
@@ -1416,6 +1538,16 @@ static int memory_readwordsigned(lua_State *L) {
 }
 
 static int memory_writebyte(lua_State *L) {
+	uint32 A = luaL_checkinteger(L, 1);
+	uint8  V = luaL_checkinteger(L, 2);
+
+	if(A < 0x10000)
+		BWrite[A](A, V);
+
+	return 0;
+}
+
+static int legacymemory_writebyte(lua_State *L) {
 	FCEU_CheatSetByte(luaL_checkinteger(L,1), luaL_checkinteger(L,2));
 	return 0;
 }
@@ -1932,6 +2064,7 @@ void HandleCallbackError(lua_State* L)
 #ifdef WIN32
 		MessageBox( hAppWnd, errmsg, "Lua run error", MB_OK | MB_ICONSTOP);
 #else
+		LuaPrintfToWindowConsole("Lua thread bombed out: %s\n", errmsg);
 		fprintf(stderr, "Lua thread bombed out: %s\n", errmsg);
 #endif
 
@@ -2526,7 +2659,37 @@ static int zapper_read(lua_State *L){
 	return 1;
 }
 
+// zapper.set(table state)
+//
+//   Sets the zapper state for the next frame advance.
+static int zapper_set(lua_State* L) {
 
+	luaL_checktype(L, 1, LUA_TTABLE);
+
+	luazapperx = -1;
+	luazappery = -1;
+	luazapperfire = -1;
+
+	lua_getfield(L, 1, "x");
+	if (!lua_isnil(L, -1)) luazapperx = lua_tointeger(L, -1);
+	lua_pop(L, 1);
+
+	lua_getfield(L, 1, "y");
+	if (!lua_isnil(L, -1)) luazappery = lua_tointeger(L, -1);
+	lua_pop(L, 1);
+
+	lua_getfield(L, 1, "fire");
+	if (!lua_isnil(L, -1))
+	{
+		if (lua_toboolean(L, -1)) // True or string
+			luazapperfire = 1;
+		if (lua_toboolean(L, -1) == 0 || lua_isstring(L, -1)) // False or string
+			luazapperfire = 0;
+	}
+	lua_pop(L, 1);
+
+	return 0;
+}
 
 // table joypad.read(int which = 1)
 //
@@ -5179,7 +5342,7 @@ static int doPopup(lua_State *L, const char* deftype, const char* deficon) {
 	return 1;
 #else
 
-	char *t;
+	const char *t;
 #ifdef __linux
 
 	int pid; // appease compiler
@@ -5237,9 +5400,9 @@ static int doPopup(lua_State *L, const char* deftype, const char* deficon) {
 
 		// I'm gonna be dead in a matter of microseconds anyways, so wasted memory doesn't matter to me.
 		// Go ahead and abuse strdup.
-		char * parameters[] = {"xmessage", "-buttons", t, strdup(str), NULL};
+		const char * parameters[] = {"xmessage", "-buttons", t, strdup(str), NULL};
 
-		execvp("xmessage", parameters);
+		execvp("xmessage", (char* const*)parameters);
 
 		// Aw shitty
 		perror("exec xmessage");
@@ -5610,19 +5773,23 @@ static void FCEU_LuaHookFunction(lua_State *L, lua_Debug *dbg) {
 		}
 
 #else
-		fprintf(stderr, "The Lua script running has been running a long time.\nIt may have gone crazy. Kill it? (I won't ask again if you say No)\n");
-		char buffer[64];
-		while (TRUE) {
-			fprintf(stderr, "(y/n): ");
-			fgets(buffer, sizeof(buffer), stdin);
-			if (buffer[0] == 'y' || buffer[0] == 'Y') {
-				kill = 1;
-				break;
-			}
-
-			if (buffer[0] == 'n' || buffer[0] == 'N')
-				break;
+		if ( LuaKillMessageBox() )
+		{
+			kill = 1;
 		}
+		//fprintf(stderr, "The Lua script running has been running a long time.\nIt may have gone crazy. Kill it? (I won't ask again if you say No)\n");
+		//char buffer[64];
+		//while (TRUE) {
+		//	fprintf(stderr, "(y/n): ");
+		//	fgets(buffer, sizeof(buffer), stdin);
+		//	if (buffer[0] == 'y' || buffer[0] == 'Y') {
+		//		kill = 1;
+		//		break;
+		//	}
+
+		//	if (buffer[0] == 'n' || buffer[0] == 'N')
+		//		break;
+		//}
 #endif
 
 		if (kill) {
@@ -5738,6 +5905,7 @@ static const struct luaL_reg emulib [] = {
 	{"getdir", emu_getdir},
 	{"loadrom", emu_loadrom},
 	{"print", print}, // sure, why not
+	{"exit", emu_exit}, // useful for run-and-close scripts
 	{NULL,NULL}
 };
 
@@ -5764,6 +5932,7 @@ static const struct luaL_reg memorylib [] = {
 	{"readwordsigned", memory_readwordsigned},
 	{"readwordunsigned", memory_readword},	// alternate naming scheme for unsigned
 	{"writebyte", memory_writebyte},
+	{"legacywritebyte", legacymemory_writebyte},
 	{"getregister", memory_getregister},
 	{"setregister", memory_setregister},
 
@@ -5804,6 +5973,7 @@ static const struct luaL_reg joypadlib[] = {
 
 static const struct luaL_reg zapperlib[] = {
 	{"read", zapper_read},
+	{"set", zapper_set},
 	{NULL,NULL}
 };
 
@@ -5959,7 +6129,8 @@ static const struct luaL_reg cdloglib[] = {
 	{ NULL,NULL }
 };
 
-void CallExitFunction() {
+void CallExitFunction() 
+{
 	if (!L)
 		return;
 
@@ -6016,6 +6187,7 @@ void FCEU_LuaFrameBoundary()
 				//StopSound();//StopSound(); //mbg merge 7/23/08
 		MessageBox( hAppWnd, errmsg, "Lua run error", MB_OK | MB_ICONSTOP);
 #else
+		LuaPrintfToWindowConsole("Lua thread bombed out: %s\n", errmsg);
 		fprintf(stderr, "Lua thread bombed out: %s\n", errmsg);
 #endif
 	} else {
@@ -6034,6 +6206,17 @@ void FCEU_LuaFrameBoundary()
 		FCEU_LuaOnStop();
 	}
 
+#if defined(__linux) || defined(__APPLE__)
+	if (exitScheduled)
+	{  // This function does not exit immediately, 
+		// it requests for the application to exit when next convenient.
+		fceuWrapperRequestAppExit();
+		exitScheduled = FALSE;
+	}
+#else
+	if (exitScheduled)
+		DoFCEUExit();
+#endif
 }
 
 /**
@@ -6043,7 +6226,8 @@ void FCEU_LuaFrameBoundary()
  *
  * Returns true on success, false on failure.
  */
-int FCEU_LoadLuaCode(const char *filename, const char *arg) {
+int FCEU_LoadLuaCode(const char *filename, const char *arg) 
+{
 	if (!DemandLua())
 	{
 		return 0;
@@ -6055,13 +6239,11 @@ int FCEU_LoadLuaCode(const char *filename, const char *arg) {
 		luaScriptName = strdup(filename);
 	}
 
-#if defined(WIN32) || defined(__linux)
 	std::string getfilepath = filename;
 
 	getfilepath = getfilepath.substr(0,getfilepath.find_last_of("/\\") + 1);
 
 	SetCurrentDir(getfilepath.c_str());
-#endif
 
 	//stop any lua we might already have had running
 	FCEU_LuaStop();
@@ -6098,6 +6280,7 @@ int FCEU_LoadLuaCode(const char *filename, const char *arg) {
 		luaL_register(L, "joypad", joypadlib);
 		luaL_register(L, "zapper", zapperlib);
 		luaL_register(L, "input", inputlib);
+		lua_settop(L, 0); // clean the stack, because each call to luaL_register leaves a table on top (eventually overflows)
 		luaL_register(L, "savestate", savestatelib);
 		luaL_register(L, "movie", movielib);
 		luaL_register(L, "gui", guilib);
@@ -6106,7 +6289,7 @@ int FCEU_LoadLuaCode(const char *filename, const char *arg) {
 		luaL_register(L, "cdlog", cdloglib);
 		luaL_register(L, "taseditor", taseditorlib);
 		luaL_register(L, "bit", bit_funcs); // LuaBitOp library
-		lua_settop(L, 0);		// clean the stack, because each call to luaL_register leaves a table on top
+		lua_settop(L, 0);
 
 		// register a few utility functions outside of libraries (in the global namespace)
 		lua_register(L, "print", print);
@@ -6156,6 +6339,7 @@ int FCEU_LoadLuaCode(const char *filename, const char *arg) {
 				//StopSound();//StopSound(); //mbg merge 7/23/08
 		MessageBox(NULL, lua_tostring(L,-1), "Lua load error", MB_OK | MB_ICONSTOP);
 #else
+		LuaPrintfToWindowConsole("Failed to compile file: %s\n", lua_tostring(L,-1));
 		fprintf(stderr, "Failed to compile file: %s\n", lua_tostring(L,-1));
 #endif
 
@@ -6193,12 +6377,13 @@ int FCEU_LoadLuaCode(const char *filename, const char *arg) {
 	info_onstart = WinLuaOnStart;
 	info_onstop = WinLuaOnStop;
 	if(!LuaConsoleHWnd)
-		LuaConsoleHWnd = CreateDialog(fceu_hInstance, MAKEINTRESOURCE(IDD_LUA), hAppWnd, (DLGPROC) DlgLuaScriptDialog);
-	info_uid = (int)LuaConsoleHWnd;
+		LuaConsoleHWnd = CreateDialog(fceu_hInstance, MAKEINTRESOURCE(IDD_LUA), hAppWnd, DlgLuaScriptDialog);
+	info_uid = (intptr_t)LuaConsoleHWnd;
 #else
-	info_print = NULL;
-	info_onstart = NULL;
-	info_onstop = NULL;
+	info_print = PrintToWindowConsole;
+	info_onstart = WinLuaOnStart;
+	info_onstop = WinLuaOnStop;
+	info_uid = (intptr_t)0;
 #endif
 	if (info_onstart)
 		info_onstart(info_uid);
@@ -6297,6 +6482,15 @@ int FCEU_LuaRunning() {
 	return (int) (L != NULL); // should return true if callback functions are active.
 }
 
+/**
+ * Applies zapper.set overrides to zapper input.
+ */
+void FCEU_LuaReadZapper(const uint32* mouse_in, uint32* mouse_out)
+{
+	mouse_out[0] = luazapperx >= 0 ? luazapperx : mouse_in[0];
+	mouse_out[1] = luazappery >= 0 ? luazappery : mouse_in[1];
+	mouse_out[2] = luazapperfire >= 0 ? (luazapperfire | (mouse_in[2] & ~1)) : mouse_in[2];
+}
 
 /**
  * Returns true if Lua would like to steal the given joypad control.
@@ -6364,6 +6558,7 @@ void FCEU_LuaGui(uint8 *XBuf)
 			//StopSound();//StopSound(); //mbg merge 7/23/08
 			MessageBox(hAppWnd, lua_tostring(L, -1), "Lua Error in GUI function", MB_OK);
 #else
+			LuaPrintfToWindowConsole("Lua error in gui.register function: %s\n", lua_tostring(L, -1));
 			fprintf(stderr, "Lua error in gui.register function: %s\n", lua_tostring(L, -1));
 #endif
 			// This is grounds for trashing the function

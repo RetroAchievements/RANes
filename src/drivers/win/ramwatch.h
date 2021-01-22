@@ -6,7 +6,7 @@ extern bool AutoRWLoad;
 extern bool RWSaveWindowPos;
 #define MAX_RECENT_WATCHES 5
 extern char rw_recent_files[MAX_RECENT_WATCHES][1024];
-extern bool AskSave();
+extern bool AskSaveRamWatch();
 extern int ramw_x;
 extern int ramw_y;
 extern bool RWfileChanged;
@@ -39,6 +39,7 @@ struct SeparatorCache
 };
 
 #define MAX_WATCH_COUNT 256
+
 extern int WatchCount; // number of valid items in rswatches
 
 extern char Watch_Dir[1024];
@@ -51,16 +52,41 @@ struct AddressWatcher
 {
 	unsigned int Address; // hardware address
 	unsigned int CurValue;
-	char* comment = NULL; // NULL means no comment, non-NULL means allocated comment
+	char* comment; // NULL means no comment, non-NULL means allocated comment
 	bool WrongEndian;
 	char Size; //'d' = 4 bytes, 'w' = 2 bytes, 'b' = 1 byte, and 'S' means it's a separator.
-	char Type;//'s' = signed integer, 'u' = unsigned, 'h' = hex, 'S' = separator
+	char Type;//'s' = signed integer, 'u' = unsigned, 'h' = hex, 'b' = binary, 'S' = separator
 	short Cheats; // how many bytes are affected by cheat
+
+	AddressWatcher(void)
+	{
+		Address = 0; CurValue = 0; comment = NULL; WrongEndian = false;
+		Size = 'b'; Type = 's'; Cheats = 0;
+	}
 };
+
+// the struct for communicating with add watch window
+#define WATCHER_MSG_ADD 0
+#define WATCHER_MSG_EDIT 1
+#define WATCHER_MSG_DUP 2
+struct WatcherMsg {
+	int msg = WATCHER_MSG_ADD;
+	int count = 0; // how many addresses are there
+	unsigned int* Addresses = NULL; // Address list
+	char* comment = NULL;
+	bool WrongEndian;
+	char Size;
+	char Type;
+
+	AddressWatcher* ToAddressWatches(int* _count = NULL);
+	static WatcherMsg FromAddressWatches(const AddressWatcher* watches, int count = 1);
+};
+
+
 
 bool InsertWatch(const AddressWatcher& Watch);
 bool InsertWatch(const AddressWatcher& Watch, HWND parent); // asks user for comment
-bool InsertWatches(const AddressWatcher* watches, HWND parent, const int count);
+bool InsertWatches(WatcherMsg* msg, HWND parent, int count);
 bool InsertWatch(int watchIndex, const AddressWatcher& watcher);
 bool EditWatch(int watchIndex, const AddressWatcher& watcher);
 bool RemoveWatch(int watchIndex);
@@ -70,8 +96,8 @@ bool Load_Watches(bool clear, const char* filename);
 void RWAddRecentFile(const char *filename);
 void UpdateWatchCheats();
 
-LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
-LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
+INT_PTR CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
+INT_PTR CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 extern HWND RamWatchHWnd;
 
