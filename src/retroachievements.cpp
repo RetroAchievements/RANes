@@ -17,6 +17,9 @@
 #include "drivers\win\taseditor\taseditor_project.h"
 #include "drivers\win\tracer.h"
 
+#include "../RAInterface/RA_Consoles.h"
+#include "../RAInterface/RA_Emulators.h"
+
 #include "RA_BuildVer.h"
 
 extern HWND hPPUView; // not in ppuview.h
@@ -27,9 +30,9 @@ extern HWND LuaConsoleHWnd; // not in fcelua.h
 
 int FDS_GameId = 0;
 
-static bool GameIsActive()
+static int GameIsActive()
 {
-	return true;
+	return 1;
 }
 
 static void CauseUnpause()
@@ -149,10 +152,10 @@ unsigned char ByteReader(unsigned int nOffs)
 	return 0;
 }
 
-void ByteWriter(unsigned int nOffs, unsigned int nVal)
+void ByteWriter(unsigned int nOffs, uint8 nVal)
 {
 	if (GameInfo)
-		BWrite[nOffs](nOffs, static_cast<uint8>(nVal));
+		BWrite[nOffs](nOffs, nVal);
 }
 
 void RA_Init()
@@ -200,7 +203,7 @@ void RA_IdentifyAndActivateGame()
 			uint64 size = FCEU_fgetsize(fp);
 			uint8* buffer = new uint8[size];
 			FCEU_fread(buffer, 1, size, fp);
-			if (memcmp(&buffer, "NES\x1a", 4)) // if a header is found, ignore it
+			if (memcmp(buffer, "NES\x1a", 4) == 0) // if a header is found, ignore it
 				RA_OnLoadNewRom(&buffer[16], size - 16);
 			else
 				RA_OnLoadNewRom(buffer, size);
