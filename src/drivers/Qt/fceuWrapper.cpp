@@ -1,3 +1,22 @@
+/* FCE Ultra - NES/Famicom Emulator
+ *
+ * Copyright notice for this file:
+ *  Copyright (C) 2020 mjbudd77
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ */
 // fceuWrapper.cpp
 //
 #include <stdio.h>
@@ -17,6 +36,7 @@
 #include "Qt/sdl-video.h"
 #include "Qt/nes_shm.h"
 #include "Qt/unix-netplay.h"
+#include "Qt/AviRecord.h"
 #include "Qt/HexEditor.h"
 #include "Qt/SymbolicDebug.h"
 #include "Qt/CodeDataLogger.h"
@@ -27,6 +47,7 @@
 
 #include "common/cheat.h"
 #include "../../fceu.h"
+#include "../../cheat.h"
 #include "../../movie.h"
 #include "../../version.h"
 
@@ -34,6 +55,7 @@
 #include "../../fceulua.h"
 #endif
 
+#include "common/os_utils.h"
 #include "common/configSys.h"
 #include "../../oldmovie.h"
 #include "../../types.h"
@@ -42,6 +64,11 @@
 #include "../videolog/nesvideos-piece.h"
 #endif
 
+#ifdef _MSC_VER 
+//not #if defined(_WIN32) || defined(_WIN64) because we have strncasecmp in mingw
+#define strncasecmp _strnicmp
+#define strcasecmp _stricmp
+#endif
 //*****************************************************************
 // Define Global Variables to be shared with FCEU Core
 //*****************************************************************
@@ -57,6 +84,8 @@ bool swapDuty = 0;
 bool turbo = false;
 bool pauseAfterPlayback = false;
 bool suggestReadOnlyReplay = true;
+bool showStatusIconOpt = true;
+bool drawInputAidsEnable = true;
 unsigned int gui_draw_area_width   = 256;
 unsigned int gui_draw_area_height  = 256;
 
@@ -70,7 +99,7 @@ static int periodic_saves = 0;
 static int   mutexLocks = 0;
 static int   mutexPending = 0;
 static bool  emulatorHasMutux = 0;
-static unsigned int emulatorCycleCount = 0;
+unsigned int emulatorCycleCount = 0;
 
 extern double g_fpsScale;
 
@@ -117,13 +146,17 @@ EMUFILE_FILE* FCEUD_UTF8_fstream(const char *fn, const char *m)
 	//return new std::fstream(fn,mode);
 }
 
-static const char *s_linuxCompilerString = "g++ " __VERSION__;
+#ifdef _MSC_VER
+static const char *s_CompilerString = "MSVC";
+#else
+static const char *s_CompilerString = "g++ " __VERSION__;
+#endif
 /**
  * Returns the compiler string.
  */
 const char *FCEUD_GetCompilerString(void)
 {
-	return s_linuxCompilerString;
+	return s_CompilerString;
 }
 
 /**
@@ -151,20 +184,29 @@ FCEUD_GetTimeFreq(void)
 static int
 DriverInitialize(FCEUGI *gi)
 {
-	if(InitVideo(gi) < 0) return 0;
+	if (InitVideo(gi) < 0)
+	{
+		return 0;
+	}
 	inited|=4;
 
-	if(InitSound())
+	if (InitSound())
+	{
 		inited|=1;
+	}
 
-	if(InitJoysticks())
+	if (InitJoysticks())
+	{
 		inited|=2;
+	}
 
 	int fourscore=0;
 	g_config->getOption("SDL.FourScore", &fourscore);
 	eoptions &= ~EO_FOURSCORE;
-	if(fourscore)
+	if (fourscore)
+	{
 		eoptions |= EO_FOURSCORE;
+	}
 
 	InitInputInterface();
 	return 1;
@@ -213,7 +255,7 @@ int LoadGame(const char *path, bool silent)
 		CloseGame();
 	}
 
-#if defined(__linux) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
 
 	// Resolve absolute path to file
 	if ( realpath( path, fullpath ) == NULL )
@@ -233,8 +275,17 @@ int LoadGame(const char *path, bool silent)
 
 	FCEUI_SetGameGenie (gg_enabled);
 
+	// Set RAM Init Method Prior to Loading New Game
+	g_config->getOption ("SDL.RamInitMethod", &RAMInitOption);
+
+	// Load the game
 	if(!FCEUI_LoadGame(fullpath, 1, silent)) {
 		return 0;
+	}
+
+	if ( consoleWindow )
+	{
+		consoleWindow->addRecentRom( fullpath );
 	}
 
 	hexEditorLoadBookmarks();
@@ -279,23 +330,67 @@ int LoadGame(const char *path, bool silent)
 	}
 	
 	// set pal/ntsc
-	int id;
-	g_config->getOption("SDL.PAL", &id);
-	FCEUI_SetRegion(id);
+	int id, region, autoDetectPAL;
+	g_config->getOption("SDL.PAL", &region);
+	g_config->getOption("SDL.AutoDetectPAL", &autoDetectPAL);
+
+	if ( autoDetectPAL )
+	{
+		id = FCEUI_GetCurrentVidSystem(NULL, NULL);
+
+		if ( region == 2 )
+		{	// Dendy mode:
+			//   Run PAL Games as PAL
+			//   Run NTSC Games as Dendy
+			if ( id == 1 )
+			{
+				g_config->setOption("SDL.PAL", id);
+				FCEUI_SetRegion(id);
+			}
+			else
+			{
+				FCEUI_SetRegion(region);
+			}
+		}
+		else
+		{	// Run NTSC games as NTSC and PAL games as PAL
+			g_config->setOption("SDL.PAL", id);
+			FCEUI_SetRegion(id);
+		}
+	}
+	else
+	{
+		// If not Auto-detection of region,
+		// Strictly enforce region GUI selection
+		// Does not matter what type of game is 
+		// loaded, the current region selection is used 
+		FCEUI_SetRegion(region);
+	}
+
+	// Always re-calculate video dimensions after setting region.
+	CalcVideoDimensions();
+
+	// Force re-send of video settings to console viewer
+	if ( consoleWindow )
+	{
+		consoleWindow->videoReset();
+	}
 
 	g_config->getOption("SDL.SwapDuty", &id);
 	swapDuty = id;
 	
-	std::string filename;
-	g_config->getOption("SDL.Sound.RecordFile", &filename);
-	if(filename.size()) {
-		if(!FCEUI_BeginWaveRecord(filename.c_str())) {
-			g_config->setOption("SDL.Sound.RecordFile", "");
-		}
-	}
+	// Wave Recording done through menu or hotkeys
+	//std::string filename;
+	//g_config->getOption("SDL.Sound.RecordFile", &filename);
+	//if (filename.size()) 
+	//{
+	//	if (!FCEUI_BeginWaveRecord(filename.c_str())) {
+	//		g_config->setOption("SDL.Sound.RecordFile", "");
+	//	}
+	//}
 	isloaded = 1;
 
-	FCEUD_NetworkConnect();
+	//FCEUD_NetworkConnect();
 	return 1;
 }
 
@@ -307,23 +402,53 @@ CloseGame(void)
 {
 	std::string filename;
 
-	if(!isloaded) {
+	if ( nes_shm )
+	{	// Clear Screen on Game Close
+		nes_shm->clear_pixbuf();
+		nes_shm->blitUpdated = 1;
+	}
+
+	if (!isloaded) {
 		return(0);
 	}
+
+	// If the emulation thread is stuck hanging at a breakpoint,
+	// disable breakpoint debugging and wait for the thread to 
+	// complete its frame. So that it is idle with a minimal call
+	// stack when we close the ROM. After thread has completed the
+	// frame, it is then safe to re-enable breakpoint debugging.
+	if ( debuggerWaitingAtBreakpoint() )
+	{
+		bpDebugSetEnable(false);
+
+		if ( fceuWrapperIsLocked() )
+		{
+			fceuWrapperUnLock();
+			msleep(100);
+			fceuWrapperLock();
+		}
+		else
+		{
+			msleep(100);
+		}
+		bpDebugSetEnable(true);
+	}
+
 	hexEditorSaveBookmarks();
 	saveGameDebugBreakpoints();
 	debuggerClearAllBreakpoints();
+	debuggerClearAllBookmarks();
 
 	debugSymbolTable.save();
 	debugSymbolTable.clear();
 	CDLoggerROMClosed();
 
-   int state_to_save;
-   g_config->getOption("SDL.AutoSaveState", &state_to_save);
-   if (state_to_save < 10 && state_to_save >= 0){
-       FCEUI_SelectState(state_to_save, 0);
-       FCEUI_SaveState(NULL, false);
-   }
+	int state_to_save;
+	g_config->getOption("SDL.AutoSaveState", &state_to_save);
+	if (state_to_save < 10 && state_to_save >= 0){
+	    FCEUI_SelectState(state_to_save, 0);
+	    FCEUI_SaveState(NULL, false);
+	}
 
 	int autoInputPreset;
 	g_config->getOption( "SDL.AutoInputPreset", &autoInputPreset );
@@ -359,12 +484,27 @@ int  fceuWrapperSoftReset(void)
 
 int  fceuWrapperHardReset(void)
 {
-	if ( isloaded )
+	if ( isloaded && GameInfo )
 	{
-		std::string lastFile;
-		CloseGame();
-		g_config->getOption ("SDL.LastOpenFile", &lastFile);
-		LoadGame (lastFile.c_str());
+		char romPath[2048];
+
+		romPath[0] = 0;
+
+		if ( GameInfo->archiveFilename )
+		{
+			strcpy( romPath, GameInfo->archiveFilename );
+		}
+		else if ( GameInfo->filename )
+		{
+			strcpy( romPath, GameInfo->filename );
+		}
+
+		if ( romPath[0] != 0 )
+		{
+			CloseGame();
+			//printf("Loading: '%s'\n", romPath );
+			LoadGame ( romPath );
+		}
 	}
 	return 0;
 }
@@ -492,7 +632,7 @@ static void ShowUsage(const char *prog)
 
 int  fceuWrapperInit( int argc, char *argv[] )
 {
-	int error;
+	int opt, error;
 	std::string s;
 
 	for (int i=0; i<argc; i++)
@@ -605,13 +745,34 @@ int  fceuWrapperInit( int argc, char *argv[] )
 		AutoResumePlay = false;
 	}
 
+	// Cheats
+	g_config->getOption ("SDL.CheatsDisabled"     , &globalCheatDisabled);
+	g_config->getOption ("SDL.CheatsDisableAutoLS", &disableAutoLSCheats);
+
+	g_config->getOption ("SDL.DrawInputAids", &drawInputAidsEnable);
+
+	// Initialize Autofire Pattern
+	int autofireOnFrames=1, autofireOffFrames=1;
+	g_config->getOption ("SDL.AutofireOnFrames" , &autofireOnFrames );
+	g_config->getOption ("SDL.AutofireOffFrames", &autofireOffFrames);
+
+	SetAutoFirePattern( autofireOnFrames, autofireOffFrames );
+
 	// check to see if recording HUD to AVI is enabled
 	int rh;
 	g_config->getOption("SDL.RecordHUD", &rh);
-	if( rh == 0)
+	if( rh )
 		FCEUI_SetAviEnableHUDrecording(true);
 	else
 		FCEUI_SetAviEnableHUDrecording(false);
+
+	g_config->getOption("SDL.SuggestReadOnlyReplay"  , &suggestReadOnlyReplay);
+	g_config->getOption("SDL.PauseAfterMoviePlayback", &pauseAfterPlayback);
+	g_config->getOption("SDL.CloseFinishedMovie"     , &closeFinishedMovie);
+	g_config->getOption("SDL.MovieBindSavestate"     , &bindSavestate);
+	g_config->getOption("SDL.SubtitlesOnAVI"         , &subtitlesOnAVI);
+	g_config->getOption("SDL.AutoMovieBackup"        , &autoMovieBackup);
+	g_config->getOption("SDL.MovieFullSaveStateLoads", &fullSaveStateLoads);
 
 	// check to see if movie messages are disabled
 	int mm;
@@ -621,6 +782,9 @@ int  fceuWrapperInit( int argc, char *argv[] )
 	else
 		FCEUI_SetAviDisableMovieMessages(false);
   
+	g_config->getOption("SDL.AviVideoFormat", &opt);
+	aviSetSelVideoFormat(opt);
+
 	// check for a .fm2 file to rip the subtitles
 	g_config->getOption("SDL.RipSubs", &s);
 	g_config->setOption("SDL.RipSubs", "");
@@ -700,6 +864,8 @@ int  fceuWrapperInit( int argc, char *argv[] )
 	// update the emu core
 	UpdateEMUCore(g_config);
 
+	CalcVideoDimensions();
+
 	#ifdef CREATE_AVI
 	g_config->getOption("SDL.VideoLog", &s);
 	g_config->setOption("SDL.VideoLog", "");
@@ -749,6 +915,8 @@ int  fceuWrapperInit( int argc, char *argv[] )
 		g_config->save();
 	}
 
+	aviRecordInit();
+
 	// movie playback
 	g_config->getOption("SDL.Movie", &s);
 	g_config->setOption("SDL.Movie", "");
@@ -795,7 +963,7 @@ int  fceuWrapperInit( int argc, char *argv[] )
 	g_config->setOption("SDL.LuaScript", "");
 	if (s != "")
 	{
-#if defined(__linux) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
 
 		// Resolve absolute path to file
 		char fullpath[2048];
@@ -809,13 +977,7 @@ int  fceuWrapperInit( int argc, char *argv[] )
 	}
 #endif
 	
-	{
-		int id;
-		g_config->getOption("SDL.NewPPU", &id);
-		if (id)
-			newppu = 1;
-	}
-
+	g_config->getOption("SDL.NewPPU", &newppu);
 	g_config->getOption("SDL.Frameskip", &frameskip);
 
 	return 0;
@@ -832,131 +994,148 @@ int  fceuWrapperClose( void )
 	return 0;
 }
 
+int  fceuWrapperMemoryCleanup(void)
+{
+	FreeCDLog();
+
+	close_nes_shm();
+
+	if ( g_config )
+	{
+		delete g_config; g_config = NULL;
+	}
+
+	return 0;
+}
+
 /**
  * Update the video, audio, and input subsystems with the provided
  * video (XBuf) and audio (Buffer) information.
  */
 void
 FCEUD_Update(uint8 *XBuf,
-			 int32 *Buffer,
-			 int Count)
+	 int32 *Buffer,
+	 int Count)
 {
 	int blitDone = 0;
-	extern int FCEUDnetplay;
+	//extern int FCEUDnetplay;
 
-	#ifdef CREATE_AVI
-	if (LoggingEnabled == 2 || (eoptions&EO_NOTHROTTLE))
-	{
-		if(LoggingEnabled == 2)
-		{
-			int16* MonoBuf = new int16[Count];
-			int n;
-			for(n=0; n<Count; ++n)
-			{
-				MonoBuf[n] = Buffer[n] & 0xFFFF;
-			}
-			NESVideoLoggingAudio
-			(
-			  MonoBuf, 
-			  FSettings.SndRate, 16, 1,
-			  Count
-			);
-			delete [] MonoBuf;
-		}
-		Count /= 2;
-		if (inited & 1)
-		{
-			if (Count > GetWriteSound()) Count = GetWriteSound();
+	//#ifdef CREATE_AVI
+	//if (LoggingEnabled == 2 || (eoptions&EO_NOTHROTTLE))
+	//{
+	//	if(LoggingEnabled == 2)
+	//	{
+	//		int16* MonoBuf = new int16[Count];
+	//		int n;
+	//		for(n=0; n<Count; ++n)
+	//		{
+	//			MonoBuf[n] = Buffer[n] & 0xFFFF;
+	//		}
+	//		NESVideoLoggingAudio
+	//		(
+	//		  MonoBuf, 
+	//		  FSettings.SndRate, 16, 1,
+	//		  Count
+	//		);
+	//		delete [] MonoBuf;
+	//	}
+	//	Count /= 2;
+	//	if (inited & 1)
+	//	{
+	//		if (Count > GetWriteSound()) Count = GetWriteSound();
 
-			if (!mutecapture)
-			{
-				if(Count > 0 && Buffer) WriteSound(Buffer,Count);   
-			}
-		}
-		//if (inited & 2)
-		//	FCEUD_UpdateInput();
-	  	if(XBuf && (inited & 4)) BlitScreen(XBuf);
-	  
-		return;
-	}
-	#endif
+	//		if (!mutecapture)
+	//		{
+	//			if(Count > 0 && Buffer) WriteSound(Buffer,Count);   
+	//		}
+	//	}
+	//	//if (inited & 2)
+	//	//	FCEUD_UpdateInput();
+	//  	if(XBuf && (inited & 4)) BlitScreen(XBuf);
+	//  
+	//	return;
+	//}
+	//#endif
+	aviRecordAddAudioFrame( Buffer, Count );
 	
-	int ocount = Count;
+	WriteSound(Buffer,Count);
+
+	//int ocount = Count;
 	// apply frame scaling to Count
-	Count = (int)(Count / g_fpsScale);
-	if (Count) 
-	{
-		int32 can=GetWriteSound();
-		static int uflow=0;
-		int32 tmpcan;
+	//Count = (int)(Count / g_fpsScale);
+	//if (Count) 
+	//{
+	//	int32 can=GetWriteSound();
+	//	static int uflow=0;
+	//	int32 tmpcan;
 
-		// don't underflow when scaling fps
-		if(can >= GetMaxSound() && g_fpsScale==1.0) uflow=1;	/* Go into massive underflow mode. */
+	//	// don't underflow when scaling fps
+	//	if(can >= GetMaxSound() && g_fpsScale==1.0) uflow=1;	/* Go into massive underflow mode. */
 
-		if(can > Count) can=Count;
-		else uflow=0;
+	//	if(can > Count) can=Count;
+	//	else uflow=0;
 
-		#ifdef CREATE_AVI
-		if (!mutecapture)
-		#endif
-		  WriteSound(Buffer,can);
+	//	#ifdef CREATE_AVI
+	//	if (!mutecapture)
+	//	#endif
+	//	  WriteSound(Buffer,can);
 
-		//if(uflow) puts("Underflow");
-		tmpcan = GetWriteSound();
-		// don't underflow when scaling fps
-		if (g_fpsScale>1.0 || ((tmpcan < Count*0.90) && !uflow)) 
-		{
-			if (XBuf && (inited&4) && !(NoWaiting & 2))
-			{
-				BlitScreen(XBuf); blitDone = 1;
-			}
-			Buffer+=can;
-			Count-=can;
-			if(Count) 
-			{
-				if(NoWaiting) 
-				{
-					can=GetWriteSound();
-					if(Count>can) Count=can;
-					#ifdef CREATE_AVI
-					if (!mutecapture)
-					#endif
-					  WriteSound(Buffer,Count);
-				}
-			  	else
-			  	{
-					while(Count>0) 
-					{
-						#ifdef CREATE_AVI
-						if (!mutecapture)
-						#endif
-						  WriteSound(Buffer,(Count<ocount) ? Count : ocount);
-						Count -= ocount;
-					}
-				}
-			}
-		} //else puts("Skipped");
-		else if (!NoWaiting && FCEUDnetplay && (uflow || tmpcan >= (Count * 1.8))) 
-		{
-			if (Count > tmpcan) Count=tmpcan;
-			while(tmpcan > 0) 
-			{
-				//	printf("Overwrite: %d\n", (Count <= tmpcan)?Count : tmpcan);
-				#ifdef CREATE_AVI
-				if (!mutecapture)
-				#endif
-				  WriteSound(Buffer, (Count <= tmpcan)?Count : tmpcan);
-				tmpcan -= Count;
-			}
-		}
-	}
-  	else 
-	{
-		if (XBuf && (inited&4)) 
-		{
-			BlitScreen(XBuf); blitDone = 1;
-		}
-	}
+	//	//if(uflow) puts("Underflow");
+	//	tmpcan = GetWriteSound();
+	//	// don't underflow when scaling fps
+	//	if (g_fpsScale>1.0 || ((tmpcan < Count*0.90) && !uflow)) 
+	//	{
+	//		if (XBuf && (inited&4) && !(NoWaiting & 2))
+	//		{
+	//			BlitScreen(XBuf); blitDone = 1;
+	//		}
+	//		Buffer+=can;
+	//		Count-=can;
+	//		if(Count) 
+	//		{
+	//			if(NoWaiting) 
+	//			{
+	//				can=GetWriteSound();
+	//				if(Count>can) Count=can;
+	//				#ifdef CREATE_AVI
+	//				if (!mutecapture)
+	//				#endif
+	//				  WriteSound(Buffer,Count);
+	//			}
+	//		  	else
+	//		  	{
+	//				while(Count>0) 
+	//				{
+	//					#ifdef CREATE_AVI
+	//					if (!mutecapture)
+	//					#endif
+	//					  WriteSound(Buffer,(Count<ocount) ? Count : ocount);
+	//					Count -= ocount;
+	//				}
+	//			}
+	//		}
+	//	} //else puts("Skipped");
+	//	//else if (!NoWaiting && FCEUDnetplay && (uflow || tmpcan >= (Count * 1.8))) 
+	//	//{
+	//	//	if (Count > tmpcan) Count=tmpcan;
+	//	//	while(tmpcan > 0) 
+	//	//	{
+	//	//		//	printf("Overwrite: %d\n", (Count <= tmpcan)?Count : tmpcan);
+	//	//		#ifdef CREATE_AVI
+	//	//		if (!mutecapture)
+	//	//		#endif
+	//	//		  WriteSound(Buffer, (Count <= tmpcan)?Count : tmpcan);
+	//	//		tmpcan -= Count;
+	//	//	}
+	//	//}
+	//}
+  	//else 
+	//{
+	//	if (XBuf && (inited&4)) 
+	//	{
+	//		BlitScreen(XBuf); blitDone = 1;
+	//	}
+	//}
 	if ( !blitDone )
 	{
 		if (XBuf && (inited&4)) 
@@ -1057,7 +1236,7 @@ int  fceuWrapperUpdate( void )
 	// sleep to allow request to be serviced.
 	if ( mutexPending > 0 )
 	{
-		usleep( 100000 );
+		msleep( 100 );
 	}
 
 	lock_acq = fceuWrapperTryLock();
@@ -1068,7 +1247,7 @@ int  fceuWrapperUpdate( void )
 		{
 			printf("Error: Emulator Failed to Acquire Mutex\n");
 		}
-		usleep( 100000 );
+		msleep( 100 );
 
 		return -1;
 	}
@@ -1080,6 +1259,10 @@ int  fceuWrapperUpdate( void )
 	
 		hexEditorUpdateMemoryValues();
 
+		if ( consoleWindow )
+		{
+			consoleWindow->emulatorThread->signalFrameFinished();
+		}
 		fceuWrapperUnLock();
 
 		emulatorHasMutux = 0;
@@ -1097,7 +1280,7 @@ int  fceuWrapperUpdate( void )
 
 		emulatorHasMutux = 0;
 
-		usleep( 100000 );
+		msleep( 100 );
 	}
 	return 0;
 }
@@ -1382,14 +1565,26 @@ FCEUFILE* FCEUD_OpenArchiveIndex(ArchiveScanRecord& asr, std::string &fname, int
     }
 DUMMY(FCEUD_HideMenuToggle)
 DUMMY(FCEUD_MovieReplayFrom)
-DUMMY(FCEUD_ToggleStatusIcon)
-DUMMY(FCEUD_AviRecordTo)
-DUMMY(FCEUD_AviStop)
-void FCEUI_AviVideoUpdate(const unsigned char* buffer) { }
-int FCEUD_ShowStatusIcon(void) {return 0;}
-bool FCEUI_AviIsRecording(void) {return false;}
+//DUMMY(FCEUD_AviRecordTo)
+//DUMMY(FCEUD_AviStop)
+//void FCEUI_AviVideoUpdate(const unsigned char* buffer) { }
+//bool FCEUI_AviIsRecording(void) {return false;}
 void FCEUI_UseInputPreset(int preset) { }
 bool FCEUD_PauseAfterPlayback() { return pauseAfterPlayback; }
+
+int FCEUD_ShowStatusIcon(void)
+{
+	return showStatusIconOpt;
+}
+void FCEUD_ToggleStatusIcon(void)
+{
+	showStatusIconOpt = !showStatusIconOpt;
+}
+
+bool FCEUD_ShouldDrawInputAids(void)
+{
+	return drawInputAidsEnable;
+}
 
 void FCEUD_TurboOn	 (void) { /* TODO */ };
 void FCEUD_TurboOff   (void) { /* TODO */ };

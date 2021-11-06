@@ -1,4 +1,23 @@
-// HotKeyConf.cpp
+/* FCE Ultra - NES/Famicom Emulator
+ *
+ * Copyright notice for this file:
+ *  Copyright (C) 2020 mjbudd77
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ */
+// iNesHeaderEditor.cpp
 //
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +29,7 @@
 #include <QCloseEvent>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QSettings>
 
 #include "../../types.h"
 #include "../../fceu.h"
@@ -130,6 +150,12 @@ static const char* inputDevList[] = {
 	"RacerMate Bicycle",
 	"U-Force",
 	"R.O.B. Stack-Up",
+	"City Patrolman Lightgun",
+	"Sharp C1 Cassette Interface",
+	"Standard Controller with swapped Left-Right/Up-Down/B-A",
+	"Excalibor Sudoku Pad",
+	"ABL Pinball",
+	"Golden Nugget Casino extra buttons",
 	0
 };
 //----------------------------------------------------------------------------
@@ -144,7 +170,11 @@ iNesHeaderEditor_t::iNesHeaderEditor_t(QWidget *parent)
 	QHBoxLayout *hbox, *hbox1, *hbox2, *hbox3;
 	QGroupBox *box, *hdrBox;
 	QGridLayout *grid;
+	QStyle      *style;
+	QSettings    settings;
 	char stmp[128];
+
+	style = this->style();
 
 	initOK = false;
 
@@ -442,6 +472,10 @@ iNesHeaderEditor_t::iNesHeaderEditor_t(QWidget *parent)
 	saveAsBtn  = new QPushButton( tr("Save As") );
 	closeBtn   = new QPushButton( tr("Close") );
 
+	restoreBtn->setIcon( style->standardIcon( QStyle::SP_DialogResetButton ) );
+	saveAsBtn->setIcon( style->standardIcon( QStyle::SP_DialogSaveButton ) );
+	closeBtn->setIcon( style->standardIcon( QStyle::SP_DialogCloseButton ) );
+
 	grid->addWidget( restoreBtn, 0, 0, Qt::AlignLeft );
 	grid->addWidget( saveAsBtn , 0, 1, Qt::AlignRight );
 	grid->addWidget( closeBtn  , 0, 2, Qt::AlignRight );
@@ -497,24 +531,28 @@ iNesHeaderEditor_t::iNesHeaderEditor_t(QWidget *parent)
 	setHeaderData( iNesHdr );
 
 	initOK = true;
+
+	restoreGeometry(settings.value("iNesHeaderWindow/geometry").toByteArray());
 }
 //----------------------------------------------------------------------------
 iNesHeaderEditor_t::~iNesHeaderEditor_t(void)
 {
-	printf("Destroy Header Editor Config Window\n");
+	QSettings settings;
+	//printf("Destroy Header Editor Config Window\n");
 
 	if ( iNesHdr )
 	{
 		free( iNesHdr ); iNesHdr = NULL;
 	}
+	settings.setValue("iNesHeaderWindow/geometry", saveGeometry());
 }
 //----------------------------------------------------------------------------
 void iNesHeaderEditor_t::closeEvent(QCloseEvent *event)
 {
-   printf("iNES Header Editor Close Window Event\n");
-   done(0);
+	//printf("iNES Header Editor Close Window Event\n");
+	done(0);
 	deleteLater();
-   event->accept();
+	event->accept();
 }
 //----------------------------------------------------------------------------
 void iNesHeaderEditor_t::closeWindow(void)
@@ -765,7 +803,6 @@ bool iNesHeaderEditor_t::openFile(void)
 
 	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
 
-	dialog.show();
 	ret = dialog.exec();
 
 	if ( ret )
@@ -819,7 +856,6 @@ void iNesHeaderEditor_t::saveFileAs(void)
 
 	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
 
-	dialog.show();
 	ret = dialog.exec();
 
 	if ( ret )
@@ -1146,7 +1182,7 @@ void iNesHeaderEditor_t::setHeaderData(iNES_HEADER* header)
 	}
 
 	// Input Device:
-	int input = header->reserved[1] & 0x1F;
+	int input = header->reserved[1] & 0x3F;
 	for (i=0; i<inputDevBox->count(); i++)
 	{
 		if ( inputDevBox->itemData(i).toInt() == input )
@@ -1885,12 +1921,12 @@ bool iNesHeaderEditor_t::WriteHeaderData(iNES_HEADER* header)
 		int misc_roms = 0;
 		if (sscanf(buf, "%d", &misc_roms) < 1)
 		{
-			showErrorMsgWindow("Invalid miscellanous ROM(s) count. If you don't know what value should be, we recommend to set it to 0.");
+			showErrorMsgWindow("Invalid miscellaneous ROM(s) count. If you don't know what value should be, we recommend to set it to 0.");
 			return false;
 		}
 		if (misc_roms > 3)
 		{
-			showErrorMsgWindow("Miscellanous ROM(s) count has exceeded the limit of iNES 2.0 (3)");
+			showErrorMsgWindow("Miscellaneous ROM(s) count has exceeded the limit of iNES 2.0 (3)");
 			return false;
 		}
 		_header.reserved[0] |= misc_roms & 3;

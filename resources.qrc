@@ -13,5 +13,19 @@
         <file>icons/timer.png</file>
         <file>icons/movie.png</file>
         <file>icons/camera.png</file>
+        <file>icons/reticle.png</file>
+        <file>icons/debug-run.png</file>
+        <file>icons/debug-pause.png</file>
+        <file>icons/StepInto.png</file>
+        <file>icons/StepOver.png</file>
+        <file>icons/StepBack.png</file>
+        <file>icons/StepOut.png</file>
+        <file>icons/RunPpuFrame.png</file>
+        <file>icons/RunPpuHalfFrame.png</file>
+        <file>icons/RunPpuScanline.png</file>
+        <file>icons/arrow-cursor.png</file>
+        <file>icons/JumpTarget.png</file>
+        <file>icons/Undo.png</file>
+        <file>icons/find.png</file>
     </qresource>
 </RCC>

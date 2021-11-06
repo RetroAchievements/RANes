@@ -8,6 +8,7 @@
 
 #include <QWidget>
 #include <QDialog>
+#include <QColorDialog>
 #include <QTimer>
 #include <QAction>
 #include <QVBoxLayout>
@@ -44,7 +45,7 @@ struct memBlock_t
 
 	struct memByte_t *buf;
 	int  _size;
-   int  _maxLines;
+	int  _maxLines;
 	int (*memAccessFunc)( unsigned int offset);
 };
 
@@ -94,6 +95,22 @@ class HexBookMarkMenuAction : public QAction
 
 };
 
+class HexEditorCharTable_t
+{
+	public:
+		HexEditorCharTable_t(void);
+		~HexEditorCharTable_t(void);
+
+		int    map[256];
+		int   rmap[256];
+		bool  extAsciiEnable;
+		bool  customMapLoaded;
+
+		void  resetAscii(void);
+
+		int   loadFromFile( const char *filepath );
+};
+
 class HexEditorDialog_t;
 
 class QHexEdit : public QWidget
@@ -124,6 +141,8 @@ class QHexEdit : public QWidget
 		void clearHighlight(void);
 		int  findPattern( std::vector <unsigned char> &varray, int dir );
 		void requestUpdate(void);
+		void setRowColHlgtEna(bool val);
+		void setAltColHlgtEna(bool val);
 
 		enum {
 			MODE_NES_RAM = 0,
@@ -132,6 +151,13 @@ class QHexEdit : public QWidget
 			MODE_NES_ROM
 		};
 		static const int HIGHLIGHT_ACTIVITY_NUM_COLORS = 16;
+
+		HexEditorCharTable_t  charTable;
+
+		QColor      bgColor;
+		QColor      fgColor;
+		QColor      rowColHlgtColor;
+		QColor      altColHlgtColor;
 	protected:
 		void paintEvent(QPaintEvent *event);
 		void keyPressEvent(QKeyEvent *event);
@@ -214,7 +240,11 @@ class QHexEdit : public QWidget
 		bool actvHighlightEnable;
 		bool mouseLeftBtnDown;
 		bool updateRequested;
+		bool rolColHlgtEna;
+		bool altColHlgtEna;
 
+	public slots:
+		void changeFontRequest(void);
 	private slots:
 		void jumpToROM(void);
 		void addBookMarkCB(void);
@@ -282,6 +312,10 @@ class HexEditorDialog_t : public QDialog
 		QAction    *viewROM;
 		QAction    *gotoAddrAct;
 		QAction    *undoEditAct;
+		QAction    *loadTableAct;
+		QAction    *unloadTableAct;
+		QAction    *rolColHlgtAct;
+		QAction    *altColHlgtAct;
 
 	private:
 
@@ -294,25 +328,33 @@ class HexEditorDialog_t : public QDialog
 		void hbarChanged(int value);
 		void saveRomFile(void);
 		void saveRomFileAs(void);
+		void loadTableFromFile(void);
+		void unloadTable(void);
 		void setViewRAM(void);
 		void setViewPPU(void);
 		void setViewOAM(void);
 		void setViewROM(void);
 		void actvHighlightCB(bool value); 
 		void actvHighlightRVCB(bool value); 
-		void pickForeGroundColor(void);
-		void pickBackGroundColor(void);
+		void rolColHlgtChanged(bool);
+		void altColHlgtChanged(bool);
 		void removeAllBookmarks(void);
 		void openGotoAddrDialog(void);
 		void copyToClipboard(void);
 		void pasteFromClipboard(void);
 		void openFindDialog(void);
 		void undoRomPatch(void);
+		void setViewRefresh5Hz(void);
+		void setViewRefresh10Hz(void);
+		void setViewRefresh20Hz(void);
+		void setViewRefresh30Hz(void);
+		void setViewRefresh60Hz(void);
+		void changeFontRequest(void);
 };
 
 int hexEditorNumWindows(void);
 void hexEditorRequestUpdateAll(void);
-void hexEditorUpdateMemoryValues(void);
+void hexEditorUpdateMemoryValues(bool force = false);
 void hexEditorLoadBookmarks(void);
 void hexEditorSaveBookmarks(void);
 int hexEditorOpenFromDebugger( int mode, int addr );

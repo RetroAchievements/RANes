@@ -1,3 +1,22 @@
+/* FCE Ultra - NES/Famicom Emulator
+ *
+ * Copyright notice for this file:
+ *  Copyright (C) 2020 mjbudd77
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ */
 // GameGenie.cpp
 //
 #include <stdio.h>
@@ -7,6 +26,7 @@
 
 #include <QHeaderView>
 #include <QCloseEvent>
+#include <QSettings>
 
 #include "../../types.h"
 #include "../../fceu.h"
@@ -83,7 +103,9 @@ GameGenieDialog_t::GameGenieDialog_t(QWidget *parent)
 	QTreeWidgetItem *item;
 	QGroupBox *frame;
 	QFont font;
+	QPushButton *closeButton;
 	fceuGGCodeValidtor *ggCodeValidator;
+	QSettings settings;
 
 	font.setFamily("Courier New");
 	font.setStyle( QFont::StyleNormal );
@@ -154,6 +176,16 @@ GameGenieDialog_t::GameGenieDialog_t(QWidget *parent)
 
 	mainLayout->addWidget( tree );
 
+	closeButton = new QPushButton( tr("Close") );
+	closeButton->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
+	connect(closeButton, SIGNAL(clicked(void)), this, SLOT(closeWindow(void)));
+
+	hbox = new QHBoxLayout();
+	hbox->addStretch(5);
+	hbox->addWidget( closeButton, 1 );
+
+	mainLayout->addLayout( hbox );
+
 	setLayout( mainLayout );
 
 	addrValidator = new fceuHexIntValidtor( 0, 0xFFFF, this );
@@ -198,25 +230,29 @@ GameGenieDialog_t::GameGenieDialog_t(QWidget *parent)
 	connect( tree, SIGNAL(itemActivated(QTreeWidgetItem*, int)), this, SLOT(romAddrDoubleClicked(QTreeWidgetItem*, int)) );
 
 	addCheatBtn->setEnabled( false );
+
+	restoreGeometry(settings.value("GameGenieWindow/geometry").toByteArray());
 }
 //----------------------------------------------------------------------------
 GameGenieDialog_t::~GameGenieDialog_t(void)
 {
-	printf("Destroy Game Genie Window\n");
+	QSettings settings;
+	//printf("Destroy Game Genie Window\n");
+	settings.setValue("GameGenieWindow/geometry", saveGeometry());
 }
 //----------------------------------------------------------------------------
 void GameGenieDialog_t::closeEvent(QCloseEvent *event)
 {
-   printf("Game Genie Close Window Event\n");
-   done(0);
+	printf("Game Genie Close Window Event\n");
+	done(0);
 	deleteLater();
-   event->accept();
+	event->accept();
 }
 //----------------------------------------------------------------------------
 void GameGenieDialog_t::closeWindow(void)
 {
-   //printf("Close Window\n");
-   done(0);
+	//printf("Close Window\n");
+	done(0);
 	deleteLater();
 }
 //----------------------------------------------------------------------------

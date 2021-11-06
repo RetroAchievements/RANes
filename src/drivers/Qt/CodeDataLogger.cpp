@@ -1,9 +1,32 @@
+/* FCE Ultra - NES/Famicom Emulator
+ *
+ * Copyright notice for this file:
+ *  Copyright (C) 2020 mjbudd77
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ */
 // CodeDataLogger.cpp
 //
 #include <QDir>
+#include <QSettings>
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
 
 #include "../../types.h"
 #include "../../fceu.h"
@@ -22,186 +45,272 @@
 #include "Qt/config.h"
 #include "Qt/fceuWrapper.h"
 
-static int  autoSaveCDL = true;
-static int  autoLoadCDL = true;
-static int  autoResumeCDL = false;
+static int autoSaveCDL = true;
+static int autoLoadCDL = true;
+static int autoResumeCDL = false;
+static bool autoSaveArmedCDL = false;
 static char loadedcdfile[512] = {0};
 
-static int getDefaultCDLFile( char *filepath );
+static int getDefaultCDLFile(char *filepath);
+
+static CodeDataLoggerDialog_t *cdlWin = NULL;
+//----------------------------------------------------
+int openCDLWindow( QWidget *parent )
+{
+	//printf("Open Code Data Logger Window\n");
+	
+	if ( cdlWin )
+	{
+		cdlWin->activateWindow();
+		cdlWin->raise();
+		cdlWin->setFocus();
+	}
+	else
+	{
+		cdlWin = new CodeDataLoggerDialog_t(parent);
+	
+		cdlWin->show();
+	}
+	return 0;
+}
 //----------------------------------------------------
 CodeDataLoggerDialog_t::CodeDataLoggerDialog_t(QWidget *parent)
-	: QDialog( parent, Qt::Window )
+	: QDialog(parent, Qt::Window)
 {
+	QSettings    settings;
 	QVBoxLayout *mainLayout, *vbox1, *vbox;
 	QHBoxLayout *hbox;
 	QGridLayout *grid;
 	QGroupBox *frame, *subframe;
 	QPushButton *btn;
+	QMenuBar *menuBar;
+	QMenu *fileMenu;
+	QAction *act;
+	int useNativeMenuBar;
 
-	updateTimer  = new QTimer( this );
+	updateTimer = new QTimer(this);
 
-   connect( updateTimer, &QTimer::timeout, this, &CodeDataLoggerDialog_t::updatePeriodic );
+	connect(updateTimer, &QTimer::timeout, this, &CodeDataLoggerDialog_t::updatePeriodic);
 
-   setWindowTitle( tr("Code Data Logger") );
+	setWindowTitle(tr("Code Data Logger"));
 
-	mainLayout   = new QVBoxLayout();
-	vbox1        = new QVBoxLayout();
-	hbox         = new QHBoxLayout();
-	grid         = new QGridLayout();
-	statLabel    = new QLabel( tr(" Logger is Paused: Press Start to Run ") );
-	cdlFileLabel = new QLabel( tr("CDL File:") );
+	menuBar = new QMenuBar(this);
 
-	vbox1->addLayout( grid );
-	vbox1->addLayout( hbox  );
-	vbox1->addWidget( cdlFileLabel );
+	// This is needed for menu bar to show up on MacOS
+	g_config->getOption( "SDL.UseNativeMenuBar", &useNativeMenuBar );
 
-	hbox->addWidget( statLabel, 0, Qt::AlignHCenter );
+	menuBar->setNativeMenuBar( useNativeMenuBar ? true : false );
+
+	//-----------------------------------------------------------------------
+	// Menu Start
+	//-----------------------------------------------------------------------
+	// File
+	fileMenu = menuBar->addMenu(tr("&File"));
+
+	// File -> Load
+	act = new QAction(tr("&Load"), this);
+	act->setShortcut(QKeySequence::Open);
+	act->setStatusTip(tr("Load From File"));
+	connect(act, SIGNAL(triggered()), this, SLOT(loadCdlFile(void)) );
+	
+	fileMenu->addAction(act);
+
+	// File -> Save
+	act = new QAction(tr("&Save"), this);
+	act->setShortcut(QKeySequence::Save);
+	act->setStatusTip(tr("Save To File"));
+	connect(act, SIGNAL(triggered()), this, SLOT(saveCdlFile(void)) );
+	
+	fileMenu->addAction(act);
+
+	// File -> Save As
+	act = new QAction(tr("Save &As"), this);
+	act->setShortcut(QKeySequence::SaveAs);
+	act->setStatusTip(tr("Save To File As"));
+	connect(act, SIGNAL(triggered()), this, SLOT(saveCdlFileAs(void)) );
+	
+	fileMenu->addAction(act);
+
+	fileMenu->addSeparator();
+
+	// File -> Close
+	act = new QAction(tr("&Close"), this);
+	act->setShortcut(QKeySequence::Close);
+	act->setStatusTip(tr("Close Window"));
+	connect(act, SIGNAL(triggered()), this, SLOT(closeWindow(void)) );
+	
+	fileMenu->addAction(act);
+
+	//-----------------------------------------------------------------------
+	// Menu End
+	//-----------------------------------------------------------------------
+
+	mainLayout = new QVBoxLayout();
+	vbox1 = new QVBoxLayout();
+	hbox = new QHBoxLayout();
+	grid = new QGridLayout();
+	statLabel = new QLabel(tr(" Logger is Paused: Press Start to Run "));
+	cdlFileLabel = new QLabel(tr("CDL File:"));
+
+	mainLayout->setMenuBar( menuBar );
+
+	vbox1->addLayout(grid);
+	vbox1->addLayout(hbox);
+	vbox1->addWidget(cdlFileLabel);
+
+	hbox->addWidget(statLabel, 0, Qt::AlignHCenter);
 
 	frame = new QGroupBox(tr("Code/Data Log Status"));
-	frame->setLayout( vbox1 );
+	frame->setLayout(vbox1);
 
-	prgLoggedCodeLabel = new QLabel( tr("0x000000 0.00%") );
-	prgLoggedDataLabel = new QLabel( tr("0x000000 0.00%") );
-	prgUnloggedLabel   = new QLabel( tr("0x000000 0.00%") );
-	chrLoggedCodeLabel = new QLabel( tr("0x000000 0.00%") );
-	chrLoggedDataLabel = new QLabel( tr("0x000000 0.00%") );
-	chrUnloggedLabel   = new QLabel( tr("0x000000 0.00%") );
-	autoSaveCdlCbox    = new QCheckBox( tr("Auto-save .CDL when closing ROMs") );
-	autoLoadCdlCbox    = new QCheckBox( tr("Auto-load .CDL when opening this window") );
-	autoResumeLogCbox  = new QCheckBox( tr("Auto-resume logging when loading ROMs") );
+	prgLoggedCodeLabel = new QLabel(tr("0x000000 0.00%"));
+	prgLoggedDataLabel = new QLabel(tr("0x000000 0.00%"));
+	prgUnloggedLabel = new QLabel(tr("0x000000 0.00%"));
+	chrLoggedCodeLabel = new QLabel(tr("0x000000 0.00%"));
+	chrLoggedDataLabel = new QLabel(tr("0x000000 0.00%"));
+	chrUnloggedLabel = new QLabel(tr("0x000000 0.00%"));
+	autoSaveCdlCbox = new QCheckBox(tr("Auto-save .CDL when closing ROMs"));
+	autoLoadCdlCbox = new QCheckBox(tr("Auto-load .CDL when opening this window"));
+	autoResumeLogCbox = new QCheckBox(tr("Auto-resume logging when loading ROMs"));
 
 	g_config->getOption("SDL.AutoSaveCDL", &autoSaveCDL);
 	g_config->getOption("SDL.AutoLoadCDL", &autoLoadCDL);
 	g_config->getOption("SDL.AutoResumeCDL", &autoResumeCDL);
 
-	autoSaveCdlCbox->setChecked( autoSaveCDL );
-	autoLoadCdlCbox->setChecked( autoLoadCDL );
-	autoResumeLogCbox->setChecked( autoResumeCDL );
+	autoSaveCdlCbox->setChecked(autoSaveCDL);
+	autoLoadCdlCbox->setChecked(autoLoadCDL);
+	autoResumeLogCbox->setChecked(autoResumeCDL);
 
-	connect(autoSaveCdlCbox  , SIGNAL(stateChanged(int)), this, SLOT(autoSaveCdlStateChange(int)) );
-	connect(autoLoadCdlCbox  , SIGNAL(stateChanged(int)), this, SLOT(autoLoadCdlStateChange(int)) );
-	connect(autoResumeLogCbox, SIGNAL(stateChanged(int)), this, SLOT(autoResumeCdlStateChange(int)) );
+	connect(autoSaveCdlCbox, SIGNAL(stateChanged(int)), this, SLOT(autoSaveCdlStateChange(int)));
+	connect(autoLoadCdlCbox, SIGNAL(stateChanged(int)), this, SLOT(autoLoadCdlStateChange(int)));
+	connect(autoResumeLogCbox, SIGNAL(stateChanged(int)), this, SLOT(autoResumeCdlStateChange(int)));
 
 	subframe = new QGroupBox(tr("PRG Logged as Code"));
-	vbox     = new QVBoxLayout();
-	vbox->addWidget( prgLoggedCodeLabel );
-	subframe->setLayout( vbox );
+	vbox = new QVBoxLayout();
+	vbox->addWidget(prgLoggedCodeLabel);
+	subframe->setLayout(vbox);
 
-	grid->addWidget( subframe, 0, 0, Qt::AlignCenter );
+	grid->addWidget(subframe, 0, 0, Qt::AlignCenter);
 
 	subframe = new QGroupBox(tr("PRG Logged as Data"));
-	vbox     = new QVBoxLayout();
-	vbox->addWidget( prgLoggedDataLabel );
-	subframe->setLayout( vbox );
+	vbox = new QVBoxLayout();
+	vbox->addWidget(prgLoggedDataLabel);
+	subframe->setLayout(vbox);
 
-	grid->addWidget( subframe, 0, 1, Qt::AlignCenter );
+	grid->addWidget(subframe, 0, 1, Qt::AlignCenter);
 
 	subframe = new QGroupBox(tr("PRG not Logged"));
-	vbox     = new QVBoxLayout();
-	vbox->addWidget( prgUnloggedLabel );
-	subframe->setLayout( vbox );
+	vbox = new QVBoxLayout();
+	vbox->addWidget(prgUnloggedLabel);
+	subframe->setLayout(vbox);
 
-	grid->addWidget( subframe, 0, 2, Qt::AlignCenter );
+	grid->addWidget(subframe, 0, 2, Qt::AlignCenter);
 
 	subframe = new QGroupBox(tr("CHR Logged as Code"));
-	vbox     = new QVBoxLayout();
-	vbox->addWidget( chrLoggedCodeLabel );
-	subframe->setLayout( vbox );
+	vbox = new QVBoxLayout();
+	vbox->addWidget(chrLoggedCodeLabel);
+	subframe->setLayout(vbox);
 
-	grid->addWidget( subframe, 1, 0, Qt::AlignCenter );
+	grid->addWidget(subframe, 1, 0, Qt::AlignCenter);
 
 	subframe = new QGroupBox(tr("CHR Logged as Data"));
-	vbox     = new QVBoxLayout();
-	vbox->addWidget( chrLoggedDataLabel );
-	subframe->setLayout( vbox );
+	vbox = new QVBoxLayout();
+	vbox->addWidget(chrLoggedDataLabel);
+	subframe->setLayout(vbox);
 
-	grid->addWidget( subframe, 1, 1, Qt::AlignCenter );
+	grid->addWidget(subframe, 1, 1, Qt::AlignCenter);
 
 	subframe = new QGroupBox(tr("CHR not Logged"));
-	vbox     = new QVBoxLayout();
-	vbox->addWidget( chrUnloggedLabel );
-	subframe->setLayout( vbox );
+	vbox = new QVBoxLayout();
+	vbox->addWidget(chrUnloggedLabel);
+	subframe->setLayout(vbox);
 
-	grid->addWidget( subframe, 1, 2, Qt::AlignCenter );
+	grid->addWidget(subframe, 1, 2, Qt::AlignCenter);
 
 	grid = new QGridLayout();
-	vbox1->addLayout( grid );
-	btn = new QPushButton( tr("Reset Log") );
-	grid->addWidget( btn, 0, 0, Qt::AlignCenter );
-   connect( btn, SIGNAL(clicked(void)), this, SLOT(ResetCDLogClicked(void)));
+	vbox1->addLayout(grid);
+	btn = new QPushButton(tr("Reset Log"));
+	grid->addWidget(btn, 0, 0, Qt::AlignCenter);
+	connect(btn, SIGNAL(clicked(void)), this, SLOT(ResetCDLogClicked(void)));
 
-	startPauseButton = new QPushButton( tr("Start") );
-	grid->addWidget( startPauseButton, 0, 1, Qt::AlignCenter );
-   connect( startPauseButton, SIGNAL(clicked(void)), this, SLOT(StartPauseCDLogClicked(void)));
+	startPauseButton = new QPushButton(tr("Start"));
+	grid->addWidget(startPauseButton, 0, 1, Qt::AlignCenter);
+	connect(startPauseButton, SIGNAL(clicked(void)), this, SLOT(StartPauseCDLogClicked(void)));
 
-	btn = new QPushButton( tr("Save") );
-	grid->addWidget( btn, 0, 2, Qt::AlignCenter );
-   connect( btn, SIGNAL(clicked(void)), this, SLOT(saveCdlFile(void)));
+	btn = new QPushButton(tr("Save"));
+	grid->addWidget(btn, 0, 2, Qt::AlignCenter);
+	connect(btn, SIGNAL(clicked(void)), this, SLOT(saveCdlFile(void)));
 
-	btn = new QPushButton( tr("Load") );
-	grid->addWidget( btn, 1, 0, Qt::AlignCenter );
-   connect( btn, SIGNAL(clicked(void)), this, SLOT(loadCdlFile(void)));
+	btn = new QPushButton(tr("Load"));
+	grid->addWidget(btn, 1, 0, Qt::AlignCenter);
+	connect(btn, SIGNAL(clicked(void)), this, SLOT(loadCdlFile(void)));
 
-	btn = new QPushButton( tr("Save As") );
-	grid->addWidget( btn, 1, 2, Qt::AlignCenter );
-   connect( btn, SIGNAL(clicked(void)), this, SLOT(saveCdlFileAs(void)));
+	btn = new QPushButton(tr("Save As"));
+	grid->addWidget(btn, 1, 2, Qt::AlignCenter);
+	connect(btn, SIGNAL(clicked(void)), this, SLOT(saveCdlFileAs(void)));
 
 	hbox = new QHBoxLayout();
-	vbox1->addLayout( hbox );
+	vbox1->addLayout(hbox);
 
 	subframe = new QGroupBox(tr("Logging Workflow Options"));
-	vbox     = new QVBoxLayout();
-	vbox->addWidget( autoSaveCdlCbox );
-	vbox->addWidget( autoLoadCdlCbox );
-	vbox->addWidget( autoResumeLogCbox );
-	subframe->setLayout( vbox );
-	hbox->addWidget( subframe );
+	vbox = new QVBoxLayout();
+	vbox->addWidget(autoSaveCdlCbox);
+	vbox->addWidget(autoLoadCdlCbox);
+	vbox->addWidget(autoResumeLogCbox);
+	subframe->setLayout(vbox);
+	hbox->addWidget(subframe);
 
 	subframe = new QGroupBox(tr("Generate ROM"));
-	vbox     = new QVBoxLayout();
+	vbox = new QVBoxLayout();
 
-	btn = new QPushButton( tr("Save Stripped Data") );
-	vbox->addWidget( btn );
-   connect( btn, SIGNAL(clicked(void)), this, SLOT(SaveStrippedROMClicked(void)));
-	btn = new QPushButton( tr("Save Unused Data") );
-	vbox->addWidget( btn );
-   connect( btn, SIGNAL(clicked(void)), this, SLOT(SaveUnusedROMClicked(void)));
-	subframe->setLayout( vbox );
-	hbox->addWidget( subframe );
+	btn = new QPushButton(tr("Save Stripped Data"));
+	vbox->addWidget(btn);
+	connect(btn, SIGNAL(clicked(void)), this, SLOT(SaveStrippedROMClicked(void)));
+	btn = new QPushButton(tr("Save Unused Data"));
+	vbox->addWidget(btn);
+	connect(btn, SIGNAL(clicked(void)), this, SLOT(SaveUnusedROMClicked(void)));
+	subframe->setLayout(vbox);
+	hbox->addWidget(subframe);
 
-	mainLayout->addWidget( frame );
+	mainLayout->addWidget(frame);
 
-	setLayout( mainLayout );
+	setLayout(mainLayout);
 
-   updateTimer->start( 200 ); // 5hz
+	updateTimer->start(200); // 5hz
 
 	if (autoLoadCDL)
 	{
 		char nameo[2048];
-		getDefaultCDLFile( nameo );
+		getDefaultCDLFile(nameo);
 		LoadCDLog(nameo);
 	}
+
+	restoreGeometry(settings.value("cdLogger/geometry").toByteArray());
 }
 //----------------------------------------------------
 CodeDataLoggerDialog_t::~CodeDataLoggerDialog_t(void)
 {
-   updateTimer->stop();
+	updateTimer->stop();
 
-	printf("Code Data Logger Window Deleted\n");
+	//printf("Code Data Logger Window Deleted\n");
 }
 //----------------------------------------------------
 void CodeDataLoggerDialog_t::closeEvent(QCloseEvent *event)
 {
-   printf("Code Data Logger Close Window Event\n");
-   done(0);
+	QSettings settings;
+	//printf("Code Data Logger Close Window Event\n");
+	settings.setValue("cdLogger/geometry", saveGeometry());
+	done(0);
 	deleteLater();
-   event->accept();
+	event->accept();
 }
 //----------------------------------------------------
 void CodeDataLoggerDialog_t::closeWindow(void)
 {
-   printf("Code Data Logger Close Window\n");
-   done(0);
+	QSettings settings;
+	//printf("Code Data Logger Close Window\n");
+	settings.setValue("cdLogger/geometry", saveGeometry());
+	done(0);
 	deleteLater();
 }
 //----------------------------------------------------
@@ -238,52 +347,52 @@ void CodeDataLoggerDialog_t::updatePeriodic(void)
 	float fromsize = cdloggerdataSize;
 	float fvromsize = (cdloggerVideoDataSize != 0) ? cdloggerVideoDataSize : 1;
 
-	if ( FCEUI_GetLoggingCD() )
+	if (FCEUI_GetLoggingCD())
 	{
-		startPauseButton->setText( tr("Pause") );
-		statLabel->setText( tr(" Logger is Running: Press Pause to Stop ") );
+		startPauseButton->setText(tr("Pause"));
+		statLabel->setText(tr(" Logger is Running: Press Pause to Stop "));
 		statLabel->setStyleSheet("background-color: green; color: white;");
 	}
 	else
 	{
-		startPauseButton->setText( tr("Start") );
-		statLabel->setText( tr(" Logger is Paused: Press Start to Run ") );
+		startPauseButton->setText(tr("Start"));
+		statLabel->setText(tr(" Logger is Paused: Press Start to Run "));
 		statLabel->setStyleSheet("background-color: red; color: white;");
 	}
 
-	if ( cdloggerdataSize > 0 )
+	if (cdloggerdataSize > 0)
 	{
-	   sprintf(str,"0x%06x  %.2f%%", codecount, (fcodecount / fromsize) * 100);
-	   prgLoggedCodeLabel->setText( tr(str) );
+		sprintf(str, "0x%06x  %.2f%%", codecount, (fcodecount / fromsize) * 100);
+		prgLoggedCodeLabel->setText(tr(str));
 
-	   sprintf(str,"0x%06x  %.2f%%", datacount,(fdatacount / fromsize) * 100);
-	   prgLoggedDataLabel->setText( tr(str) );
+		sprintf(str, "0x%06x  %.2f%%", datacount, (fdatacount / fromsize) * 100);
+		prgLoggedDataLabel->setText(tr(str));
 
-	   sprintf(str,"0x%06x  %.2f%%", undefinedcount, (fundefinedcount / fromsize) * 100);
-	   prgUnloggedLabel->setText( tr(str) );
+		sprintf(str, "0x%06x  %.2f%%", undefinedcount, (fundefinedcount / fromsize) * 100);
+		prgUnloggedLabel->setText(tr(str));
 
-	   sprintf(str,"0x%06x  %.2f%%", rendercount, (frendercount / fvromsize) * 100);
-	   chrLoggedCodeLabel->setText( tr(str) );
+		sprintf(str, "0x%06x  %.2f%%", rendercount, (frendercount / fvromsize) * 100);
+		chrLoggedCodeLabel->setText(tr(str));
 
-	   sprintf(str,"0x%06x  %.2f%%", vromreadcount, (fvromreadcount / fvromsize) * 100);
-	   chrLoggedDataLabel->setText( tr(str) );
+		sprintf(str, "0x%06x  %.2f%%", vromreadcount, (fvromreadcount / fvromsize) * 100);
+		chrLoggedDataLabel->setText(tr(str));
 
-	   sprintf(str,"0x%06x  %.2f%%", undefinedvromcount, (fundefinedvromcount / fvromsize) * 100);
-	   chrUnloggedLabel->setText( tr(str) );
+		sprintf(str, "0x%06x  %.2f%%", undefinedvromcount, (fundefinedvromcount / fvromsize) * 100);
+		chrUnloggedLabel->setText(tr(str));
 	}
 	else
 	{
-	   prgLoggedCodeLabel->setText( tr("------") );
-	   prgLoggedDataLabel->setText( tr("------") );
-	   prgUnloggedLabel->setText( tr("------") );
-	   chrLoggedCodeLabel->setText( tr("------") );
-	   chrLoggedDataLabel->setText( tr("------") );
-	   chrUnloggedLabel->setText( tr("------") );
+		prgLoggedCodeLabel->setText(tr("------"));
+		prgLoggedDataLabel->setText(tr("------"));
+		prgUnloggedLabel->setText(tr("------"));
+		chrLoggedCodeLabel->setText(tr("------"));
+		chrLoggedDataLabel->setText(tr("------"));
+		chrUnloggedLabel->setText(tr("------"));
 	}
 
-	sprintf( str, "CDL File: %s", loadedcdfile );
+	sprintf(str, "CDL File: %s", loadedcdfile);
 
-	cdlFileLabel->setText( tr(str) );
+	cdlFileLabel->setText(tr(str));
 }
 //----------------------------------------------------
 void CodeDataLoggerDialog_t::ResetCDLogClicked(void)
@@ -293,17 +402,17 @@ void CodeDataLoggerDialog_t::ResetCDLogClicked(void)
 //----------------------------------------------------
 void CodeDataLoggerDialog_t::StartPauseCDLogClicked(void)
 {
-	if ( FCEUI_GetLoggingCD() )
+	if (FCEUI_GetLoggingCD())
 	{
 		//printf("CD Logging Paused\n");
 		PauseCDLogging();
-		startPauseButton->setText( tr("Start") );
+		startPauseButton->setText(tr("Start"));
 	}
 	else
 	{
 		//printf("CD Logging Started\n");
 		StartCDLogging();
-		startPauseButton->setText( tr("Pause") );
+		startPauseButton->setText(tr("Pause"));
 	}
 }
 //----------------------------------------------------
@@ -317,59 +426,58 @@ void CodeDataLoggerDialog_t::saveCdlFileAs(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	const char *romFile;
-	QFileDialog  dialog(this, tr("Save CDL To File") );
+	QFileDialog dialog(this, tr("Save CDL File As"));
 
 	dialog.setFileMode(QFileDialog::AnyFile);
 
 	dialog.setNameFilter(tr("CDL Files (*.cdl *.CDL) ;; All files (*)"));
 
 	dialog.setViewMode(QFileDialog::List);
-	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
-	dialog.setLabelText( QFileDialog::Accept, tr("Save") );
-	dialog.setDefaultSuffix( tr(".cdl") );
+	dialog.setFilter(QDir::AllEntries | QDir::AllDirs | QDir::Hidden);
+	dialog.setLabelText(QFileDialog::Accept, tr("Save"));
+	dialog.setDefaultSuffix(tr(".cdl"));
 
 	romFile = getRomFile();
 
-	if ( romFile != NULL )
+	if (romFile != NULL)
 	{
 		char dir[512], base[256];
 
-		parseFilepath( romFile, dir, base );
+		parseFilepath(romFile, dir, base);
 
-		strcat( base, ".cdl");
+		strcat(base, ".cdl");
 
-		dialog.setDirectory( tr(dir) );
+		dialog.setDirectory(tr(dir));
 
-		dialog.selectFile( tr(base) );
+		dialog.selectFile(tr(base));
 	}
 
 	// Check config option to use native file dialog or not
-	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
 
 	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
 
-	dialog.show();
 	ret = dialog.exec();
 
-	if ( ret )
+	if (ret)
 	{
 		QStringList fileList;
 		fileList = dialog.selectedFiles();
 
-		if ( fileList.size() > 0 )
+		if (fileList.size() > 0)
 		{
 			filename = fileList[0];
 		}
 	}
 
-	if ( filename.isNull() )
-   {
-      return;
-   }
+	if (filename.isNull())
+	{
+		return;
+	}
 	//qDebug() << "selected file path : " << filename.toUtf8();
 
 	fceuWrapperLock();
-	strcpy( loadedcdfile, filename.toStdString().c_str() );
+	strcpy(loadedcdfile, filename.toStdString().c_str());
 	SaveCDLogFile();
 	fceuWrapperUnLock();
 }
@@ -380,55 +488,54 @@ void CodeDataLoggerDialog_t::loadCdlFile(void)
 	QString filename;
 	char dir[512];
 	const char *romFile;
-	QFileDialog  dialog(this, tr("Load CDL File") );
+	QFileDialog dialog(this, tr("Load CDL File"));
 
 	dialog.setFileMode(QFileDialog::ExistingFile);
 
 	dialog.setNameFilter(tr("CDL files (*.cdl *.CDL) ;; All files (*)"));
 
 	dialog.setViewMode(QFileDialog::List);
-	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
-	dialog.setLabelText( QFileDialog::Accept, tr("Load") );
+	dialog.setFilter(QDir::AllEntries | QDir::AllDirs | QDir::Hidden);
+	dialog.setLabelText(QFileDialog::Accept, tr("Load"));
 
 	romFile = getRomFile();
 
-	if ( romFile )
+	if (romFile)
 	{
-		getDirFromFile( romFile, dir );
+		getDirFromFile(romFile, dir);
 
-		dialog.setDirectory( tr(dir) );
+		dialog.setDirectory(tr(dir));
 	}
 
 	// Check config option to use native file dialog or not
-	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
 
 	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
 
-	dialog.show();
 	ret = dialog.exec();
 
-	if ( ret )
+	if (ret)
 	{
 		QStringList fileList;
 		fileList = dialog.selectedFiles();
 
-		if ( fileList.size() > 0 )
+		if (fileList.size() > 0)
 		{
 			filename = fileList[0];
 		}
 	}
 
-   if ( filename.isNull() )
-   {
-      return;
-   }
+	if (filename.isNull())
+	{
+		return;
+	}
 	//qDebug() << "selected file path : " << filename.toUtf8();
 
 	fceuWrapperLock();
-	LoadCDLog ( filename.toStdString().c_str() );
+	LoadCDLog(filename.toStdString().c_str());
 	fceuWrapperUnLock();
 
-   return;
+	return;
 }
 //----------------------------------------------------
 void CodeDataLoggerDialog_t::SaveStrippedROM(int invert)
@@ -440,7 +547,7 @@ void CodeDataLoggerDialog_t::SaveStrippedROM(int invert)
 	if (!GameInfo)
 		return;
 
-	if (GameInfo->type==GIT_NSF)
+	if (GameInfo->type == GIT_NSF)
 	{
 		printf("Sorry, you're not allowed to save optimized NSFs yet. Please don't optimize individual banks, as there are still some issues with several NSFs to be fixed, and it is easier to fix those issues with as much of the bank data intact as possible.");
 		return;
@@ -455,68 +562,67 @@ void CodeDataLoggerDialog_t::SaveStrippedROM(int invert)
 	int i, ret, useNativeFileDialogVal;
 	QString filename;
 	const char *romFile;
-	QFileDialog  dialog(this, tr("Save Stripped File As...") );
+	QFileDialog dialog(this, tr("Save Stripped File As..."));
 
 	dialog.setFileMode(QFileDialog::AnyFile);
 
-	if (GameInfo->type==GIT_NSF) 
+	if (GameInfo->type == GIT_NSF)
 	{
 		dialog.setNameFilter(tr("NSF Files (*.nsf *.NSF) ;; All files (*)"));
-		dialog.setDefaultSuffix( tr(".nsf") );
-	} 
+		dialog.setDefaultSuffix(tr(".nsf"));
+	}
 	else
-  	{
+	{
 		dialog.setNameFilter(tr("NES Files (*.nes *.NES) ;; All files (*)"));
-		dialog.setDefaultSuffix( tr(".nes") );
+		dialog.setDefaultSuffix(tr(".nes"));
 	}
 	dialog.setViewMode(QFileDialog::List);
-	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
-	dialog.setLabelText( QFileDialog::Accept, tr("Save") );
+	dialog.setFilter(QDir::AllEntries | QDir::AllDirs | QDir::Hidden);
+	dialog.setLabelText(QFileDialog::Accept, tr("Save"));
 
 	romFile = getRomFile();
 
-	if ( romFile != NULL )
+	if (romFile != NULL)
 	{
 		char dir[512], base[256];
 
-		parseFilepath( romFile, dir, base );
+		parseFilepath(romFile, dir, base);
 
-		dialog.setDirectory( tr(dir) );
+		dialog.setDirectory(tr(dir));
 	}
 
 	// Check config option to use native file dialog or not
-	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
 
 	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
 
-	dialog.show();
 	ret = dialog.exec();
 
-	if ( ret )
+	if (ret)
 	{
 		QStringList fileList;
 		fileList = dialog.selectedFiles();
 
-		if ( fileList.size() > 0 )
+		if (fileList.size() > 0)
 		{
 			filename = fileList[0];
 		}
 	}
 
-	if ( filename.isNull() )
-   {
-      return;
-   }
+	if (filename.isNull())
+	{
+		return;
+	}
 	//qDebug() << "selected file path : " << filename.toUtf8();
 
-	FILE *fp = fopen( filename.toStdString().c_str(),"wb");
-	if (!fp) 
+	FILE *fp = fopen(filename.toStdString().c_str(), "wb");
+	if (!fp)
 	{
 		FCEUD_PrintError("Error opening target stripped rom file!");
 		return;
 	}
 
-	if (GameInfo->type==GIT_NSF)
+	if (GameInfo->type == GIT_NSF)
 	{
 		uint8 NSFLoadLow;
 		uint8 NSFLoadHigh;
@@ -529,26 +635,26 @@ void CodeDataLoggerDialog_t::SaveStrippedROM(int invert)
 		//Simple store/restore for writing a working NSF header
 		NSFLoadLow = NSFHeader.LoadAddressLow;
 		NSFLoadHigh = NSFHeader.LoadAddressHigh;
-		NSFHeader.LoadAddressLow=0;
-		NSFHeader.LoadAddressHigh&=0xF0;
-		fwrite(&NSFHeader,1,0x8,fp);
+		NSFHeader.LoadAddressLow = 0;
+		NSFHeader.LoadAddressHigh &= 0xF0;
+		fwrite(&NSFHeader, 1, 0x8, fp);
 		NSFHeader.LoadAddressLow = NSFLoadLow;
 		NSFHeader.LoadAddressHigh = NSFLoadHigh;
 
-		fseek(fp,0x8,SEEK_SET);
-		for (i = 0;i < ((NSFMaxBank+1)*4096);i++){
+		fseek(fp, 0x8, SEEK_SET);
+		for (i = 0; i < ((NSFMaxBank + 1) * 4096); i++)
+		{
 			unsigned char pchar;
 			if (cdloggerdata[i] & 3)
 			{
-				pchar = invert?0:NSFDATA[i];
+				pchar = invert ? 0 : NSFDATA[i];
 			}
 			else
 			{
-				pchar = invert?NSFDATA[i]:0;
+				pchar = invert ? NSFDATA[i] : 0;
 			}
 			fputc(pchar, fp);
 		}
-
 	}
 	else
 	{
@@ -562,17 +668,25 @@ void CodeDataLoggerDialog_t::SaveStrippedROM(int invert)
 		cdlhead.ROM_size = cdloggerdataSize >> 14;
 		cdlhead.VROM_size = cdloggerVideoDataSize >> 13;
 
-		fwrite(&cdlhead,1,16,fp);
+		fwrite(&cdlhead, 1, 16, fp);
 
-		for (i = 0; i < (int)cdloggerdataSize; i++){
+		int rom_sel = 0;
+		if (GameInfo->type == GIT_FDS)
+		{
+			rom_sel = 1;
+		}
+		cdloggerdataSize = PRGsize[rom_sel];
+
+		for (i = 0; i < (int)cdloggerdataSize; i++)
+		{
 			unsigned char pchar;
 			if (cdloggerdata[i] & 3)
 			{
-				pchar = invert?0:PRGptr[0][i];
+				pchar = invert ? 0 : PRGptr[rom_sel][i];
 			}
 			else
 			{
-				pchar = invert?PRGptr[0][i]:0;
+				pchar = invert ? PRGptr[rom_sel][i] : 0;
 			}
 			fputc(pchar, fp);
 		}
@@ -580,15 +694,16 @@ void CodeDataLoggerDialog_t::SaveStrippedROM(int invert)
 		if (cdloggerVideoDataSize != 0)
 		{
 			// since the OldPPU at least logs the $2007 read accesses, we should save the data anyway
-			for (i = 0; i < (int)cdloggerVideoDataSize; i++) {
+			for (i = 0; i < (int)cdloggerVideoDataSize; i++)
+			{
 				unsigned char vchar;
 				if (cdloggervdata[i] & 3)
 				{
-					vchar = invert?0:CHRptr[0][i];
+					vchar = invert ? 0 : CHRptr[0][i];
 				}
 				else
 				{
-					vchar = invert?CHRptr[0][i]:0;
+					vchar = invert ? CHRptr[0][i] : 0;
 				}
 				fputc(vchar, fp);
 			}
@@ -607,7 +722,7 @@ void CodeDataLoggerDialog_t::SaveUnusedROMClicked(void)
 	SaveStrippedROM(1);
 }
 //----------------------------------------------------
-static int getDefaultCDLFile( char *filepath )
+static int getDefaultCDLFile(char *filepath)
 {
 	const char *romFile;
 	char dir[512], baseFile[256];
@@ -616,20 +731,20 @@ static int getDefaultCDLFile( char *filepath )
 
 	romFile = getRomFile();
 
-	if ( romFile == NULL )
+	if (romFile == NULL)
 	{
 		return -1;
 	}
 
-	parseFilepath( romFile, dir, baseFile );
-	
-	if ( dir[0] == 0 )
+	parseFilepath(romFile, dir, baseFile);
+
+	if (dir[0] == 0)
 	{
-		sprintf( filepath, "%s.cdl", baseFile );
+		sprintf(filepath, "%s.cdl", baseFile);
 	}
 	else
 	{
-		sprintf( filepath, "%s/%s.cdl", dir, baseFile );
+		sprintf(filepath, "%s/%s.cdl", dir, baseFile);
 	}
 
 	//printf("%s\n", filepath );
@@ -657,16 +772,26 @@ void FreeCDLog(void)
 //----------------------------------------------------
 void InitCDLog(void)
 {
+	int rom_sel = 0;
+
 	fceuWrapperLock();
-	cdloggerdataSize = PRGsize[0];
-	cdloggerdata = (unsigned char*)malloc(cdloggerdataSize);
-	if (!CHRram[0] || (CHRptr[0] == PRGptr[0])) {	// Some kind of workaround for my OneBus VRAM hack, will remove it if I find another solution for that
+	if (GameInfo->type == GIT_FDS)
+	{
+		rom_sel = 1;
+	}
+	cdloggerdataSize = PRGsize[rom_sel];
+	cdloggerdata = (unsigned char *)malloc(cdloggerdataSize);
+	if (!CHRram[0] || (CHRptr[0] == PRGptr[0]))
+	{ // Some kind of workaround for my OneBus VRAM hack, will remove it if I find another solution for that
 		cdloggerVideoDataSize = CHRsize[0];
-		cdloggervdata = (unsigned char*)malloc(cdloggerVideoDataSize);
-	} else {
-		if (GameInfo->type != GIT_NSF) {
+		cdloggervdata = (unsigned char *)malloc(cdloggerVideoDataSize);
+	}
+	else
+	{
+		if (GameInfo->type != GIT_NSF)
+		{
 			cdloggerVideoDataSize = 0;
-			cdloggervdata = (unsigned char*)malloc(8192);
+			cdloggervdata = (unsigned char *)malloc(8192);
 		}
 	}
 	fceuWrapperUnLock();
@@ -674,7 +799,7 @@ void InitCDLog(void)
 //----------------------------------------------------
 void ResetCDLog(void)
 {
-	if ( GameInfo == NULL )
+	if (GameInfo == NULL)
 	{
 		return;
 	}
@@ -683,22 +808,22 @@ void ResetCDLog(void)
 	codecount = datacount = rendercount = vromreadcount = 0;
 	undefinedcount = cdloggerdataSize;
 
-	if ( cdloggerdata != NULL )
+	if (cdloggerdata != NULL)
 	{
 		memset(cdloggerdata, 0, cdloggerdataSize);
 	}
-	if (cdloggerVideoDataSize != 0) 
+	if (cdloggerVideoDataSize != 0)
 	{
 		undefinedvromcount = cdloggerVideoDataSize;
 
-		if ( cdloggervdata != NULL )
+		if (cdloggervdata != NULL)
 		{
 			memset(cdloggervdata, 0, cdloggerVideoDataSize);
 		}
 	}
-  	else
-  	{
-		if (GameInfo->type != GIT_NSF) 
+	else
+	{
+		if (GameInfo->type != GIT_NSF)
 		{
 			undefinedvromcount = 8192;
 			memset(cdloggervdata, 0, 8192);
@@ -707,10 +832,10 @@ void ResetCDLog(void)
 	fceuWrapperUnLock();
 }
 //----------------------------------------------------
-bool LoadCDLog(const char* nameo)
+bool LoadCDLog(const char *nameo)
 {
 	FILE *FP;
-	int i,j;
+	int i, j;
 
 	FP = fopen(nameo, "rb");
 	if (FP == NULL)
@@ -718,7 +843,7 @@ bool LoadCDLog(const char* nameo)
 		return false;
 	}
 
-	for(i = 0;i < (int)cdloggerdataSize;i++)
+	for (i = 0; i < (int)cdloggerdataSize; i++)
 	{
 		j = fgetc(FP);
 		if (j == EOF)
@@ -732,15 +857,19 @@ bool LoadCDLog(const char* nameo)
 		cdloggerdata[i] |= j;
 	}
 
-	if(cdloggerVideoDataSize != 0)
+	if (cdloggerVideoDataSize != 0)
 	{
-		for(i = 0;i < (int)cdloggerVideoDataSize;i++)
+		for (i = 0; i < (int)cdloggerVideoDataSize; i++)
 		{
 			j = fgetc(FP);
-			if(j == EOF)break;
-			if((j & 1) && !(cdloggervdata[i] & 1))rendercount++; //if the new byte has something logged and
-			if((j & 2) && !(cdloggervdata[i] & 2))vromreadcount++; //if the new byte has something logged and
-			if((j & 3) && !(cdloggervdata[i] & 3))undefinedvromcount--; //the appropriate counter.
+			if (j == EOF)
+				break;
+			if ((j & 1) && !(cdloggervdata[i] & 1))
+				rendercount++; //if the new byte has something logged and
+			if ((j & 2) && !(cdloggervdata[i] & 2))
+				vromreadcount++; //if the new byte has something logged and
+			if ((j & 3) && !(cdloggervdata[i] & 3))
+				undefinedvromcount--; //the appropriate counter.
 			cdloggervdata[i] |= j;
 		}
 	}
@@ -757,6 +886,7 @@ void StartCDLogging(void)
 	FCEUI_SetLoggingCD(1);
 	//EnableTracerMenuItems();
 	//SetDlgItemText(hCDLogger, BTN_CDLOGGER_START_PAUSE, "Pause");
+	autoSaveArmedCDL = true;
 	fceuWrapperUnLock();
 }
 //----------------------------------------------------
@@ -778,10 +908,17 @@ bool PauseCDLogging(void)
 //----------------------------------------------------
 void CDLoggerROMClosed(void)
 {
+	g_config->getOption("SDL.AutoSaveCDL", &autoSaveCDL);
+
 	PauseCDLogging();
-	if (autoSaveCDL)
+
+	// Only auto save CDL file if the logger has actually been started at least once.
+	if (autoSaveCDL && autoSaveArmedCDL)
 	{
+		//printf("Auto Saving CDL\n");
 		SaveCDLogFile();
+
+		autoSaveArmedCDL = false;
 	}
 }
 //----------------------------------------------------
@@ -799,7 +936,7 @@ void CDLoggerROMChanged(void)
 
 	// try to load respective CDL file
 	char nameo[1024];
-	getDefaultCDLFile( nameo );
+	getDefaultCDLFile(nameo);
 
 	FILE *FP;
 	FP = fopen(nameo, "rb");
@@ -818,7 +955,7 @@ void CDLoggerROMChanged(void)
 	}
 }
 //----------------------------------------------------
-void RenameCDLog(const char* newName)
+void RenameCDLog(const char *newName)
 {
 	strcpy(loadedcdfile, newName);
 }
@@ -828,7 +965,7 @@ void SaveCDLogFile(void)
 	if (loadedcdfile[0] == 0)
 	{
 		char nameo[1024];
-		getDefaultCDLFile( nameo );
+		getDefaultCDLFile(nameo);
 		RenameCDLog(nameo);
 	}
 

@@ -23,7 +23,6 @@
 #include "../../cart.h" //mbg merge 7/18/06 moved beneath fceu.h
 #include "../../x6502.h"
 #include "../../debug.h"
-#include "debugger.h"
 #include "tracer.h"
 #include "cdlogger.h"
 #include "main.h" //for GetRomName()
@@ -120,7 +119,7 @@ INT_PTR CALLBACK CDLoggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 			if (autoloadCDL)
 			{
 				char nameo[2048];
-				strcpy(nameo, GetRomPath());
+				strcpy(nameo, GetRomPath().c_str());
 				strcat(nameo, mass_replace(GetRomName(), "|", ".").c_str());
 				strcat(nameo, ".cdl");
 				LoadCDLog(nameo);
@@ -293,7 +292,7 @@ void SaveCDLogFile()
 	if (loadedcdfile[0] == 0)
 	{
 		char nameo[2048];
-		strcpy(nameo, GetRomPath());
+		strcpy(nameo, GetRomPath().c_str());
 		strcat(nameo, mass_replace(GetRomName(), "|", ".").c_str());
 		strcat(nameo, ".cdl");
 		RenameCDLog(nameo);
@@ -458,12 +457,20 @@ void SaveStrippedROM(int invert)
 
 		fwrite(&cdlhead,1,16,fp);
 
-		for(i = 0; i < (int)cdloggerdataSize; i++){
+		int rom_sel = 0;
+		if (GameInfo->type == GIT_FDS)
+			rom_sel = 1;
+
+		for (i = 0; i < (int)cdloggerdataSize; i++) {
 			unsigned char pchar;
-			if(cdloggerdata[i] & 3)
-				pchar = invert?0:PRGptr[0][i];
+			if (GameInfo->type == GIT_FDS) {
+				if (i == PRGsize[1])
+					rom_sel = 0;
+			}
+			if (cdloggerdata[i] & 3)
+				pchar = invert ? 0 : PRGptr[rom_sel][i];
 			else
-				pchar = invert?PRGptr[0][i]:0;
+				pchar = invert ? PRGptr[rom_sel][i] : 0;
 			fputc(pchar, fp);
 		}
 
@@ -509,7 +516,7 @@ void CDLoggerROMChanged()
 
 	// try to load respective CDL file
 	char nameo[2048];
-	strcpy(nameo, GetRomPath());
+	strcpy(nameo, GetRomPath().c_str());
 	strcat(nameo, mass_replace(GetRomName(), "|", ".").c_str());
 	strcat(nameo, ".cdl");
 
@@ -566,6 +573,9 @@ void FreeCDLog()
 void InitCDLog()
 {
 	cdloggerdataSize = PRGsize[0];
+	if (GameInfo->type == GIT_FDS) {
+		cdloggerdataSize += PRGsize[1];
+	}
 	cdloggerdata = (unsigned char*)malloc(cdloggerdataSize);
 	if(!CHRram[0] || (CHRptr[0] == PRGptr[0])) {	// Some kind of workaround for my OneBus VRAM hack, will remove it if I find another solution for that
 		cdloggerVideoDataSize = CHRsize[0];

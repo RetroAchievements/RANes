@@ -115,19 +115,9 @@ int RestoreDD(int w)
 
 void FCEUD_SetPalette(unsigned char index, unsigned char r, unsigned char g, unsigned char b)
 {
-	if (force_grayscale)
-	{
-		// convert the palette entry to grayscale
-		int gray = ((float)r * 0.299 + (float)g * 0.587 + (float)b * 0.114);
-		color_palette[index].peRed = gray;
-		color_palette[index].peGreen = gray;
-		color_palette[index].peBlue = gray;
-	} else
-	{
-		color_palette[index].peRed = r;
-		color_palette[index].peGreen = g;
-		color_palette[index].peBlue = b;
-	}
+	color_palette[index].peRed = r;
+	color_palette[index].peGreen = g;
+	color_palette[index].peBlue = b;
 	PaletteChanged=1;
 }
 
@@ -1190,7 +1180,7 @@ INT_PTR CALLBACK VideoConCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 		//CheckRadioButton(hwndDlg,IDC_RADIO_SCALE,IDC_RADIO_STRETCH,(vmodes[0].flags&VMDF_STRFS)?IDC_RADIO_STRETCH:IDC_RADIO_SCALE);
 
 		// -Video Modes Tag-
-		char *str[]={"<none>","hq2x","Scale2x","NTSC 2x","hq3x","Scale3x","Prescale2x","Prescale3x","Prescale4x","PAL"};
+		char *str[]={"<none>","hq2x","Scale2x","NTSC 2x","hq3x","Scale3x","Prescale2x","Prescale3x","Prescale4x","PAL 3x"};
 		int x;
 		for(x=0;x<10;x++)
 		{
@@ -1270,11 +1260,12 @@ INT_PTR CALLBACK VideoConCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 			CheckDlgButton(hwndDlg,IDC_VIDEOCONFIG_NO8LIM,BST_CHECKED);
 
 		char buf[1024] = "Full Screen";
-		int c = FCEUD_CommandMapping[EMUCMD_MISC_TOGGLEFULLSCREEN];
-		if (c)
+		if (FCEUD_CommandMapping[EMUCMD_MISC_TOGGLEFULLSCREEN].NumC)
 		{
 			strcat(buf, " (");
-			strcat(buf, GetKeyComboName(c));
+			char *buttName = MakeButtString(&FCEUD_CommandMapping[EMUCMD_MISC_TOGGLEFULLSCREEN], 0);
+			strcat(buf, buttName);
+			free(buttName);
 			if (fullscreenByDoubleclick)
 				strcat(buf, " or double-click)");
 			else

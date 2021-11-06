@@ -608,7 +608,9 @@ INT_PTR CALLBACK TracerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
 							{
 								// Assemble the message to pause the game.  Uses the current hotkey mapping dynamically
 								strcpy(trace_str, "Pause the game (press ");
-								strcat(trace_str, GetKeyComboName(FCEUD_CommandMapping[EMUCMD_PAUSE]));
+								char *buttName = MakeButtString(&FCEUD_CommandMapping[EMUCMD_PAUSE], 0);
+								strcat(trace_str, buttName);
+								free(buttName);
 								strcat(trace_str, " key or snap the Debugger) to update this window.\r\n");
 								SetDlgItemText(hTracer, IDC_TRACER_LOG, trace_str);
 							}
@@ -718,7 +720,9 @@ void BeginLoggingSequence(void)
 		tracelogbufAddressesLog.resize(tracelogbufsize);
 		// Assemble the message to pause the game.  Uses the current hotkey mapping dynamically
 		strcat(trace_str, "Pause the game (press ");
-		strcat(trace_str, GetKeyComboName(FCEUD_CommandMapping[EMUCMD_PAUSE]));
+		char *buttName = MakeButtString(&FCEUD_CommandMapping[EMUCMD_PAUSE], 0);
+		strcat(trace_str, buttName);
+		free(buttName);
 		strcat(trace_str, " key or snap the Debugger) to update this window.\r\n");
 		SetDlgItemText(hTracer, IDC_TRACER_LOG, trace_str);
 		tracelogbufpos = tracelogbufusedsize = 0;

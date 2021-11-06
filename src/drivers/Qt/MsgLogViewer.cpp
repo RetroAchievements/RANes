@@ -1,3 +1,22 @@
+/* FCE Ultra - NES/Famicom Emulator
+ *
+ * Copyright notice for this file:
+ *  Copyright (C) 2020 mjbudd77
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ */
 // MsgLogViewer.cpp
 //
 #include <stdio.h>
@@ -5,9 +24,14 @@
 #include <string.h>
 #include <string>
 
+#ifdef WIN32
+#include <Windows.h>
+#endif
+
 #include <SDL.h>
 #include <QHeaderView>
 #include <QCloseEvent>
+#include <QSettings>
 
 #include "Qt/main.h"
 #include "Qt/dface.h"
@@ -18,28 +42,40 @@
 #include "Qt/MsgLogViewer.h"
 #include "Qt/ConsoleWindow.h"
 
-#define  MSG_LOG_MAX_LINES  256
+#define MSG_LOG_MAX_LINES 256
 
 class msgLogBuf_t
 {
-	public:
+public:
 	msgLogBuf_t(void)
 	{
-		char filename[256];
+		char filename[512];
 
-		strcpy( filename, "/tmp/fceux.log" );
+#ifdef WIN32
+		if (GetTempPathA(sizeof(filename), filename) > 0)
+		{
+			//printf("PATH: %s \n", filename );
+			strcat(filename, "fceux.log");
+		}
+		else
+		{
+			strcpy(filename, "fceux.log");
+		}
+#else
+		strcpy(filename, "/tmp/fceux.log");
+#endif
 
-		fp = ::fopen( filename, "w+");
+		fp = ::fopen(filename, "w+");
 
-		if ( fp == NULL )
+		if (fp == NULL)
 		{
 			printf("Error: Failed to open message log file: '%s'\n", filename);
 		}
-		maxLines   = MSG_LOG_MAX_LINES;
+		maxLines = MSG_LOG_MAX_LINES;
 		totalLines = 0;
 		head = tail = 0;
 
-		for (int i=0; i<MSG_LOG_MAX_LINES; i++)
+		for (int i = 0; i < MSG_LOG_MAX_LINES; i++)
 		{
 			fpOfsList[i] = 0;
 		}
@@ -47,9 +83,10 @@ class msgLogBuf_t
 
 	~msgLogBuf_t(void)
 	{
-		if ( fp != NULL )
+		if (fp != NULL)
 		{
-			::fclose(fp); fp = NULL;
+			::fclose(fp);
+			fp = NULL;
 		}
 	}
 
@@ -58,30 +95,31 @@ class msgLogBuf_t
 		head = tail = 0;
 	}
 
-	void addLine( const char *txt, bool NewLine = false )
+	void addLine(const char *txt, bool NewLine = false)
 	{
 		long ofs;
 
-		if ( fp == NULL ) return;
+		if (fp == NULL)
+			return;
 
-		::fseek( fp, 0L, SEEK_END);
+		::fseek(fp, 0L, SEEK_END);
 
 		ofs = ::ftell(fp);
 
-		if ( NewLine )
+		if (NewLine)
 		{
-			::fprintf( fp, "%s\n", txt );
+			::fprintf(fp, "%s\n", txt);
 		}
 		else
 		{
-			::fprintf( fp, "%s", txt );
+			::fprintf(fp, "%s", txt);
 		}
 
 		fpOfsList[head] = ofs;
 
 		head = (head + 1) % MSG_LOG_MAX_LINES;
 
-		if ( head == tail )
+		if (head == tail)
 		{
 			tail = (tail + 1) % MSG_LOG_MAX_LINES;
 		}
@@ -100,23 +138,23 @@ class msgLogBuf_t
 
 		s = head - tail;
 
-		if ( s < 0 )
+		if (s < 0)
 		{
 			s += MSG_LOG_MAX_LINES;
 		}
 		return s;
 	}
 
-	void loadTextViewer( QPlainTextEdit *viewer )
+	void loadTextViewer(QPlainTextEdit *viewer)
 	{
 		long ofs, nbytes;
 
-		if ( fp == NULL )
+		if (fp == NULL)
 		{
 			return;
 		}
 
-		if ( head == tail )
+		if (head == tail)
 		{
 			return;
 		}
@@ -124,94 +162,103 @@ class msgLogBuf_t
 
 		ofs = fpOfsList[tail];
 
-		::fseek( fp, ofs, SEEK_SET);
+		::fseek(fp, ofs, SEEK_SET);
 
 		//printf("Seek: %li \n", ofs );
 
-		if ( (nbytes = ::fread( buf, 1, sizeof(buf), fp )) > 0 )
+		if ((nbytes = ::fread(buf, 1, sizeof(buf), fp)) > 0)
 		{
 			//printf("READ: %li \n", nbytes );
-			buf[ nbytes ] = 0;
-			viewer->setPlainText( buf );
+			buf[nbytes] = 0;
+			viewer->setPlainText(buf);
 		}
 	}
 
-	private:
-		FILE   *fp;
-		size_t  maxLines;
-		size_t  totalLines;
-		size_t  head;
-		size_t  tail;
+private:
+	FILE *fp;
+	size_t maxLines;
+	size_t totalLines;
+	size_t head;
+	size_t tail;
 
-		long    fpOfsList[MSG_LOG_MAX_LINES];
+	long fpOfsList[MSG_LOG_MAX_LINES];
 };
 
 static msgLogBuf_t msgLog;
 //----------------------------------------------------------------------------
 MsgLogViewDialog_t::MsgLogViewDialog_t(QWidget *parent)
-	: QDialog( parent )
+	: QDialog(parent)
 {
 	QVBoxLayout *mainLayout;
 	QHBoxLayout *hbox;
 	QPushButton *clearBtn, *closeBtn;
+	QSettings settings;
 
 	setWindowTitle("Message Log Viewer");
 
-	resize( 512, 512 );
+	resize(512, 512);
 
 	mainLayout = new QVBoxLayout();
 
 	txtView = new QPlainTextEdit();
 	txtView->setReadOnly(true);
 
-	mainLayout->addWidget( txtView );
+	mainLayout->addWidget(txtView);
 
-	hbox     = new QHBoxLayout();
-	clearBtn = new QPushButton( tr("Clear") );
-	closeBtn = new QPushButton( tr("Close") );
-	hbox->addWidget( clearBtn );
-	hbox->addWidget( closeBtn );
+	hbox = new QHBoxLayout();
+	clearBtn = new QPushButton(tr("Clear"));
+	closeBtn = new QPushButton(tr("Close"));
+	hbox->addWidget(clearBtn,1);
+	hbox->addStretch(5);
+	hbox->addWidget(closeBtn,1);
 
-   connect( clearBtn, SIGNAL(clicked(void)), this, SLOT(clearLog(void))    );
-   connect( closeBtn, SIGNAL(clicked(void)), this, SLOT(closeWindow(void)) );
+	clearBtn->setIcon(style()->standardIcon(QStyle::SP_DialogResetButton));
+	closeBtn->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
 
-	mainLayout->addLayout( hbox );
+	connect(clearBtn, SIGNAL(clicked(void)), this, SLOT(clearLog(void)));
+	connect(closeBtn, SIGNAL(clicked(void)), this, SLOT(closeWindow(void)));
 
-	setLayout( mainLayout );
+	mainLayout->addLayout(hbox);
+
+	setLayout(mainLayout);
 
 	totalLines = 0;
 
-	updateTimer  = new QTimer( this );
+	updateTimer = new QTimer(this);
 
-   connect( updateTimer, &QTimer::timeout, this, &MsgLogViewDialog_t::updatePeriodic );
+	connect(updateTimer, &QTimer::timeout, this, &MsgLogViewDialog_t::updatePeriodic);
 
-	updateTimer->start( 500 ); // 2hz
+	updateTimer->start(500); // 2hz
 
-	msgLog.loadTextViewer( txtView );
+	msgLog.loadTextViewer(txtView);
 
 	totalLines = msgLog.getTotalLineCount();
 
 	txtView->moveCursor(QTextCursor::End);
+
+	restoreGeometry(settings.value("MsgLogWindow/geometry").toByteArray());
 }
 //----------------------------------------------------------------------------
 MsgLogViewDialog_t::~MsgLogViewDialog_t(void)
 {
-	printf("Destroy Msg Log Key Config Window\n");
+	QSettings settings;
+	//printf("Destroy Msg Log Config Window\n");
 	updateTimer->stop();
+	settings.setValue("MsgLogWindow/geometry", saveGeometry());
 }
 //----------------------------------------------------------------------------
 void MsgLogViewDialog_t::closeEvent(QCloseEvent *event)
 {
-   printf("Msg Log Key Close Window Event\n");
-   done(0);
+	//printf("Msg Log Close Window Event\n");
+	done(0);
 	deleteLater();
-   event->accept();
+	event->accept();
 }
 //----------------------------------------------------------------------------
 void MsgLogViewDialog_t::closeWindow(void)
 {
-   //printf("Close Window\n");
-   done(0);
+	//printf("Close Window\n");
+	done(0);
 	deleteLater();
 }
 //----------------------------------------------------------------------------
@@ -228,11 +275,11 @@ void MsgLogViewDialog_t::clearLog(void)
 //----------------------------------------------------------------------------
 void MsgLogViewDialog_t::updatePeriodic(void)
 {
-	if ( msgLog.getTotalLineCount() != totalLines )
+	if (msgLog.getTotalLineCount() != totalLines)
 	{
 		fceuWrapperLock();
 
-		msgLog.loadTextViewer( txtView );
+		msgLog.loadTextViewer(txtView);
 
 		totalLines = msgLog.getTotalLineCount();
 
@@ -254,7 +301,7 @@ void FCEUD_Message(const char *text)
 	fputs(text, stdout);
 	//fprintf(stdout, "\n");
 	//
-	msgLog.addLine( text, false );
+	msgLog.addLine(text, false);
 }
 //----------------------------------------------------------------------------
 /**
@@ -269,11 +316,11 @@ void FCEUD_PrintError(const char *errormsg)
 {
 	fprintf(stderr, "%s\n", errormsg);
 
-	msgLog.addLine( errormsg, true );
+	msgLog.addLine(errormsg, true);
 
-	if ( consoleWindow )
+	if (consoleWindow)
 	{
-		consoleWindow->QueueErrorMsgWindow( errormsg );
+		consoleWindow->QueueErrorMsgWindow(errormsg);
 	}
 }
 //----------------------------------------------------------------------------

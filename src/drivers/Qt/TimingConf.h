@@ -14,6 +14,7 @@
 #include <QSlider>
 #include <QFrame>
 #include <QGroupBox>
+#include <QSpinBox>
 #include <QTreeView>
 #include <QTreeWidget>
 
@@ -21,45 +22,62 @@
 
 class TimingConfDialog_t : public QDialog
 {
-   Q_OBJECT
+	Q_OBJECT
 
-	public:
-		TimingConfDialog_t(QWidget *parent = 0);
-		~TimingConfDialog_t(void);
+public:
+	TimingConfDialog_t(QWidget *parent = 0);
+	~TimingConfDialog_t(void);
 
-	protected:
-		void closeEvent(QCloseEvent *event);
+protected:
+	void closeEvent(QCloseEvent *event);
 
-		QCheckBox  *emuPrioCtlEna;
-		QComboBox  *emuSchedPolicyBox;
-		QSlider    *emuSchedPrioSlider;
-		QSlider    *emuSchedNiceSlider;
-		QLabel     *emuSchedPrioLabel;
-		QLabel     *emuSchedNiceLabel;
-		QComboBox  *guiSchedPolicyBox;
-		QSlider    *guiSchedPrioSlider;
-		QSlider    *guiSchedNiceSlider;
-		QLabel     *guiSchedPrioLabel;
-		QLabel     *guiSchedNiceLabel;
-		QComboBox  *timingDevSelBox;
+	QCheckBox *emuPrioCtlEna;
+#ifdef WIN32
+	QComboBox *emuSchedPrioBox;
+	QComboBox *guiSchedPrioBox;
+#else
+	QComboBox *emuSchedPolicyBox;
+	QSlider *emuSchedPrioSlider;
+	QSlider *emuSchedNiceSlider;
+	QLabel *emuSchedPrioLabel;
+	QLabel *emuSchedNiceLabel;
+	QComboBox *guiSchedPolicyBox;
+	QSlider *guiSchedPrioSlider;
+	QSlider *guiSchedNiceSlider;
+	QLabel *guiSchedPrioLabel;
+	QLabel *guiSchedNiceLabel;
+#endif
+	QComboBox *timingDevSelBox;
 
-	private:
-		void  updatePolicyBox(void);
-		void  updateSliderLimits(void);
-		void  updateSliderValues(void);
-		void  updateTimingMech(void);
-		void  saveValues(void);
+	QGroupBox *ppuOverClockBox;
+	QSpinBox  *postRenderBox;
+	QSpinBox  *vblankScanlinesBox;
+	QCheckBox *no7bitSamples;
 
-   public slots:
-      void closeWindow(void);
-	private slots:
-		void emuSchedCtlChange( int state );
-		void emuSchedNiceChange( int val );
-		void emuSchedPrioChange( int val );
-		void emuSchedPolicyChange( int index );
-		void guiSchedNiceChange( int val );
-		void guiSchedPrioChange( int val );
-		void guiSchedPolicyChange( int index );
-		void emuTimingMechChange( int index );
+	QTimer    *updateTimer;
 
+private:
+	void updatePolicyBox(void);
+	void updateSliderLimits(void);
+	void updateSliderValues(void);
+	void updateTimingMech(void);
+	void updateOverclocking(void);
+	void saveValues(void);
+
+public slots:
+	void closeWindow(void);
+private slots:
+	void periodicUpdate(void);
+	void emuSchedCtlChange(int state);
+	void emuSchedNiceChange(int val);
+	void emuSchedPrioChange(int val);
+	void emuSchedPolicyChange(int index);
+	void guiSchedNiceChange(int val);
+	void guiSchedPrioChange(int val);
+	void guiSchedPolicyChange(int index);
+	void emuTimingMechChange(int index);
+	void overclockingToggled(bool on);
+	void postRenderChanged(int value);
+	void vblankScanlinesChanged(int value);
+	void no7bitChanged(int value);
 };

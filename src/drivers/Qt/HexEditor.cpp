@@ -1,4 +1,23 @@
-// HotKeyConf.cpp
+/* FCE Ultra - NES/Famicom Emulator
+ *
+ * Copyright notice for this file:
+ *  Copyright (C) 2020 mjbudd77
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ */
+// HexEditor.cpp
 //
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,13 +27,17 @@
 #include <SDL.h>
 #include <QHeaderView>
 #include <QScrollBar>
+#include <QSpinBox>
 #include <QPainter>
 #include <QMenuBar>
 #include <QFileDialog>
+#include <QFontDialog>
 #include <QColorDialog>
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QActionGroup>
+#include <QSettings>
 
 #include "../../types.h"
 #include "../../fceu.h"
@@ -46,7 +69,7 @@
 static bool memNeedsCheck = false;
 static HexBookMarkManager_t hbm;
 static std::list <HexEditorDialog_t*> winList;
-static const char *memViewNames[] = { "RAM", "PPU", "OAM", "ROM", NULL };
+static const char *memViewNames[] = { "CPU", "PPU", "OAM", "ROM", NULL };
 
 static int getROM( unsigned int offset);
 static int writeMem( int mode, unsigned int addr, int value );
@@ -220,6 +243,10 @@ static int getRAM( unsigned int i )
 //----------------------------------------------------------------------------
 static int getPPU( unsigned int i )
 {
+	if (GameInfo == NULL )
+	{
+		return 0;
+	}
 	i &= 0x3FFF;
 	if (i < 0x2000)return VPage[(i) >> 10][(i)];
 	//NSF PPU Viewer crash here (UGETAB) (Also disabled by 'MaxSize = 0x2000')
@@ -241,6 +268,10 @@ static int getOAM( unsigned int i )
 //----------------------------------------------------------------------------
 static int getROM( unsigned int offset)
 {
+	if (GameInfo == NULL )
+	{
+		return 0;
+	}
 	if (offset < 16)
 	{
 		return *((unsigned char *)&head+offset);
@@ -390,7 +421,7 @@ memBlock_t::memBlock_t( void )
 {
 	buf = NULL;
 	_size = 0;
-   _maxLines = 0;
+	_maxLines = 0;
 	memAccessFunc = NULL;
 }
 //----------------------------------------------------------------------------
@@ -422,7 +453,7 @@ int memBlock_t::reAlloc( int newSize )
 		::free( buf ); buf = NULL;
 	}
 	_size = 0;
-   _maxLines = 0;
+	_maxLines = 0;
 
 	buf = (struct memByte_t *)malloc( newSize * sizeof(struct memByte_t) );
 
@@ -704,6 +735,208 @@ void HexBookMarkMenuAction::activateCB(void)
 	qedit->setAddr( bm->addr );
 }
 //----------------------------------------------------------------------------
+HexEditorCharTable_t::HexEditorCharTable_t(void)
+{
+	extAsciiEnable  = true;
+	customMapLoaded = false;
+
+	resetAscii();
+}
+//----------------------------------------------------------------------------
+HexEditorCharTable_t::~HexEditorCharTable_t(void)
+{
+}
+//----------------------------------------------------------------------------
+void HexEditorCharTable_t::resetAscii(void)
+{
+	for (int i=0; i<256; i++)
+	{
+		rmap[i] = i;
+
+		if (i > 127)
+		{	// Extended Ascii
+			if ( extAsciiEnable )
+			{
+				map[i] = i;
+			}
+			else
+			{
+				map[i] = '.';
+			}
+		}
+		else
+		{       // Normal Ascii
+			if ( isprint(i) )
+			{
+				map[i] = i;
+			}
+			else
+			{
+				map[i] = '.';
+			}
+		}
+	}
+	customMapLoaded = false;
+}
+//----------------------------------------------------------------------------
+int HexEditorCharTable_t::loadFromFile( const char *filepath )
+{
+	int i,j,hexValue,mapValue,retVal, lineNum = 0;
+	FILE *fp;
+	char line[256];
+	char tk[64];
+	char errMsg[256];
+	int  tmpMap[256];
+	int  tmpMapR[256];
+
+	retVal = 0;
+	errMsg[0] = 0;
+
+	fp = ::fopen( filepath, "r");
+
+	if ( fp == NULL )
+	{
+		return -1;
+	}
+	for (i=0; i<256; i++)
+	{
+		tmpMap[i]  = -1;
+		tmpMapR[i] = -1;
+	}
+
+	while ( fgets( line, sizeof(line), fp ) != 0 )
+	{
+		lineNum++;
+
+		if ( retVal != 0 )
+		{
+			break;
+		}
+		//printf("%s\n", line);
+
+		i=0;
+		while ( isspace(line[i]) ) i++;
+
+		if ( line[i] == '#' )
+		{	// Comment line, skip it
+			line[i] = 0; continue;
+		}
+
+		while ( isspace(line[i]) ) i++;
+
+		j=0;
+		while ( isxdigit(line[i]) )
+		{
+			tk[j] = line[i]; i++; j++;
+		}
+		tk[j] = 0;
+
+		if ( j == 0 )
+		{	// Line did not start with a hex character, skip it
+			continue;
+		}
+		hexValue = strtol( tk, NULL, 16 );
+
+		if ( hexValue > 255 )
+		{
+			sprintf( errMsg, "Error: Line %i: Hex Value 0x%X exceeds 0xFF \n", lineNum, hexValue );
+			retVal = -1;
+			continue;
+		}
+
+		while ( isspace(line[i]) ) i++;
+
+		if ( line[i] != '=' )
+		{
+			sprintf( errMsg, "Error: Line %i: Expected assignment operator '=' but got '%c' \n", lineNum, line[i] );
+			retVal = -1;
+			continue;
+		}
+		i++;
+
+		while ( isspace(line[i]) ) i++;
+
+		mapValue = 0;
+
+		if (line[i] == '0')
+		{	// Hex Value Remap or '0'
+			i++;
+			if ( line[i] == 'x')
+			{
+				i++; j=0;
+				while ( isxdigit(line[i]) )
+				{
+					tk[j] = line[i]; i++; j++;
+				}
+				tk[j] = 0;
+				
+				mapValue = strtol( tk, NULL, 16 );
+			}
+			else
+			{
+				mapValue = '0';
+			}
+		}
+		else if (line[i] == '$')
+		{	// Hex Value Remap or '$'
+			i++;
+			if ( isxdigit(line[i]) )
+			{
+				j=0;
+				while ( isxdigit(line[i]) )
+				{
+					tk[j] = line[i]; i++; j++;
+				}
+				tk[j] = 0;
+				
+				mapValue = strtol( tk, NULL, 16 );
+			}
+			else
+			{
+				mapValue = '$';
+			}
+		}
+		else
+		{	// Hex to Character Mapping
+			mapValue = line[i];
+		}
+
+		if ( mapValue > 255 )
+		{
+			sprintf( errMsg, "Error: Line %i: Map Value 0x%X exceeds 0xFF \n", lineNum, mapValue );
+			retVal = -1;
+			continue;
+		}
+
+		tmpMap[ hexValue ] = mapValue;
+
+		if ( mapValue < 256 )
+		{
+			tmpMapR[ mapValue ] = hexValue;
+		}
+	}
+
+	if ( retVal == 0 )
+	{
+		memcpy(  map, tmpMap , sizeof( map) );
+		memcpy( rmap, tmpMapR, sizeof(rmap) );
+		customMapLoaded = true;
+	}
+	else
+	{
+		if ( errMsg[0] != 0 )
+		{
+			if ( consoleWindow != NULL )
+			{
+				consoleWindow->QueueErrorMsgWindow(errMsg);
+			}
+		}
+	}
+	
+	::fclose(fp);
+	return retVal;
+}
+//----------------------------------------------------------------------------
 HexEditorFindDialog_t::HexEditorFindDialog_t(QWidget *parent)
 	: QDialog( parent )
 {
@@ -849,17 +1082,24 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	//QVBoxLayout *mainLayout;
 	QGridLayout *grid;
 	QMenuBar *menuBar;
-	QMenu *fileMenu, *editMenu, *viewMenu, *colorMenu;
+	QMenu *fileMenu, *editMenu, *viewMenu, *colorMenu, *subMenu;
 	QAction *saveROM, *closeAct;
-	QAction *act, *actHlgt, *actHlgtRV, *actColorFG, *actColorBG;
+	QAction *act, *actHlgt, *actHlgtRV;
+	ColorMenuItem *actColorFG, *actColorBG, *actRowColColor, *actAltColColor;
 	QActionGroup *group;
-	int useNativeMenuBar;
+	int opt, useNativeMenuBar, refreshRateOpt;
+	QSettings settings;
 
 	QDialog::setWindowTitle( tr("Hex Editor") );
 
 	resize( 512, 512 );
 
 	menuBar = new QMenuBar(this);
+
+	grid   = new QGridLayout(this);
+	editor = new QHexEdit(this);
+	vbar   = new QScrollBar( Qt::Vertical, this );
+	hbar   = new QScrollBar( Qt::Horizontal, this );
 
 	// This is needed for menu bar to show up on MacOS
 	g_config->getOption( "SDL.UseNativeMenuBar", &useNativeMenuBar );
@@ -869,26 +1109,42 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	// Menu 
 	//-----------------------------------------------------------------------
 	// File
-	fileMenu = menuBar->addMenu(tr("File"));
+	fileMenu = menuBar->addMenu(tr("&File"));
 
 	// File -> Save ROM
-	saveROM = new QAction(tr("Save ROM"), this);
-	//saveROM->setShortcut(QKeySequence::Open);
+	saveROM = new QAction(tr("&Save ROM"), this);
+	saveROM->setShortcut(QKeySequence::Save);
 	saveROM->setStatusTip(tr("Save ROM File"));
 	connect(saveROM, SIGNAL(triggered()), this, SLOT(saveRomFile(void)) );
 	
 	fileMenu->addAction(saveROM);
 
 	// File -> Save ROM As
-	saveROM = new QAction(tr("Save ROM As"), this);
-	//saveROM->setShortcut(QKeySequence::Open);
+	saveROM = new QAction(tr("Save ROM &As"), this);
+	saveROM->setShortcut(QKeySequence::SaveAs);
 	saveROM->setStatusTip(tr("Save ROM File As"));
 	connect(saveROM, SIGNAL(triggered()), this, SLOT(saveRomFileAs(void)) );
 	
 	fileMenu->addAction(saveROM);
 
+	// File -> Load Table
+	loadTableAct = new QAction(tr("&Load TBL File"), this);
+	//loadTableAct->setShortcut(QKeySequence::Open);
+	loadTableAct->setStatusTip(tr("Load Table from File"));
+	connect(loadTableAct, SIGNAL(triggered()), this, SLOT(loadTableFromFile(void)) );
+	
+	fileMenu->addAction(loadTableAct);
+
+	// File -> Unload Table
+	unloadTableAct = new QAction(tr("&Unload TBL File"), this);
+	//unloadTableAct->setShortcut(QKeySequence::Open);
+	unloadTableAct->setStatusTip(tr("Unload Table"));
+	connect(unloadTableAct, SIGNAL(triggered()), this, SLOT(unloadTable(void)) );
+	
+	fileMenu->addAction(unloadTableAct);
+
 	// File -> Goto Address
-	gotoAddrAct = new QAction(tr("Goto Addresss"), this);
+	gotoAddrAct = new QAction(tr("&Goto Address"), this);
 	gotoAddrAct->setShortcut(QKeySequence(tr("Ctrl+A")));
 	gotoAddrAct->setStatusTip(tr("Goto Address"));
 	connect(gotoAddrAct, SIGNAL(triggered()), this, SLOT(openGotoAddrDialog(void)) );
@@ -898,19 +1154,19 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	fileMenu->addSeparator();
 
 	// File -> Close
-	closeAct = new QAction(tr("Close"), this);
-	//closeAct->setShortcuts(QKeySequence::Open);
+	closeAct = new QAction(tr("&Close"), this);
+	closeAct->setShortcut(QKeySequence::Close);
 	closeAct->setStatusTip(tr("Close Window"));
 	connect(closeAct, SIGNAL(triggered()), this, SLOT(closeWindow(void)) );
 	
 	fileMenu->addAction(closeAct);
 
 	// Edit
-	editMenu = menuBar->addMenu(tr("Edit"));
+	editMenu = menuBar->addMenu(tr("&Edit"));
 
 	// Edit -> Undo
-	undoEditAct = new QAction(tr("Undo"), this);
-	undoEditAct->setShortcut(QKeySequence(tr("U")));
+	undoEditAct = new QAction(tr("&Undo"), this);
+	undoEditAct->setShortcut(QKeySequence::Undo);
 	undoEditAct->setStatusTip(tr("Undo Edit"));
 	undoEditAct->setEnabled(false);
 	connect(undoEditAct, SIGNAL(triggered()), this, SLOT(undoRomPatch(void)) );
@@ -919,7 +1175,7 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	editMenu->addSeparator();
 
 	// Edit -> Copy
-	act = new QAction(tr("Copy"), this);
+	act = new QAction(tr("&Copy"), this);
 	act->setShortcut(QKeySequence(tr("Ctrl+C")));
 	act->setStatusTip(tr("Copy"));
 	connect(act, SIGNAL(triggered()), this, SLOT(copyToClipboard(void)) );
@@ -927,7 +1183,7 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	editMenu->addAction(act);
 
 	// Edit -> Paste
-	act = new QAction(tr("Paste"), this);
+	act = new QAction(tr("&Paste"), this);
 	act->setShortcut(QKeySequence(tr("Ctrl+V")));
 	act->setStatusTip(tr("Paste"));
 	connect(act, SIGNAL(triggered()), this, SLOT(pasteFromClipboard(void)) );
@@ -936,7 +1192,7 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	editMenu->addSeparator();
 
 	// Edit -> Find
-	act = new QAction(tr("Find"), this);
+	act = new QAction(tr("&Find"), this);
 	act->setShortcut(QKeySequence(tr("Ctrl+F")));
 	act->setStatusTip(tr("Find"));
 	connect(act, SIGNAL(triggered()), this, SLOT(openFindDialog(void)) );
@@ -944,16 +1200,16 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	editMenu->addAction(act);
 
 	// View
-	viewMenu = menuBar->addMenu(tr("View"));
+	viewMenu = menuBar->addMenu(tr("&View"));
 
 	group   = new QActionGroup(this);
 
 	group->setExclusive(true);
 
 	// View -> RAM
-	viewRAM = new QAction(tr("RAM"), this);
+	viewRAM = new QAction(tr("&CPU"), this);
 	//viewRAM->setShortcuts(QKeySequence::Open);
-	viewRAM->setStatusTip(tr("View RAM"));
+	viewRAM->setStatusTip(tr("View CPU"));
 	viewRAM->setCheckable(true);
 	connect(viewRAM, SIGNAL(triggered()), this, SLOT(setViewRAM(void)) );
 
@@ -961,88 +1217,188 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	viewMenu->addAction(viewRAM);
 
 	// View -> PPU
-	viewPPU = new QAction(tr("PPU"), this);
-   //viewPPU->setShortcuts(QKeySequence::Open);
-   viewPPU->setStatusTip(tr("View PPU"));
+	viewPPU = new QAction(tr("&PPU"), this);
+	//viewPPU->setShortcuts(QKeySequence::Open);
+	viewPPU->setStatusTip(tr("View PPU"));
 	viewPPU->setCheckable(true);
-   connect(viewPPU, SIGNAL(triggered()), this, SLOT(setViewPPU(void)) );
+	connect(viewPPU, SIGNAL(triggered()), this, SLOT(setViewPPU(void)) );
 
 	group->addAction(viewPPU);
-   viewMenu->addAction(viewPPU);
+	viewMenu->addAction(viewPPU);
 
 	// View -> OAM
-	viewOAM = new QAction(tr("OAM"), this);
-   //viewOAM->setShortcuts(QKeySequence::Open);
-   viewOAM->setStatusTip(tr("View OAM"));
+	viewOAM = new QAction(tr("&OAM"), this);
+	//viewOAM->setShortcuts(QKeySequence::Open);
+	viewOAM->setStatusTip(tr("View OAM"));
 	viewOAM->setCheckable(true);
-   connect(viewOAM, SIGNAL(triggered()), this, SLOT(setViewOAM(void)) );
+	connect(viewOAM, SIGNAL(triggered()), this, SLOT(setViewOAM(void)) );
 
 	group->addAction(viewOAM);
-   viewMenu->addAction(viewOAM);
+	viewMenu->addAction(viewOAM);
 
 	// View -> ROM
-	viewROM = new QAction(tr("ROM"), this);
-   //viewROM->setShortcuts(QKeySequence::Open);
-   viewROM->setStatusTip(tr("View ROM"));
+	viewROM = new QAction(tr("&ROM"), this);
+	//viewROM->setShortcuts(QKeySequence::Open);
+	viewROM->setStatusTip(tr("View ROM"));
 	viewROM->setCheckable(true);
-   connect(viewROM, SIGNAL(triggered()), this, SLOT(setViewROM(void)) );
+	connect(viewROM, SIGNAL(triggered()), this, SLOT(setViewROM(void)) );
 
 	group->addAction(viewROM);
-   viewMenu->addAction(viewROM);
+	viewMenu->addAction(viewROM);
 
 	viewRAM->setChecked(true); // Set default view
 
+	viewMenu->addSeparator();
+
+	// View -> Font
+	act = new QAction(tr("Set &Font..."), this);
+	//act->setShortcuts(QKeySequence::Open);
+	act->setStatusTip(tr("Change Font"));
+	//act->setCheckable(true);
+	connect(act, SIGNAL(triggered()), this, SLOT(changeFontRequest(void)) );
+
+	viewMenu->addAction(act);
+
+	viewMenu->addSeparator();
+
+	// View -> Refresh Rate
+	subMenu = viewMenu->addMenu( tr("Re&fresh Rate") );
+	group   = new QActionGroup(this);
+
+	group->setExclusive(true);
+
+	g_config->getOption("SDL.HexEditRefreshRate", &refreshRateOpt);
+
+	// View -> Refresh Rate -> 5 Hz
+	act = new QAction(tr("5 Hz"), this);
+	act->setCheckable(true);
+	act->setChecked( refreshRateOpt == 5 );
+	connect(act, SIGNAL(triggered()), this, SLOT(setViewRefresh5Hz(void)) );
+
+	group->addAction(act);
+	subMenu->addAction(act);
+
+	// View -> Refresh Rate -> 10 Hz
+	act = new QAction(tr("10 Hz"), this);
+	act->setCheckable(true);
+	act->setChecked( refreshRateOpt == 10 );
+	connect(act, SIGNAL(triggered()), this, SLOT(setViewRefresh10Hz(void)) );
+
+	group->addAction(act);
+	subMenu->addAction(act);
+
+	// View -> Refresh Rate -> 20 Hz
+	act = new QAction(tr("20 Hz"), this);
+	act->setCheckable(true);
+	act->setChecked( refreshRateOpt == 20 );
+	connect(act, SIGNAL(triggered()), this, SLOT(setViewRefresh20Hz(void)) );
+
+	group->addAction(act);
+	subMenu->addAction(act);
+
+	// View -> Refresh Rate -> 30 Hz
+	act = new QAction(tr("30 Hz"), this);
+	act->setCheckable(true);
+	act->setChecked( refreshRateOpt == 30 );
+	connect(act, SIGNAL(triggered()), this, SLOT(setViewRefresh30Hz(void)) );
+
+	group->addAction(act);
+	subMenu->addAction(act);
+
+	// View -> Refresh Rate -> 60 Hz
+	act = new QAction(tr("60 Hz"), this);
+	act->setCheckable(true);
+	act->setChecked( refreshRateOpt == 60 );
+	connect(act, SIGNAL(triggered()), this, SLOT(setViewRefresh60Hz(void)) );
+
+	group->addAction(act);
+	subMenu->addAction(act);
+
 	// Color Menu
-   colorMenu = menuBar->addMenu(tr("Color"));
+	colorMenu = menuBar->addMenu(tr("&Color"));
 
 	// Color -> Highlight Activity
-	actHlgt = new QAction(tr("Highlight Activity"), this);
-   //actHlgt->setShortcuts(QKeySequence::Open);
-   actHlgt->setStatusTip(tr("Highlight Activity"));
-	actHlgt->setCheckable(true);
-	actHlgt->setChecked(true);
-   connect(actHlgt, SIGNAL(triggered(bool)), this, SLOT(actvHighlightCB(bool)) );
+	g_config->getOption("SDL.HexEditActivityHlgt", &opt);
+	editor->setHighlightActivity( opt );
 
-   colorMenu->addAction(actHlgt);
+	actHlgt = new QAction(tr("Highlight &Activity"), this);
+	//actHlgt->setShortcuts(QKeySequence::Open);
+	actHlgt->setStatusTip(tr("Highlight Activity"));
+	actHlgt->setCheckable(true);
+	actHlgt->setChecked(opt);
+	connect(actHlgt, SIGNAL(triggered(bool)), this, SLOT(actvHighlightCB(bool)) );
+
+	colorMenu->addAction(actHlgt);
 
 	// Color -> Highlight Reverse Video
-	actHlgtRV = new QAction(tr("Highlight Reverse Video"), this);
-   //actHlgtRV->setShortcuts(QKeySequence::Open);
-   actHlgtRV->setStatusTip(tr("Highlight Reverse Video"));
-	actHlgtRV->setCheckable(true);
-	actHlgtRV->setChecked(true);
-   connect(actHlgtRV, SIGNAL(triggered(bool)), this, SLOT(actvHighlightRVCB(bool)) );
+	g_config->getOption("SDL.HexEditReverseVideo", &opt);
+	editor->setHighlightReverseVideo( opt );
 
-   colorMenu->addAction(actHlgtRV);
+	actHlgtRV = new QAction(tr("Highlight &Reverse Video"), this);
+	//actHlgtRV->setShortcuts(QKeySequence::Open);
+	actHlgtRV->setStatusTip(tr("Highlight Reverse Video"));
+	actHlgtRV->setCheckable(true);
+	actHlgtRV->setChecked(opt);
+	connect(actHlgtRV, SIGNAL(triggered(bool)), this, SLOT(actvHighlightRVCB(bool)) );
+
+	colorMenu->addAction(actHlgtRV);
+
+	// Color -> Highlight Reverse Video
+	g_config->getOption("SDL.HexEditRowColumnHlgt", &opt);
+	editor->setRowColHlgtEna( opt );
+
+	rolColHlgtAct = new QAction(tr("Highlight &Cursor Row/Column"), this);
+	//rolColHlgtAct->setShortcuts(QKeySequence::Open);
+	rolColHlgtAct->setStatusTip(tr("Highlight Cursor Row/Column"));
+	rolColHlgtAct->setCheckable(true);
+	rolColHlgtAct->setChecked(opt);
+	connect(rolColHlgtAct, SIGNAL(triggered(bool)), this, SLOT(rolColHlgtChanged(bool)) );
+
+	colorMenu->addAction(rolColHlgtAct);
+
+	// Color -> Highlight Reverse Video
+	g_config->getOption("SDL.HexEditAltnColumnColor", &opt);
+	editor->setAltColHlgtEna( opt );
+
+	altColHlgtAct = new QAction(tr("&Alternating Column Colors"), this);
+	//altColHlgtAct->setShortcuts(QKeySequence::Open);
+	altColHlgtAct->setStatusTip(tr("&Alternating Column Colors"));
+	altColHlgtAct->setCheckable(true);
+	altColHlgtAct->setChecked(opt);
+	connect(altColHlgtAct, SIGNAL(triggered(bool)), this, SLOT(altColHlgtChanged(bool)) );
+
+	colorMenu->addAction(altColHlgtAct);
+
+	colorMenu->addSeparator();
 
 	// Color -> ForeGround Color
-	actColorFG = new QAction(tr("ForeGround Color"), this);
-   //actColorFG->setShortcuts(QKeySequence::Open);
-   actColorFG->setStatusTip(tr("ForeGround Color"));
-   connect(actColorFG, SIGNAL(triggered(void)), this, SLOT(pickForeGroundColor(void)) );
-
-   colorMenu->addAction(actColorFG);
+	actColorFG = new ColorMenuItem( tr("&ForeGround Color"), "SDL.HexEditFgColor", this);
+	
+	colorMenu->addAction(actColorFG);
 
 	// Color -> BackGround Color
-	actColorBG = new QAction(tr("BackGround Color"), this);
-   //actColorBG->setShortcuts(QKeySequence::Open);
-   actColorBG->setStatusTip(tr("BackGround Color"));
-   connect(actColorBG, SIGNAL(triggered(void)), this, SLOT(pickBackGroundColor(void)) );
+	actColorBG = new ColorMenuItem( tr("&BackGround Color"), "SDL.HexEditBgColor", this);
+	
+	colorMenu->addAction(actColorBG);
 
-   colorMenu->addAction(actColorBG);
+	// Color -> Cursor Row/Column Color
+	actRowColColor = new ColorMenuItem( tr("&Cursor Row/Column Color"), "SDL.HexEditCursorColorRC", this);
+	
+	colorMenu->addAction(actRowColColor);
+
+	// Color -> Alternate Column Color
+	actAltColColor = new ColorMenuItem( tr("&Alternate Column Color"), "SDL.HexEditAltColColor", this);
+	
+	colorMenu->addAction(actAltColColor);
 
 	// Bookmarks Menu
-   bookmarkMenu = menuBar->addMenu(tr("Bookmarks"));
+	bookmarkMenu = menuBar->addMenu(tr("&Bookmarks"));
 
 	//-----------------------------------------------------------------------
 	// Menu End 
 	//-----------------------------------------------------------------------
 	//mainLayout = new QVBoxLayout();
 
-	grid   = new QGridLayout(this);
-	editor = new QHexEdit(this);
-	vbar   = new QScrollBar( Qt::Vertical, this );
-	hbar   = new QScrollBar( Qt::Horizontal, this );
 
 	grid->setMenuBar( menuBar );
 
@@ -1056,13 +1412,18 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	hbar->setMinimum(0);
 	hbar->setMaximum(100);
 	vbar->setMinimum(0);
-	vbar->setMaximum( 0x10000 / 16 );
+	vbar->setMaximum( 0x1000 / 16 );
 
-   editor->setScrollBars( hbar, vbar );
+	editor->setScrollBars( hbar, vbar );
+	
+	   actColorFG->connectColor( &editor->fgColor );
+	   actColorBG->connectColor( &editor->bgColor );
+	actRowColColor->connectColor( &editor->rowColHlgtColor );
+	actAltColColor->connectColor( &editor->altColHlgtColor );
 
-   //connect( vbar, SIGNAL(sliderMoved(int)), this, SLOT(vbarMoved(int)) );
-   connect( hbar, SIGNAL(valueChanged(int)), this, SLOT(hbarChanged(int)) );
-   connect( vbar, SIGNAL(valueChanged(int)), this, SLOT(vbarChanged(int)) );
+	//connect( vbar, SIGNAL(sliderMoved(int)), this, SLOT(vbarMoved(int)) );
+	connect( hbar, SIGNAL(valueChanged(int)), this, SLOT(hbarChanged(int)) );
+	connect( vbar, SIGNAL(valueChanged(int)), this, SLOT(vbarChanged(int)) );
 
 	findDialog = NULL;
 
@@ -1070,9 +1431,10 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 
 	periodicTimer  = new QTimer( this );
 
-   connect( periodicTimer, &QTimer::timeout, this, &HexEditorDialog_t::updatePeriodic );
+	connect( periodicTimer, &QTimer::timeout, this, &HexEditorDialog_t::updatePeriodic );
 
-	periodicTimer->start( 100 ); // 10hz
+	//printf("Refresh Rate: %i\n", 1000 / refreshRateOpt );
+	periodicTimer->start( 1000 / refreshRateOpt  );
 
 	// Lock the mutex before adding a new window to the list,
 	// we want to be sure that the emulator is not iterating the list
@@ -1085,13 +1447,16 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 
 	FCEUI_CreateCheatMap();
 
+	unloadTableAct->setEnabled( editor->charTable.customMapLoaded );
+
+	restoreGeometry(settings.value("hexEditor/geometry").toByteArray());
 }
 //----------------------------------------------------------------------------
 HexEditorDialog_t::~HexEditorDialog_t(void)
 {
 	std::list <HexEditorDialog_t*>::iterator it;
 	  
-	printf("Hex Editor Deleted\n");
+	//printf("Hex Editor Deleted\n");
 	periodicTimer->stop();
 
 	// Lock the emulation thread mutex to ensure
@@ -1153,12 +1518,12 @@ void HexEditorDialog_t::populateBookmarkMenu(void)
 	bookmarkMenu->clear();
 
 	// Bookmarks -> Remove All Bookmarks
-	act = new QAction(tr("Remove All Bookmarks"), bookmarkMenu);
-   //act->setShortcuts(QKeySequence::Open);
-   act->setStatusTip(tr("Remove All Bookmarks"));
-   connect(act, SIGNAL(triggered(void)), this, SLOT(removeAllBookmarks(void)) );
-
-   bookmarkMenu->addAction(act);
+	act = new QAction(tr("&Remove All Bookmarks"), bookmarkMenu);
+	//act->setShortcuts(QKeySequence::Open);
+	act->setStatusTip(tr("Remove All Bookmarks"));
+	connect(act, SIGNAL(triggered(void)), this, SLOT(removeAllBookmarks(void)) );
+	
+	bookmarkMenu->addAction(act);
 	bookmarkMenu->addSeparator();
 
 	for (int i=0; i<hbm.size(); i++)
@@ -1169,16 +1534,18 @@ void HexEditorDialog_t::populateBookmarkMenu(void)
 		{
 			//printf("%p  %p  \n", b, editor );
 			hAct = new HexBookMarkMenuAction(tr(b->desc), bookmarkMenu);
-   		bookmarkMenu->addAction(hAct);
+			bookmarkMenu->addAction(hAct);
 			hAct->bm = b; hAct->qedit = editor;
-   		connect(hAct, SIGNAL(triggered(void)), hAct, SLOT(activateCB(void)) );
+			connect(hAct, SIGNAL(triggered(void)), hAct, SLOT(activateCB(void)) );
 		}
 	}
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::closeEvent(QCloseEvent *event)
 {
-	printf("Hex Editor Close Window Event\n");
+	QSettings settings;
+	//printf("Hex Editor Close Window Event\n");
+	settings.setValue("hexEditor/geometry", saveGeometry());
 	done(0);
 	deleteLater();
 	event->accept();
@@ -1186,47 +1553,11 @@ void HexEditorDialog_t::closeEvent(QCloseEvent *event)
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::closeWindow(void)
 {
+	QSettings settings;
 	//printf("Close Window\n");
+	settings.setValue("hexEditor/geometry", saveGeometry());
 	done(0);
 	deleteLater();
-}
-//----------------------------------------------------------------------------
-void HexEditorDialog_t::pickForeGroundColor(void)
-{
-	int ret;
-	QColorDialog dialog( this );
-
-	dialog.setOption( QColorDialog::DontUseNativeDialog, true );
-	dialog.show();
-	ret = dialog.exec();
-
-	if ( ret == QDialog::Accepted )
-	{
-		QString colorText;
-		colorText = dialog.selectedColor().name();
-		//printf("FG Color string '%s'\n", colorText.toStdString().c_str() );
-		g_config->setOption("SDL.HexEditFgColor", colorText.toStdString().c_str() );
-		editor->setForeGroundColor( dialog.selectedColor() );
-	}
-}
-//----------------------------------------------------------------------------
-void HexEditorDialog_t::pickBackGroundColor(void)
-{
-	int ret;
-	QColorDialog dialog( this );
-
-	dialog.setOption( QColorDialog::DontUseNativeDialog, true );
-	dialog.show();
-	ret = dialog.exec();
-
-	if ( ret == QDialog::Accepted )
-	{
-		QString colorText;
-		colorText = dialog.selectedColor().name();
-		//printf("BG Color string '%s'\n", colorText.toStdString().c_str() );
-		g_config->setOption("SDL.HexEditBgColor", colorText.toStdString().c_str() );
-		editor->setBackGroundColor( dialog.selectedColor() );
-	}
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::vbarMoved(int value)
@@ -1279,7 +1610,6 @@ void HexEditorDialog_t::saveRomFileAs(void)
 
 	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
 
-	dialog.show();
 	ret = dialog.exec();
 
 	if ( ret )
@@ -1294,12 +1624,63 @@ void HexEditorDialog_t::saveRomFileAs(void)
 	}
 
 	if ( filename.isNull() )
-   {
-      return;
-   }
+	{
+	   return;
+	}
 	qDebug() << "selected file path : " << filename.toUtf8();
 
 	iNesSaveAs( filename.toStdString().c_str() );
+}
+//----------------------------------------------------------------------------
+void HexEditorDialog_t::loadTableFromFile(void)
+{
+	int ret, useNativeFileDialogVal;
+	QString filename;
+	QFileDialog  dialog(this, tr("Load Table From File") );
+
+	dialog.setFileMode(QFileDialog::ExistingFile);
+
+	dialog.setNameFilter(tr("TBL Files (*.tbl *.TBL) ;; All files (*)"));
+
+	dialog.setViewMode(QFileDialog::List);
+	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
+	dialog.setLabelText( QFileDialog::Accept, tr("Load") );
+	dialog.setDefaultSuffix( tr(".tbl") );
+
+	// Check config option to use native file dialog or not
+	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+
+	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
+
+	ret = dialog.exec();
+
+	if ( ret )
+	{
+		QStringList fileList;
+		fileList = dialog.selectedFiles();
+
+		if ( fileList.size() > 0 )
+		{
+			filename = fileList[0];
+		}
+	}
+
+	if ( filename.isNull() )
+	{
+	   return;
+	}
+	qDebug() << "selected file path : " << filename.toUtf8();
+
+	editor->charTable.loadFromFile( filename.toStdString().c_str() );
+
+	unloadTableAct->setEnabled( editor->charTable.customMapLoaded );
+}
+//----------------------------------------------------------------------------
+void HexEditorDialog_t::unloadTable(void)
+{
+	editor->charTable.resetAscii();
+
+	unloadTableAct->setEnabled( editor->charTable.customMapLoaded );
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::setViewRAM(void)
@@ -1322,16 +1703,76 @@ void HexEditorDialog_t::setViewROM(void)
 	editor->setMode( QHexEdit::MODE_NES_ROM );
 }
 //----------------------------------------------------------------------------
+void HexEditorDialog_t::changeFontRequest(void)
+{
+	editor->changeFontRequest();
+}
+//----------------------------------------------------------------------------
+void HexEditorDialog_t::setViewRefresh5Hz(void)
+{
+	g_config->setOption("SDL.HexEditRefreshRate", 5);
+	periodicTimer->stop();
+	periodicTimer->start(200);
+}
+//----------------------------------------------------------------------------
+void HexEditorDialog_t::setViewRefresh10Hz(void)
+{
+	g_config->setOption("SDL.HexEditRefreshRate", 10);
+	periodicTimer->stop();
+	periodicTimer->start(100);
+}
+//----------------------------------------------------------------------------
+void HexEditorDialog_t::setViewRefresh20Hz(void)
+{
+	g_config->setOption("SDL.HexEditRefreshRate", 20);
+	periodicTimer->stop();
+	periodicTimer->start(50);
+}
+//----------------------------------------------------------------------------
+void HexEditorDialog_t::setViewRefresh30Hz(void)
+{
+	g_config->setOption("SDL.HexEditRefreshRate", 30);
+	periodicTimer->stop();
+	periodicTimer->start(33);
+}
+//----------------------------------------------------------------------------
+void HexEditorDialog_t::setViewRefresh60Hz(void)
+{
+	g_config->setOption("SDL.HexEditRefreshRate", 60);
+	periodicTimer->stop();
+	periodicTimer->start(16);
+}
+//----------------------------------------------------------------------------
 void HexEditorDialog_t::actvHighlightCB(bool enable)
 {
+	g_config->setOption("SDL.HexEditActivityHlgt", enable);
+
 	//printf("Highlight: %i \n", enable );
 	editor->setHighlightActivity( enable );
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::actvHighlightRVCB(bool enable)
 {
+	g_config->setOption("SDL.HexEditReverseVideo", enable);
+
 	//printf("Highlight: %i \n", enable );
 	editor->setHighlightReverseVideo( enable );
+}
+//----------------------------------------------------------------------------
+void HexEditorDialog_t::rolColHlgtChanged(bool enable)
+{
+	g_config->setOption("SDL.HexEditRowColumnHlgt", enable);
+
+	//printf("Highlight: %i \n", enable );
+	editor->setRowColHlgtEna( enable );
+}
+//----------------------------------------------------------------------------
+void HexEditorDialog_t::altColHlgtChanged(bool enable)
+{
+	g_config->setOption("SDL.HexEditAltnColumnColor", enable);
+
+	//printf("Highlight: %i \n", enable );
+	editor->setAltColHlgtEna( enable );
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::openDebugSymbolEditWindow( int addr )
@@ -1457,30 +1898,47 @@ QHexEdit::QHexEdit(QWidget *parent)
 	: QWidget( parent )
 {
 	QPalette pal;
-	QColor bg, fg;
-	std::string colorString;
+	std::string fontString, colorString;
 
 	this->parent = (HexEditorDialog_t*)parent;
 	this->setFocusPolicy(Qt::StrongFocus);
 
-	font.setFamily("Courier New");
-	font.setStyle( QFont::StyleNormal );
-	font.setStyleHint( QFont::Monospace );
+	g_config->getOption("SDL.HexEditFont", &fontString);
+
+	if ( fontString.size() > 0 )
+	{
+		font.fromString( QString::fromStdString( fontString ) );
+	}
+	else
+	{
+		font.setFamily("Courier New");
+		font.setStyle( QFont::StyleNormal );
+		font.setStyleHint( QFont::Monospace );
+	}
 
 	g_config->getOption("SDL.HexEditBgColor", &colorString);
-	bg.setNamedColor( colorString.c_str() );
+	bgColor.setNamedColor( colorString.c_str() );
 	g_config->getOption("SDL.HexEditFgColor", &colorString);
-	fg.setNamedColor( colorString.c_str() );
+	fgColor.setNamedColor( colorString.c_str() );
+
+	g_config->getOption("SDL.HexEditCursorColorRC", &colorString);
+	rowColHlgtColor.setNamedColor( colorString.c_str() );
+	rolColHlgtEna   = false;
+
+	g_config->getOption("SDL.HexEditAltColColor", &colorString);
+	altColHlgtColor.setNamedColor( colorString.c_str() );
+	altColHlgtEna   = false;
 
 	pal = this->palette();
-	pal.setColor(QPalette::Base      , bg );
-	pal.setColor(QPalette::Background, bg );
-	pal.setColor(QPalette::WindowText, fg );
+	pal.setColor(QPalette::Base      , bgColor );
+	pal.setColor(QPalette::Window    , bgColor );
+	pal.setColor(QPalette::WindowText, fgColor );
 
-	//editor->setAutoFillBackground(true);
 	this->setPalette(pal);
 
 	calcFontData();
+
+	setMinimumWidth( pxLineWidth );
 
 	memAccessFunc = getRAM;
 	viewMode    = MODE_NES_RAM;
@@ -1589,6 +2047,24 @@ void QHexEdit::calcFontData(void)
 	 viewLines   = (viewHeight - pxLineSpacing) / pxLineSpacing;
 }
 //----------------------------------------------------------------------------
+void QHexEdit::changeFontRequest(void)
+{
+	bool ok = false;
+
+	QFont selFont = QFontDialog::getFont( &ok, font, this, tr("Select Font"), QFontDialog::MonospacedFonts );
+
+	if ( ok )
+	{
+		font = selFont;
+
+		calcFontData();
+
+		//printf("Font Changed to: '%s'\n", font.toString().toStdString().c_str() );
+
+		g_config->setOption("SDL.HexEditFont", font.toString().toStdString().c_str() );
+	}
+}
+//----------------------------------------------------------------------------
 void QHexEdit::setHighlightActivity( int enable )
 {
 	actvHighlightEnable = enable;
@@ -1604,8 +2080,6 @@ void QHexEdit::setForeGroundColor( QColor fg )
 	QPalette pal;
 
 	pal = this->palette();
-	//pal.setColor(QPalette::Base      , Qt::black);
-	//pal.setColor(QPalette::Background, Qt::black);
 	pal.setColor(QPalette::WindowText, fg );
 
 	this->setPalette(pal);
@@ -1616,9 +2090,7 @@ void QHexEdit::setBackGroundColor( QColor bg )
 	QPalette pal;
 
 	pal = this->palette();
-	//pal.setColor(QPalette::Base      , Qt::black);
-	pal.setColor(QPalette::Background, bg );
-	//pal.setColor(QPalette::WindowText, fg );
+	pal.setColor(QPalette::Window    , bg );
 
 	this->setPalette(pal);
 }
@@ -1696,11 +2168,18 @@ void QHexEdit::resizeEvent(QResizeEvent *event)
 	if ( viewWidth >= pxLineWidth )
 	{
 		pxLineXScroll = 0;
+		hbar->setMaximum(0);
+		hbar->hide();
 	}
 	else
 	{
-		pxLineXScroll = (int)(0.010f * (float)hbar->value() * (float)(pxLineWidth - viewWidth) );
+		hbar->setPageStep(viewWidth);
+		hbar->setMaximum(pxLineWidth - viewWidth);
+		hbar->show();
+		pxLineXScroll = hbar->value();
 	}
+	vbar->setMaximum( maxLineOffset );
+	vbar->setPageStep( (3*viewLines)/4 );
 
 }
 //----------------------------------------------------------------------------
@@ -1708,24 +2187,57 @@ void QHexEdit::openGotoAddrDialog(void)
 {
 	int ret;
 	char stmp[128];
-	QInputDialog dialog(this);
+	QDialog dialog(this);
+	QLabel *lbl;
+	QSpinBox *sbox;
+	QVBoxLayout *vbox;
+	QHBoxLayout *hbox;
+	QPushButton *okButton, *cancelButton;
 
 	sprintf( stmp, "Specify Address [ 0x0 -> 0x%X ]", mb.size()-1 );
 
-	dialog.setWindowTitle( tr("Goto Address") );
-	dialog.setLabelText( tr(stmp) );
-	dialog.setOkButtonText( tr("Go") );
-	//dialog.setTextValue( tr("0") );
+	vbox = new QVBoxLayout();
+	hbox = new QHBoxLayout();
+	lbl  = new QLabel( tr(stmp) );
 
-	dialog.show();
+	okButton     = new QPushButton( tr("Go") );
+	cancelButton = new QPushButton( tr("Cancel") );
+
+	okButton->setIcon( style()->standardIcon( QStyle::SP_DialogApplyButton ) );
+	cancelButton->setIcon( style()->standardIcon( QStyle::SP_DialogCancelButton ) );
+
+	connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
+	connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
+
+	sbox = new QSpinBox();
+	sbox->setRange(0x0000, mb.size()-1);
+	sbox->setDisplayIntegerBase(16);
+	sbox->setValue( 0 );
+
+	QFont font = sbox->font();
+	font.setCapitalization(QFont::AllUppercase);
+	sbox->setFont(font);
+
+	hbox->addWidget( cancelButton );
+	hbox->addWidget(     okButton );
+
+	vbox->addWidget( lbl  );
+	vbox->addWidget( sbox );
+	vbox->addLayout( hbox );
+
+	dialog.setLayout( vbox );
+
+	dialog.setWindowTitle( tr("Goto Address") );
+
+	okButton->setDefault(true);
+
 	ret = dialog.exec();
 
 	if ( QDialog::Accepted == ret )
 	{
 		int addr;
-		std::string s = dialog.textValue().toStdString();
 	
-		addr = strtol( s.c_str(), NULL, 16 );
+		addr = sbox->value();
 	
 		parent->gotoAddress(addr);
 	}
@@ -1765,9 +2277,10 @@ void QHexEdit::loadClipboard( const char *txt )
 //----------------------------------------------------------------------------
 void QHexEdit::pasteFromClipboard(void)
 {
-	int i, val, addr;
+	int i, nbytes=0, val, addr;
 	std::string s = clipboard->text().toStdString();
 	const char *c;
+	unsigned char *buf;
 
 	fceuWrapperLock();
 
@@ -1777,7 +2290,19 @@ void QHexEdit::pasteFromClipboard(void)
 
 	c = s.c_str();
 
-	i=0;
+	if ( s.size() == 0 )
+	{
+		return;
+	}
+	buf = (unsigned char*)malloc( s.size() );
+
+	if ( buf == NULL )
+	{
+		return;
+	}
+	memset( buf, 0, s.size() );
+
+	i=0; nbytes = 0;
 	while ( c[i] != 0 )
 	{
 		while ( isspace(c[i]) ) i++;
@@ -1801,15 +2326,23 @@ void QHexEdit::pasteFromClipboard(void)
 		{
 			break;
 		}
+		buf[ nbytes ] = val;
 
+		nbytes++;
+	}
+	if ( nbytes > 0 )
+	{
 		if ( viewMode == QHexEdit::MODE_NES_ROM )
 		{
-			romEditList.applyPatch( addr, val );
+			romEditList.applyPatch( addr, buf, nbytes );
 		}
-		writeMem( viewMode, addr, val );
-
-		addr++;
+		for (i=0; i<nbytes; i++)
+		{
+			writeMem( viewMode, addr+i, buf[i] );
+		}
 	}
+	free(buf);
+
 	fceuWrapperUnLock();
 }
 //----------------------------------------------------------------------------
@@ -2033,6 +2566,8 @@ void QHexEdit::keyPressEvent(QKeyEvent *event)
 			cursorPosX = 47;
 		}
 		resetCursor();
+		update();
+		event->accept();
 	}
 	else if (event->matches(QKeySequence::MoveToPreviousChar))
 	{
@@ -2056,16 +2591,22 @@ void QHexEdit::keyPressEvent(QKeyEvent *event)
 			cursorPosX = 0;
 		}
 		resetCursor();
+		update();
+		event->accept();
 	}
 	else if (event->matches(QKeySequence::MoveToEndOfLine))
 	{
 		cursorPosX = 47;
 		resetCursor();
+		update();
+		event->accept();
 	}
 	else if (event->matches(QKeySequence::MoveToStartOfLine))
 	{
 		cursorPosX = 0;
 		resetCursor();
+		update();
+		event->accept();
 	}
 	else if (event->matches(QKeySequence::MoveToPreviousLine))
 	{
@@ -2084,6 +2625,8 @@ void QHexEdit::keyPressEvent(QKeyEvent *event)
 			vbar->setValue( lineOffset );
 		}
 		resetCursor();
+		update();
+		event->accept();
 	}
 	else if (event->matches(QKeySequence::MoveToNextLine))
 	{
@@ -2102,6 +2645,8 @@ void QHexEdit::keyPressEvent(QKeyEvent *event)
 			vbar->setValue( lineOffset );
 		}
 		resetCursor();
+		update();
+		event->accept();
 
 	}
 	else if (event->matches(QKeySequence::MoveToNextPage))
@@ -2114,6 +2659,8 @@ void QHexEdit::keyPressEvent(QKeyEvent *event)
 		}
 		vbar->setValue( lineOffset );
 	     	resetCursor();
+		update();
+		event->accept();
 	}
 	else if (event->matches(QKeySequence::MoveToPreviousPage))
 	{
@@ -2125,64 +2672,80 @@ void QHexEdit::keyPressEvent(QKeyEvent *event)
 		}
 		vbar->setValue( lineOffset );
 		resetCursor();
+		update();
+		event->accept();
 	}
 	else if (event->matches(QKeySequence::MoveToEndOfDocument))
 	{
 		lineOffset = maxLineOffset;
 		vbar->setValue( lineOffset );
 	     	resetCursor();
+		update();
+		event->accept();
 	}
 	else if (event->matches(QKeySequence::MoveToStartOfDocument))
 	{
 		lineOffset = 0;
 		vbar->setValue( lineOffset );
 		resetCursor();
+		update();
+		event->accept();
 	}
 	else if (Qt::ControlModifier == event->modifiers())
 	{
 		if ( event->key() == Qt::Key_A )
 		{
 			openGotoAddrDialog();
+			event->accept();
 		}
-	}
-	else if (Qt::ShiftModifier == event->modifiers())
-	{
-		if ( event->key() == Qt::Key_F )
+		else if ( event->key() == Qt::Key_L )
 		{
 			frzRamAddr = ctxAddr = cursorAddr;
 			frzRamToggle();
+			event->accept();
 		}
 	}
 	else if (event->key() == Qt::Key_Tab && (cursorPosX < 32) )
 	{  // switch from hex to ascii edit
-	    cursorPosX = 32 + (cursorPosX / 2);
+		cursorPosX = 32 + (cursorPosX / 2);
+		update();
+		event->accept();
 	}
 	else if (event->key() == Qt::Key_Backtab  && (cursorPosX >= 32) )
 	{  // switch from ascii to hex edit
 	   cursorPosX = 2 * (cursorPosX - 32);
+		update();
+		event->accept();
 	}
 	else
 	{
 		int key;
 		if ( cursorPosX >= 32 )
 		{  // Edit Area is ASCII
-			key = (uchar)event->text()[0].toLatin1();
+			key = (int)event->text()[0].toLatin1();
 
-			if ( ::isascii( key ) )
+			if ( (key >= 0) && (key < 256) )
 			{
-				int offs = (cursorPosX-32);
-				int addr = 16*(lineOffset+cursorPosY) + offs;
-				fceuWrapperLock();
-				if ( viewMode == QHexEdit::MODE_NES_ROM )
+				if ( charTable.rmap[key] != -1 )
 				{
-					romEditList.applyPatch( addr, key );
+					key = charTable.rmap[key];
+
+					int offs = (cursorPosX-32);
+					int addr = 16*(lineOffset+cursorPosY) + offs;
+					fceuWrapperLock();
+					if ( viewMode == QHexEdit::MODE_NES_ROM )
+					{
+						romEditList.applyPatch( addr, key );
+					}
+					writeMem( viewMode, addr, key );
+					fceuWrapperUnLock();
+				
+					editAddr  = -1;
+					editValue =  0;
+					editMask  =  0;
+					update();
+					event->accept();
 				}
-				writeMem( viewMode, addr, key );
-				fceuWrapperUnLock();
-			
-				editAddr  = -1;
-				editValue =  0;
-				editMask  =  0;
 			}
 		}
 		else
@@ -2191,42 +2754,44 @@ void QHexEdit::keyPressEvent(QKeyEvent *event)
 		
 		   if ( ::isxdigit( key ) )
 		   {
-		      int offs, nibbleValue, nibbleIndex;
+			int offs, nibbleValue, nibbleIndex;
+			
+			offs = (cursorPosX / 2);
+			nibbleIndex = (cursorPosX % 2);
+			
+			editAddr = 16*(lineOffset+cursorPosY) + offs;
+			
+			nibbleValue = convFromXchar( key );
+			
+			if ( nibbleIndex )
+			{
+				nibbleValue = editValue | nibbleValue;
+				
+				fceuWrapperLock();
+				if ( viewMode == QHexEdit::MODE_NES_ROM )
+				{
+					romEditList.applyPatch( editAddr, nibbleValue );
+				}
+				writeMem( viewMode, editAddr, nibbleValue );
+				fceuWrapperUnLock();
+				
+				editAddr  = -1;
+				editValue =  0;
+				editMask  =  0;
+			}
+			else
+			{
+			   editValue = (nibbleValue << 4);
+			   editMask  = 0x00f0;
+			}
+			cursorPosX++;
 		
-		      offs = (cursorPosX / 2);
-		      nibbleIndex = (cursorPosX % 2);
-		
-		      editAddr = 16*(lineOffset+cursorPosY) + offs;
-		
-		      nibbleValue = convFromXchar( key );
-		
-		      if ( nibbleIndex )
-		      {
-		         nibbleValue = editValue | nibbleValue;
-		
-					fceuWrapperLock();
-					if ( viewMode == QHexEdit::MODE_NES_ROM )
-					{
-						romEditList.applyPatch( editAddr, nibbleValue );
-					}
-					writeMem( viewMode, editAddr, nibbleValue );
-					fceuWrapperUnLock();
-		
-		         editAddr  = -1;
-		         editValue =  0;
-		         editMask  =  0;
-		      }
-		      else
-		      {
-		         editValue = (nibbleValue << 4);
-		         editMask  = 0x00f0;
-		      }
-		      cursorPosX++;
-		
-		      if ( cursorPosX >= 32 )
-		      {
-		         cursorPosX = 0;
-		      }
+			if ( cursorPosX >= 32 )
+			{
+			   cursorPosX = 0;
+			}
+			update();
+			event->accept();
 		   }
 		}
 		//printf("Key: %c  %i \n", key, key);
@@ -2312,6 +2877,7 @@ void QHexEdit::mouseMoveEvent(QMouseEvent * event)
 	{
 		//printf("Left Button Move: (%i,%i)\n", c.x(), c.y() );
 		setHighlightEndCoord( addr % 16, addr / 16 );
+		update();
 	}
 }
 //----------------------------------------------------------------------------
@@ -2334,6 +2900,7 @@ void QHexEdit::mousePressEvent(QMouseEvent * event)
 		txtHlgtAnchorChar = addr % 16;
 		txtHlgtAnchorLine = addr / 16;
 		setHighlightEndCoord( txtHlgtAnchorChar, txtHlgtAnchorLine );
+		update();
 	}
 
 }
@@ -2357,6 +2924,7 @@ void QHexEdit::mouseReleaseEvent(QMouseEvent * event)
 		{
 			loadHighlightToClipboard();
 		}
+		update();
 	}
 
 }
@@ -2430,42 +2998,45 @@ void QHexEdit::contextMenuEvent(QContextMenuEvent *event)
 		{
 			QMenu *subMenu;
 
-			act = new QAction(tr("Add Symbolic Debug Name"), &menu);
-   		menu.addAction(act);
+			act = new QAction(tr("Add &Symbolic Debug Name"), &menu);
+			menu.addAction(act);
 			connect( act, SIGNAL(triggered(void)), this, SLOT(addDebugSym(void)) );
 
-			subMenu = menu.addMenu(tr("Freeze/Unfreeze Address"));
+			subMenu = menu.addMenu(tr("&Freeze/Unfreeze Address"));
 
-			act = new QAction(tr("Toggle State"), &menu);
-			act->setShortcut( QKeySequence(tr("Shift+F")));
-			subMenu->addAction(act);
-			connect( act, SIGNAL(triggered(void)), this, SLOT(frzRamToggle(void)) );
+			if ( frzRamAddrValid( addr ) )
+			{
+				act = new QAction(tr("&Toggle State"), &menu);
+				act->setShortcut( QKeySequence(tr("Ctrl+L")));
+				subMenu->addAction(act);
+				connect( act, SIGNAL(triggered(void)), this, SLOT(frzRamToggle(void)) );
 
-			act = new QAction(tr("Freeze"), &menu);
-			subMenu->addAction(act);
-			connect( act, SIGNAL(triggered(void)), this, SLOT(frzRamSet(void)) );
+				act = new QAction(tr("&Freeze"), &menu);
+				subMenu->addAction(act);
+				connect( act, SIGNAL(triggered(void)), this, SLOT(frzRamSet(void)) );
 
-			act = new QAction(tr("Unfreeze"), &menu);
-			subMenu->addAction(act);
-			connect( act, SIGNAL(triggered(void)), this, SLOT(frzRamUnset(void)) );
+				act = new QAction(tr("&Unfreeze"), &menu);
+				subMenu->addAction(act);
+				connect( act, SIGNAL(triggered(void)), this, SLOT(frzRamUnset(void)) );
 
-			subMenu->addSeparator();
+				subMenu->addSeparator();
+			}
 
-			act = new QAction(tr("Unfreeze All"), &menu);
+			act = new QAction(tr("Unfreeze &All"), &menu);
 			subMenu->addAction(act);
 			connect( act, SIGNAL(triggered(void)), this, SLOT(frzRamUnsetAll(void)) );
 
-			sprintf( stmp, "Add Read Breakpoint for Address $%04X", addr );
+			sprintf( stmp, "Add &Read Breakpoint for Address $%04X", addr );
 			act = new QAction(tr(stmp), &menu);
 			menu.addAction(act);
 			connect( act, SIGNAL(triggered(void)), this, SLOT(addRamReadBP(void)) );
 
-			sprintf( stmp, "Add Write Breakpoint for Address $%04X", addr );
+			sprintf( stmp, "Add &Write Breakpoint for Address $%04X", addr );
 			act = new QAction(tr(stmp), &menu);
 			menu.addAction(act);
 			connect( act, SIGNAL(triggered(void)), this, SLOT(addRamWriteBP(void)) );
 
-			sprintf( stmp, "Add Execute Breakpoint for Address $%04X", addr );
+			sprintf( stmp, "Add &Execute Breakpoint for Address $%04X", addr );
 			act = new QAction(tr(stmp), &menu);
 			menu.addAction(act);
 			connect( act, SIGNAL(triggered(void)), this, SLOT(addRamExecuteBP(void)) );
@@ -2477,46 +3048,46 @@ void QHexEdit::contextMenuEvent(QContextMenuEvent *event)
 				if ( romAddr >= 0 )
 				{
 					jumpToRomValue = romAddr;
-					sprintf( stmp, "Go Here in ROM File: (%08X)", romAddr );
+					sprintf( stmp, "&Go Here in ROM File: (%08X)", romAddr );
 					act = new QAction(tr(stmp), &menu);
-   				menu.addAction(act);
+					menu.addAction(act);
 					connect( act, SIGNAL(triggered(void)), this, SLOT(jumpToROM(void)) );
 				}
 			}
 
-			act = new QAction(tr("Add Bookmark"), &menu);
-   		menu.addAction(act);
+			act = new QAction(tr("Add Book&mark"), &menu);
+			menu.addAction(act);
 			connect( act, SIGNAL(triggered(void)), this, SLOT(addBookMarkCB(void)) );
 		}
 		break;
 		case MODE_NES_PPU:
 		{
-			sprintf( stmp, "Add Read Breakpoint for Address $%04X", addr );
+			sprintf( stmp, "Add &Read Breakpoint for Address $%04X", addr );
 			act = new QAction(tr(stmp), &menu);
 			menu.addAction(act);
 			connect( act, SIGNAL(triggered(void)), this, SLOT(addPpuReadBP(void)) );
 
-			sprintf( stmp, "Add Write Breakpoint for Address $%04X", addr );
+			sprintf( stmp, "Add &Write Breakpoint for Address $%04X", addr );
 			act = new QAction(tr(stmp), &menu);
 			menu.addAction(act);
 			connect( act, SIGNAL(triggered(void)), this, SLOT(addPpuWriteBP(void)) );
 
-			act = new QAction(tr("Add Bookmark"), &menu);
-   		menu.addAction(act);
+			act = new QAction(tr("Add Book&mark"), &menu);
+			menu.addAction(act);
 			connect( act, SIGNAL(triggered(void)), this, SLOT(addBookMarkCB(void)) );
 		}
 		break;
 		case MODE_NES_OAM:
 		{
-			act = new QAction(tr("Add Bookmark"), &menu);
-   		menu.addAction(act);
+			act = new QAction(tr("Add Book&mark"), &menu);
+			menu.addAction(act);
 			connect( act, SIGNAL(triggered(void)), this, SLOT(addBookMarkCB(void)) );
 		}
 		break;
 		case MODE_NES_ROM:
 		{
-			act = new QAction(tr("Add Bookmark"), &menu);
-   		menu.addAction(act);
+			act = new QAction(tr("Add Book&mark"), &menu);
+			menu.addAction(act);
 			connect( act, SIGNAL(triggered(void)), this, SLOT(addBookMarkCB(void)) );
 		}
 		break;
@@ -2524,6 +3095,16 @@ void QHexEdit::contextMenuEvent(QContextMenuEvent *event)
 
    menu.exec(event->globalPos());
 
+}
+//----------------------------------------------------------------------------
+void QHexEdit::setRowColHlgtEna(bool val)
+{
+	rolColHlgtEna = val;
+}
+//----------------------------------------------------------------------------
+void QHexEdit::setAltColHlgtEna(bool val)
+{
+	altColHlgtEna = val;
 }
 //----------------------------------------------------------------------------
 void QHexEdit::addBookMarkCB(void)
@@ -2536,7 +3117,7 @@ void QHexEdit::addBookMarkCB(void)
 	{
 		default:
 		case MODE_NES_RAM:
-			sprintf( stmp, "RAM %04X", ctxAddr );
+			sprintf( stmp, "CPU %04X", ctxAddr );
 		break;
 		case MODE_NES_PPU:
 			sprintf( stmp, "PPU %04X", ctxAddr );
@@ -2549,19 +3130,18 @@ void QHexEdit::addBookMarkCB(void)
 		break;
 	}
 
-   dialog.setWindowTitle( tr("Add Bookmark") );
-   dialog.setLabelText( tr("Specify New Bookmark Description") );
-   dialog.setOkButtonText( tr("Add") );
+	dialog.setWindowTitle( tr("Add Bookmark") );
+	dialog.setLabelText( tr("Specify New Bookmark Description") );
+	dialog.setOkButtonText( tr("Add") );
 	dialog.setTextValue( tr(stmp) );
 
-   dialog.show();
-   ret = dialog.exec();
-
-   if ( QDialog::Accepted == ret )
-   {
-		hbm.addBookMark( ctxAddr, viewMode, dialog.textValue().toStdString().c_str() );
-		parent->populateBookmarkMenu();
-   }
+	ret = dialog.exec();
+	
+	if ( QDialog::Accepted == ret )
+	{
+	     	hbm.addBookMark( ctxAddr, viewMode, dialog.textValue().toStdString().c_str() );
+	     	parent->populateBookmarkMenu();
+	}
 }
 //----------------------------------------------------------------------------
 static int RamFreezeCB(char *name, uint32 a, uint8 v, int compare,int s,int type, void *data)
@@ -2607,6 +3187,8 @@ int QHexEdit::FreezeRam( const char *name, uint32_t a, uint8_t v, int c, int s, 
 				if ( s )
 				{
 					FCEUI_DelCheat( frzIdx );
+					frzRamAddr = -1;
+					return 0;
 				}
 			break;
 			default:
@@ -2692,7 +3274,7 @@ void QHexEdit::frzRamUnsetAll(void)
 		return;
 	}
 	fceuWrapperLock();
-	FCEUI_ListCheats( RamFreezeCB, this);
+	FCEU_DeleteAllCheats();
 	updateCheatDialog();
 	fceuWrapperUnLock();
 }
@@ -2916,25 +3498,32 @@ int QHexEdit::getRomAddrColor( int addr, QColor &fg, QColor &bg )
 	int temp_offset;
 	QColor color, oppColor; 
 			
-	fg = this->palette().color(QPalette::WindowText);
-	bg = this->palette().color(QPalette::Background);
+	fg = fgColor;
+	bg = bgColor;
 
 	if ( reverseVideo )
 	{
-		color    = this->palette().color(QPalette::Background);
-		oppColor = this->palette().color(QPalette::WindowText);
+		color    = bgColor;
+		oppColor = fgColor;
 	}
 	else
 	{
-		color    = this->palette().color(QPalette::WindowText);
-		oppColor = this->palette().color(QPalette::Background);
+		color    = fgColor;
+		oppColor = bgColor;
 	}
 
 	if ( viewMode != MODE_NES_ROM )
 	{
 		return -1;
 	}
-	mb.buf[addr].data = memAccessFunc(addr);
+	if ( memAccessFunc )
+	{
+		mb.buf[addr].data = memAccessFunc(addr);
+	}
+	else
+	{
+		mb.buf[addr].data = 0;
+	}
 
 	if ( (txtHlgtStartAddr != txtHlgtEndAddr) && (addr >= txtHlgtStartAddr) && (addr <= txtHlgtEndAddr) )
 	{
@@ -3078,18 +3667,25 @@ void QHexEdit::memModeUpdate(void)
 		}
 		maxLineOffset = mb.numLines() - viewLines + 1;
 
-		vbar->setMaximum( memSize / 16 );
+		//vbar->setMaximum( memSize / 16 );
+		vbar->setMaximum( maxLineOffset );
+		vbar->setPageStep( (3*viewLines)/4 );
 	}
 }
 //----------------------------------------------------------------------------
 void QHexEdit::paintEvent(QPaintEvent *event)
 {
 	int x, y, w, h, row, col, nrow, addr;
-	int c, cx, cy, ca, l;
-	char txt[32], asciiTxt[4];
+	int c, cx, cy, ca, l, recty;
+	int pxCharWidth3;
+	int colHlgtStart = -1, colHlgtEnd = -1;
+	char txt[32];
+       	QString asciiTxt;
 	QPainter painter(this);
 	QColor white("white"), black("black"), blue("blue");
 	bool txtHlgtSet;
+
+	pxCharWidth3 = 3*pxCharWidth;
 
 	painter.setFont(font);
 	w = event->rect().width();
@@ -3127,7 +3723,7 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 		lineOffset = maxLineOffset;
 	}
 	
-	painter.fillRect( 0, 0, w, h, this->palette().color(QPalette::Background) );
+	painter.fillRect( 0, 0, w, h, bgColor );
 
 	if ( cursorBlinkCount >= 5 )
 	{
@@ -3145,7 +3741,7 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 	{
 		int a = (cursorPosX / 2);
 		int r = (cursorPosX % 2);
-		cx = pxHexOffset + (a*3*pxCharWidth) + (r*pxCharWidth) - pxLineXScroll;
+		cx = pxHexOffset + (a*pxCharWidth3) + (r*pxCharWidth) - pxLineXScroll;
 
 		ca = 16*(lineOffset + cursorPosY) + a;
 	}
@@ -3158,29 +3754,55 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 	}
 	cursorAddr = ca;
 
-	if ( cursorBlink )
+	if ( altColHlgtEna )
 	{
-		painter.fillRect( cx , cy, pxCharWidth, pxCursorHeight, QColor("gray") );
+		for (int i=0; i<16; i++)
+		{
+			if ( (i % 2) == 0 )
+			{	
+				painter.fillRect( pxHexOffset - (0.5*pxCharWidth) + (i*pxCharWidth3) - pxLineXScroll , 0, (3*pxCharWidth), viewHeight, altColHlgtColor );
+			}
+		}
+
 	}
 
-	painter.setPen( this->palette().color(QPalette::WindowText));
+	if ( rolColHlgtEna )
+	{
+		//painter.fillRect( 0 , cy - pxLineLead, viewWidth, pxLineSpacing, rowColHlgtColor );
+		painter.fillRect( 0 , cy - pxLineLead/2, viewWidth, pxLineSpacing, rowColHlgtColor );
+		//painter.fillRect( 0 , cy, viewWidth, pxLineSpacing, rowColHlgtColor );
+
+		if ( cursorPosX < 32 )
+		{
+			painter.fillRect( cx - (0.5*pxCharWidth) , 0, (pxCharWidth3), viewHeight, rowColHlgtColor );
+		}
+		else
+		{
+			painter.fillRect( cx, 0, (pxCharWidth), viewHeight, rowColHlgtColor );
+		}
+	}
+
+	painter.setPen( fgColor );
 
 	addr = lineOffset * 16;
 	y = pxYoffset;
 
 	txtHlgtSet = textIsHighlighted();
 
-
 	for ( row=0; row < nrow; row++)
 	{
+		colHlgtStart = -1; colHlgtEnd = -1;
+
 		l = lineOffset + row;
 		x = pxXoffset - pxLineXScroll;
 
-		painter.setPen( this->palette().color(QPalette::WindowText));
+
+		painter.setPen( fgColor );
 		sprintf( txt, "%06X", addr );
 		painter.drawText( x, y, tr(txt) );
 
 		x = pxHexOffset - pxLineXScroll;
+		recty = pxYoffset + (pxLineSpacing*row) - pxCursorHeight + pxLineLead - (pxLineLead/2); // This must be this way to avoid rounding error
 
 		if ( txtHlgtSet && (l >= txtHlgtStartLine) && (l <= txtHlgtEndLine) )
 		{
@@ -3189,25 +3811,29 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 			if ( l == txtHlgtStartLine )
 			{
 				hlgtXs = txtHlgtStartChar*3;
+				colHlgtStart = txtHlgtStartChar;
 			}
 			else
 			{
 				hlgtXs = 0;
+				colHlgtStart = 0;
 			}
 
 			if ( l == txtHlgtEndLine )
 			{
 				hlgtXe = (txtHlgtEndChar+1)*3;
+				colHlgtEnd = txtHlgtEndChar+1;
 			}
 			else
 			{
 				hlgtXe = 16*3;
+				colHlgtEnd = 16;
 			}
 			hlgtXd = hlgtXe - hlgtXs;
 
 			x = pxHexOffset - pxLineXScroll;
 
-			painter.fillRect( x + (hlgtXs*pxCharWidth), y - pxLineSpacing + pxLineLead, hlgtXd*pxCharWidth, pxLineSpacing, blue );
+			painter.fillRect( x + (hlgtXs*pxCharWidth), recty, hlgtXd*pxCharWidth, pxLineSpacing, blue );
 
 			if ( l == txtHlgtStartLine )
 			{
@@ -3230,7 +3856,7 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 
 			x = pxHexAscii - pxLineXScroll;
 
-			painter.fillRect( x + (hlgtXs*pxCharWidth), y - pxLineSpacing + pxLineLead, hlgtXd*pxCharWidth, pxLineSpacing, blue );
+			painter.fillRect( x + (hlgtXs*pxCharWidth), recty, hlgtXd*pxCharWidth, pxLineSpacing, blue );
 		}
 
 		x = pxHexOffset - pxLineXScroll;
@@ -3241,15 +3867,16 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 			{
 				c =  mb.buf[addr].data;
 
-				if ( ::isprint(c) )
+				asciiTxt.clear();
+
+				if ( charTable.map[c] >= 0x20 )
 				{
-					asciiTxt[0] = c;
+					asciiTxt += QChar(charTable.map[c]);
 				}
 				else
 				{
-					asciiTxt[0] = '.';
+					asciiTxt += QChar('.');
 				}
-				asciiTxt[1] = 0;
 
 				if ( addr == editAddr )
 				{  // Set a cell currently being editting to red text
@@ -3258,11 +3885,42 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 					txt[1] = convToXchar( c & 0x0F );
 					txt[2] = 0;
 					painter.drawText( x, y, tr(txt) );
-				        painter.setPen( this->palette().color(QPalette::WindowText));
+
+					if ( cursorBlink && (ca == addr) )
+					{
+						painter.fillRect( cx , cy, pxCharWidth, pxCursorHeight, fgColor );
+
+						painter.setPen( bgColor );
+
+						if ( cursorPosX < 32 )
+						{
+							if ( cursorPosX % 2 )
+							{
+								txt[0] = convToXchar( c & 0x0F );
+								txt[1] = 0;
+							}
+							else
+							{
+								txt[0] = convToXchar( (editValue >> 4) & 0x0F );
+								txt[1] = 0;
+							}
+							painter.drawText( cx, y, tr(txt) );
+						}
+						else
+						{
+							painter.drawText( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, y, asciiTxt );
+						}
+					}
+				        painter.setPen( fgColor );
 				} 
 				else
 				{
-					if ( viewMode == MODE_NES_ROM )
+					if ( txtHlgtSet && (col >= colHlgtStart) && (col < colHlgtEnd) )
+					{
+						// Background is already colored by highlight
+						painter.setPen( fgColor );
+					}
+					else if ( viewMode == MODE_NES_ROM )
 					{
 						QColor romBgColor, romFgColor;
 					  
@@ -3271,8 +3929,8 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 						if ( reverseVideo )
 						{
 							painter.setPen( romFgColor );
-							painter.fillRect( x - (0.5*pxCharWidth) , y-pxLineSpacing+pxLineLead, 3*pxCharWidth, pxLineSpacing, romBgColor );
-							painter.fillRect( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, y-pxLineSpacing+pxLineLead, pxCharWidth, pxLineSpacing, romBgColor );
+							painter.fillRect( x - (0.5*pxCharWidth) , recty, pxCharWidth3, pxLineSpacing, romBgColor );
+							painter.fillRect( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, recty, pxCharWidth, pxLineSpacing, romBgColor );
 						}
 						else
 						{
@@ -3286,8 +3944,8 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 							if ( reverseVideo )
 							{
 								painter.setPen( white );
-								painter.fillRect( x - (0.5*pxCharWidth) , y-pxLineSpacing+pxLineLead, 3*pxCharWidth, pxLineSpacing, blue );
-								painter.fillRect( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, y-pxLineSpacing+pxLineLead, pxCharWidth, pxLineSpacing, blue );
+								painter.fillRect( x - (0.5*pxCharWidth) , recty, pxCharWidth3, pxLineSpacing, blue );
+								painter.fillRect( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, recty, pxCharWidth, pxLineSpacing, blue );
 							}
 							else
 							{
@@ -3299,8 +3957,8 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 							if ( reverseVideo )
 							{
 								painter.setPen( rvActvTextColor[ mb.buf[addr].actv ] );
-								painter.fillRect( x - (0.5*pxCharWidth) , y-pxLineSpacing+pxLineLead, 3*pxCharWidth, pxLineSpacing, highLightColor[ mb.buf[addr].actv ] );
-								painter.fillRect( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, y-pxLineSpacing+pxLineLead, pxCharWidth, pxLineSpacing, highLightColor[ mb.buf[addr].actv ] );
+								painter.fillRect( x - (0.5*pxCharWidth) , recty, pxCharWidth3, pxLineSpacing, highLightColor[ mb.buf[addr].actv ] );
+								painter.fillRect( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, recty, pxCharWidth, pxLineSpacing, highLightColor[ mb.buf[addr].actv ] );
 							}
 							else
 							{
@@ -3309,7 +3967,7 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 						}
 						else 
 						{
-							painter.setPen( this->palette().color(QPalette::WindowText));
+							painter.setPen( fgColor );
 						}
 					}
 					else if ( actvHighlightEnable && (mb.buf[addr].actv > 0) )
@@ -3317,8 +3975,8 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 						if ( reverseVideo )
 						{
 							painter.setPen( rvActvTextColor[ mb.buf[addr].actv ] );
-							painter.fillRect( x - (0.5*pxCharWidth) , y-pxLineSpacing+pxLineLead, 3*pxCharWidth, pxLineSpacing, highLightColor[ mb.buf[addr].actv ] );
-							painter.fillRect( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, y-pxLineSpacing+pxLineLead, pxCharWidth, pxLineSpacing, highLightColor[ mb.buf[addr].actv ] );
+							painter.fillRect( x - (0.5*pxCharWidth) , recty, pxCharWidth3, pxLineSpacing, highLightColor[ mb.buf[addr].actv ] );
+							painter.fillRect( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, recty, pxCharWidth, pxLineSpacing, highLightColor[ mb.buf[addr].actv ] );
 						}
 						else
 						{
@@ -3327,30 +3985,58 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 					}
 					else
 					{
-						painter.setPen( this->palette().color(QPalette::WindowText));
+						painter.setPen( fgColor );
 					}
 					txt[0] = convToXchar( (c >> 4) & 0x0F );
 					txt[1] = convToXchar( c & 0x0F );
 					txt[2] = 0;
 
+					painter.drawText( x, y, tr(txt) );
+					//painter.drawText( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, y, tr(asciiTxt) );
+					painter.drawText( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, y, asciiTxt );
+
 					if ( cursorBlink && (ca == addr) )
 					{
-						painter.fillRect( cx , cy, pxCharWidth, pxCursorHeight, QColor("gray") );
+						painter.fillRect( cx , cy, pxCharWidth, pxCursorHeight, fgColor );
+
+						painter.setPen( bgColor );
+
+						if ( cursorPosX < 32 )
+						{
+							if ( cursorPosX % 2 )
+							{
+								txt[0] = convToXchar( c & 0x0F );
+								txt[1] = 0;
+							}
+							else
+							{
+								txt[0] = convToXchar( (c >> 4) & 0x0F );
+								txt[1] = 0;
+							}
+							painter.drawText( cx, y, tr(txt) );
+						}
+						else
+						{
+							painter.drawText( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, y, asciiTxt );
+						}
 					}
-					painter.drawText( x, y, tr(txt) );
-					painter.drawText( pxHexAscii + (col*pxCharWidth) - pxLineXScroll, y, tr(asciiTxt) );
 				}
 			}
-			x += (3*pxCharWidth);
+			x += (pxCharWidth3);
 			addr++;
 		}
 
-		//addr += 16;
 		y += pxLineSpacing;
 	}
 
-	painter.setPen( this->palette().color(QPalette::WindowText));
-	painter.drawText( pxHexOffset - pxLineXScroll, pxLineSpacing, "00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F" );
+	painter.setPen( fgColor );
+	for (x=0; x<16; x++)
+	{
+		txt[0] = '0';
+		txt[1] = convToXchar( x );
+		txt[2] = 0;
+		painter.drawText( pxHexOffset - pxLineXScroll + (x * pxCharWidth3), pxLineSpacing, txt );
+	}
 	painter.drawLine( pxHexOffset - (pxCharWidth/2) - pxLineXScroll, 0, pxHexOffset - (pxCharWidth/2) - pxLineXScroll, h );
 	painter.drawLine( pxHexAscii  - (pxCharWidth/2) - pxLineXScroll, 0, pxHexAscii  - (pxCharWidth/2) - pxLineXScroll, h );
 	painter.drawLine( 0, pxLineSpacing + (pxLineLead), w, pxLineSpacing + (pxLineLead) );
@@ -3374,7 +4060,6 @@ void hexEditorSaveBookmarks(void)
 {
 	std::list <HexEditorDialog_t*>::iterator it;
 
-	printf("Save Bookmarks\n");
 	hbm.saveToFile();
 	hbm.removeAll();
 
@@ -3422,11 +4107,11 @@ int hexEditorOpenFromDebugger( int mode, int addr )
 }
 //----------------------------------------------------------------------------
 // This function must be called from within the emulation thread
-void hexEditorUpdateMemoryValues(void)
+void hexEditorUpdateMemoryValues( bool force )
 {
 	std::list <HexEditorDialog_t*>::iterator it;
 
-	if ( !memNeedsCheck )
+	if ( !memNeedsCheck && !force )
 	{
 		return;
 	}

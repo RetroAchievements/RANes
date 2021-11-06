@@ -27,6 +27,7 @@
 #include "../../fceu.h"
 #include "../../version.h"
 #include "../../video.h"
+#include "../../input.h"
 
 #include "utils/memory.h"
 
@@ -34,6 +35,7 @@
 
 #include "common/configSys.h"
 #include "Qt/sdl-video.h"
+#include "Qt/AviRecord.h"
 #include "Qt/fceuWrapper.h"
 
 #ifdef CREATE_AVI
@@ -50,7 +52,6 @@
 
 // GLOBALS
 extern Config *g_config;
-extern bool force_grayscale;
 
 // STATIC GLOBALS
 static int s_curbpp = 0;
@@ -58,7 +59,6 @@ static int s_srendline, s_erendline;
 static int s_tlines;
 static int s_inited = 0;
 
-static double s_exs = 1.0, s_eys = 1.0;
 static int s_eefx = 0;
 static int s_clipSides = 0;
 static int s_fullscreen = 0;
@@ -71,20 +71,16 @@ static int initBlitToHighDone = 0;
 static int s_paletterefresh = 1;
 
 extern bool MaxSpeed;
+extern int input_display;
+extern int frame_display;
+extern int rerecord_display;
 
 /**
  * Attempts to destroy the graphical video display.  Returns 0 on
  * success, -1 on failure.
  */
-
-//draw input aids if we are fullscreen
-bool FCEUD_ShouldDrawInputAids()
-{
-	return s_fullscreen!=0;
-}
- 
 int
-KillVideo()
+KillVideo(void)
 {
 	//printf("Killing Video\n");
 
@@ -104,8 +100,9 @@ KillVideo()
 
 	// return failure if the video system was not initialized
 	if (s_inited == 0)
+	{
 		return -1;
-
+	}
 
 	// SDL Video system is not used.
 	// shut down the SDL video sub-system
@@ -119,18 +116,7 @@ KillVideo()
 // this variable contains information about the special scaling filters
 static int s_sponge = 0;
 
-/**
- * These functions determine an appropriate scale factor for fullscreen/
- */
-inline double GetXScale(int xres)
-{
-	return ((double)xres) / NWIDTH;
-}
-inline double GetYScale(int yres)
-{
-	return ((double)yres) / s_tlines;
-}
-void FCEUD_VideoChanged()
+void FCEUD_VideoChanged(void)
 {
 	int buf;
 	g_config->getOption("SDL.PAL", &buf);
@@ -140,9 +126,74 @@ void FCEUD_VideoChanged()
 		PAL = 0; // NTSC and Dendy
 }
 
+void CalcVideoDimensions(void)
+{
+	g_config->getOption("SDL.SpecialFilter", &s_sponge);
+
+	FCEUI_GetCurrentVidSystem(&s_srendline, &s_erendline);
+	s_tlines = s_erendline - s_srendline + 1;
+
+	//printf("Calc Video: %i -> %i \n", s_srendline, s_erendline );
+
+	nes_shm->video.preScaler = s_sponge;
+
+	switch ( s_sponge )
+	{
+		default:
+		case 0: // None
+			nes_shm->video.xscale = 1;
+			nes_shm->video.yscale = 1;
+		break;
+		case 1: // hq2x
+		case 2: // Scale2x
+		case 3: // NTSC 2x
+		case 6: // Prescale2x
+			nes_shm->video.xscale = 2;
+			nes_shm->video.yscale = 2;
+		break;
+		case 4: // hq3x
+		case 5: // Scale3x
+		case 7: // Prescale3x
+			nes_shm->video.xscale = 3;
+			nes_shm->video.yscale = 3;
+		break;
+		case 8: // Prescale4x
+			nes_shm->video.xscale = 4;
+			nes_shm->video.yscale = 4;
+		break;
+		case 9: // PAL
+			nes_shm->video.xscale = 3;
+			nes_shm->video.yscale = 1;
+		break;
+	}
+
+	int iScale = nes_shm->video.xscale;
+	if ( s_sponge == 3 )
+	{
+		nes_shm->video.ncol = iScale*301;
+	}
+	else
+	{
+		nes_shm->video.ncol = iScale*NWIDTH;
+	}
+	if ( s_sponge == 9 )
+	{
+		nes_shm->video.nrow  = 1*s_tlines;
+		nes_shm->video.xyRatio = 3;
+	}
+	else
+	{
+		nes_shm->video.nrow  = iScale*s_tlines;
+		nes_shm->video.xyRatio = 1;
+	}
+	nes_shm->video.pitch = nes_shm->video.ncol * 4;
+}
+
 int InitVideo(FCEUGI *gi)
 {
-	int doublebuf, xstretch, ystretch, xres, yres, show_fps;
+	int doublebuf, xstretch, ystretch;
+	int show_fps;
+	int startNTSC, endNTSC, startPAL, endPAL;
 
 	FCEUI_printf("Initializing video...");
 
@@ -152,19 +203,22 @@ int InitVideo(FCEUGI *gi)
 	g_config->getOption("SDL.SpecialFilter", &s_sponge);
 	g_config->getOption("SDL.XStretch", &xstretch);
 	g_config->getOption("SDL.YStretch", &ystretch);
-	//g_config->getOption("SDL.LastXRes", &xres);
-	//g_config->getOption("SDL.LastYRes", &yres);
 	g_config->getOption("SDL.ClipSides", &s_clipSides);
 	g_config->getOption("SDL.NoFrame", &noframe);
 	g_config->getOption("SDL.ShowFPS", &show_fps);
-	//g_config->getOption("SDL.XScale", &s_exs);
-	//g_config->getOption("SDL.YScale", &s_eys);
+	g_config->getOption("SDL.ShowFrameCount", &frame_display);
+	g_config->getOption("SDL.ShowLagCount", &lagCounterDisplay);
+	g_config->getOption("SDL.ShowRerecordCount", &rerecord_display);
+	g_config->getOption("SDL.ScanLineStartNTSC", &startNTSC);
+	g_config->getOption("SDL.ScanLineEndNTSC", &endNTSC);
+	g_config->getOption("SDL.ScanLineStartPAL", &startPAL);
+	g_config->getOption("SDL.ScanLineEndPAL", &endPAL);
 	uint32_t  rmask, gmask, bmask;
 
-	s_exs = 1.0;
-	s_eys = 1.0;
-	xres = gui_draw_area_width;
-	yres = gui_draw_area_height;
+	ClipSidesOffset = s_clipSides ? 8 : 0;
+
+	FCEUI_SetRenderedLines(startNTSC, endNTSC, startPAL, endPAL);
+
 	// check the starting, ending, and total scan lines
 
 	FCEUI_GetCurrentVidSystem(&s_srendline, &s_erendline);
@@ -174,34 +228,41 @@ int InitVideo(FCEUGI *gi)
 
 	switch ( s_sponge )
 	{
+		default:
 		case 0: // None
-			 nes_shm->video.scale = 1;
+			nes_shm->video.xscale = 1;
+			nes_shm->video.yscale = 1;
 		break;
 		case 1: // hq2x
 		case 2: // Scale2x
 		case 3: // NTSC 2x
 		case 6: // Prescale2x
-			 nes_shm->video.scale = 2;
+			nes_shm->video.xscale = 2;
+			nes_shm->video.yscale = 2;
 		break;
 		case 4: // hq3x
 		case 5: // Scale3x
 		case 7: // Prescale3x
-			 nes_shm->video.scale = 3;
+			nes_shm->video.xscale = 3;
+			nes_shm->video.yscale = 3;
 		break;
 		case 8: // Prescale4x
-			 nes_shm->video.scale = 4;
+			nes_shm->video.xscale = 4;
+			nes_shm->video.yscale = 4;
 		break;
 		case 9: // PAL
-			 nes_shm->video.scale = 3;
+			nes_shm->video.xscale = 3;
+			nes_shm->video.yscale = 1;
 		break;
 	}
+	nes_shm->render_count = nes_shm->blit_count = 0;
 
 	s_inited = 1;
 
 	// check to see if we are showing FPS
 	FCEUI_SetShowFPS(show_fps);
 
-	int iScale = nes_shm->video.scale;
+	int iScale = nes_shm->video.xscale;
 	if ( s_sponge == 3 )
 	{
 		nes_shm->video.ncol = iScale*301;
@@ -235,7 +296,7 @@ int InitVideo(FCEUGI *gi)
 	s_curbpp = 32; // Bits per pixel is always 32
 
 	FCEU_printf(" Video Mode: %d x %d x %d bpp %s\n",
-				xres, yres, s_curbpp,
+				nes_shm->video.ncol, nes_shm->video.nrow, s_curbpp,
 				s_fullscreen ? "full screen" : "");
 
 	if (s_curbpp != 8 && s_curbpp != 16 && s_curbpp != 24 && s_curbpp != 32) 
@@ -292,21 +353,9 @@ FCEUD_SetPalette(uint8 index,
                  uint8 g,
                  uint8 b)
 {
-	if ( force_grayscale )
-	{
-		// convert the palette entry to grayscale
-		int gray = ((float)r * 0.299 + (float)g * 0.587 + (float)b * 0.114);
-
-		s_psdl[index].r = gray;
-		s_psdl[index].g = gray;
-		s_psdl[index].b = gray;
-	}
-	else
-	{
-		s_psdl[index].r = r;
-		s_psdl[index].g = g;
-		s_psdl[index].b = b;
-	}
+	s_psdl[index].r = r;
+	s_psdl[index].g = g;
+	s_psdl[index].b = b;
 
 	s_paletterefresh = 1;
 }
@@ -359,14 +408,11 @@ static void WriteTestPattern(void)
 		}
 	}
 }
-/**
- * Pushes the given buffer of bits to the screen.
- */
-void
-BlitScreen(uint8 *XBuf)
+
+static void
+doBlitScreen(uint8_t *XBuf, uint8_t *dest)
 {
-	uint8 *dest;
-	int w, h, pitch, iScale;
+	int w, h, pitch, bw, ixScale, iyScale;
 
 	// refresh the palette if required
 	if (s_paletterefresh) 
@@ -378,16 +424,19 @@ BlitScreen(uint8 *XBuf)
 	// XXX soules - not entirely sure why this is being done yet
 	XBuf += s_srendline * 256;
 
-	dest   = (uint8*)nes_shm->pixbuf;
-	iScale = nes_shm->video.scale;
+	//dest    = (uint8*)nes_shm->pixbuf;
+	ixScale = nes_shm->video.xscale;
+	iyScale = nes_shm->video.yscale;
 
 	if ( s_sponge == 3 )
 	{
-		w = iScale*301;
+		w = ixScale*301;
+		bw = 256;
 	}
 	else
 	{
-		w = iScale*NWIDTH;
+		w = ixScale*NWIDTH;
+		bw = NWIDTH;
 	}
 	if ( s_sponge == 9 )
 	{
@@ -395,7 +444,7 @@ BlitScreen(uint8 *XBuf)
 	}
 	else
 	{
-		h  = iScale*s_tlines;
+		h  = ixScale*s_tlines;
 	}
 	pitch  = w*4;
 
@@ -412,74 +461,30 @@ BlitScreen(uint8 *XBuf)
 	}
 	else
 	{
-		Blit8ToHigh(XBuf + NOFFSET, dest, NWIDTH, s_tlines, pitch, iScale, iScale);
+		Blit8ToHigh(XBuf + NOFFSET, dest, bw, s_tlines, pitch, ixScale, iyScale);
 	}
+}
+/**
+ * Pushes the given buffer of bits to the screen.
+ */
+void
+BlitScreen(uint8 *XBuf)
+{
+	doBlitScreen(XBuf, (uint8_t*)nes_shm->pixbuf);
+
+	nes_shm->blit_count++;
 	nes_shm->blitUpdated = 1;
+}
 
-	//guiPixelBufferReDraw();
+void FCEUI_AviVideoUpdate(const unsigned char* buffer)
+{	// This is not used by Qt Emulator, avi recording pulls from the post processed video buffer
+	// instead of emulation core video buffer. This allows for the video scaler effects
+	// and higher resolution to be seen in recording.
+	doBlitScreen( (uint8_t*)buffer, (uint8_t*)nes_shm->avibuf);
 
-#ifdef CREATE_AVI
- { int fps = FCEUI_GetDesiredFPS();
-   static unsigned char* result = NULL;
-   static unsigned resultsize = 0;
-   int width = NWIDTH, height = s_tlines;
-   if(!result || resultsize != width*height*3*2)
-   {
-       if(result) free(result);
-       result = (unsigned char*) FCEU_dmalloc(resultsize = width*height*3*2);
-   }
-   switch(s_curbpp)
-   {
-   #if 0
-     case 24: case 32: case 15: case 16:
-       /* Convert to I420 if possible, because our I420 conversion is optimized
-        * and it'll produce less network traffic, hence faster throughput than
-        * anything else. And H.264 eats only I420, so it'd be converted sooner
-        * or later anyway if we didn't do it. Win-win situation.
-        */
-       switch(s_curbpp)
-       {
-         case 32: Convert32To_I420Frame(s_screen->pixels, &result[0], width*height, width); break;
-         case 24: Convert24To_I420Frame(s_screen->pixels, &result[0], width*height, width); break;
-         case 15: Convert15To_I420Frame(s_screen->pixels, &result[0], width*height, width); break;
-         case 16: Convert16To_I420Frame(s_screen->pixels, &result[0], width*height, width); break;
-       }
-       NESVideoLoggingVideo(&result[0], width,height, fps, 12);
-       break;
-   #endif
-     default:
-       NESVideoLoggingVideo( dest, width,height, fps, s_curbpp);
-   }
- }
-#endif // CREATE_AVI
+	aviRecordAddFrame();
 
-#if REALTIME_LOGGING
- {
-   static struct timeval last_time;
-   static int first_time=1;
-   extern long soundrate;
-   
-   struct timeval cur_time;
-   gettimeofday(&cur_time, NULL);
-   
-   double timediff =
-       (cur_time.tv_sec *1e6 + cur_time.tv_usec
-     - (last_time.tv_sec *1e6 + last_time.tv_usec)) / 1e6;
-   
-   int nframes = timediff * 60 - 1;
-   if(first_time)
-     first_time = 0;
-   else while(nframes > 0)
-   {
-     static const unsigned char Buf[800*4] = {0};
-     NESVideoLoggingVideo(screen->pixels, 256,tlines, FCEUI_GetDesiredFPS(), s_curbpp);
-     NESVideoLoggingAudio(Buf, soundrate,16,1, soundrate/60.0);
-     --nframes;
-   }
-   memcpy(&last_time, &cur_time, sizeof(last_time));
- }
-#endif // REALTIME_LOGGING
-
+	return;
 }
 
 /**
@@ -489,17 +494,27 @@ BlitScreen(uint8 *XBuf)
 uint32 PtoV(double nx, double ny)
 {
 	int x, y;
+
 	y = (int)( ny * (double)nes_shm->video.nrow );
-	x = (int)( nx * (double)nes_shm->video.ncol );
+
+	if ( nes_shm->video.preScaler == 3 )
+	{
+		x = (int)( nx * (double)nes_shm->video.ncol * (256.0/301.0) );
+	}
+	else
+	{
+		x = (int)( nx * (double)nes_shm->video.ncol );
+	}
 
 	//printf("Scaled (%i,%i) \n", x, y);
 
-	x = x / nes_shm->video.scale;
+	x = x / nes_shm->video.xscale;
+	y = y / nes_shm->video.yscale;
 
-	if ( nes_shm->video.xyRatio == 1 )
-	{
-		y = y / nes_shm->video.scale;
-	}
+	//if ( nes_shm->video.xyRatio == 1 )
+	//{
+	//	y = y / nes_shm->video.scale;
+	//}
 	//printf("UnScaled (%i,%i) \n", x, y);
 
 	if (s_clipSides) 

@@ -13,6 +13,7 @@
 #include "drivers\win\memwatch.h"
 #include "drivers\win\ntview.h"
 #include "drivers\win\ram_search.h"
+#include "drivers\win\ramwatch.h"
 #include "drivers\win\taseditor.h"
 #include "drivers\win\taseditor\taseditor_project.h"
 #include "drivers\win\tracer.h"
@@ -108,7 +109,10 @@ static void ResetEmulator()
 
 	// close debug windows
 	CloseMemoryWatch();
-	CloseRamWindows();
+	if (RamSearchHWnd)
+		SendMessage(RamSearchHWnd, WM_CLOSE, NULL, NULL);
+	if (RamWatchHWnd)
+		SendMessage(RamWatchHWnd, WM_CLOSE, NULL, NULL);
 	if (hDebug)
 		DebuggerExit();
 	if (hPPUView)

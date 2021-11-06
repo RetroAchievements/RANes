@@ -18,7 +18,8 @@
 static char *aboutString = 0;
 
 // returns a string suitable for use in an aboutbox
-char *FCEUI_GetAboutString() {
+const char *FCEUI_GetAboutString(void) 
+{
 	const char *aboutTemplate =
 #ifdef RETROACHIEVEMENTS
 		"RANes " RANES_VERSION_SHORT "\n\n"
@@ -47,13 +48,16 @@ char *FCEUI_GetAboutString() {
 		"FCEU TAS - blip & nitsuja\n"
 		"FCEU TAS+ - Luke Gustafson\n"
 		"\n"
+		"Logo/icon:\n"
+		"Terwilf\n"
+		"\n"
 		"FCEUX is dedicated to the fallen heroes\n"
 		"of NES emulation. In Memoriam --\n"
 		"ugetab\n"
 		"\n"
 		__TIME__ " " __DATE__ "\n";
 
-	if(aboutString) return aboutString;
+	if (aboutString) return aboutString;
 
 	const char *compilerString = FCEUD_GetCompilerString();
 
@@ -61,6 +65,6 @@ char *FCEUI_GetAboutString() {
 	if (!(aboutString = (char*)FCEU_dmalloc(strlen(aboutTemplate) + strlen(compilerString) + 1)))
         return NULL;
 
-    sprintf(aboutString,"%s%s",aboutTemplate,compilerString);
+	sprintf(aboutString,"%s%s",aboutTemplate,compilerString);
 	return aboutString;
 }
