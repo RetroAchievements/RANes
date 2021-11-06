@@ -2,6 +2,12 @@
 #define _aosdfjk02fmasf
 
 #include <stdint.h>
+#include <list>
+
+#include <QWidget>
+#include <QKeySequence>
+#include <QShortcut>
+#include <QAction>
 
 #include "common/configSys.h"
 
@@ -17,7 +23,7 @@ struct ButtConfig
 	int    ButtType; 
 	int    DeviceNum; 
 	int    ButtonNum; 
-   int    state;
+	int    state;
 };
 
 extern int NoWaiting;
@@ -31,23 +37,82 @@ void ButtonConfigEnd();
 void ConfigButton(char *text, ButtConfig *bc);
 int DWaitButton(const uint8_t *text, ButtConfig *bc, int *buttonConfigStatus = NULL);
 
-struct hotkey_t
+class hotkey_t
 {
-	int value;
-	int modifier;
-	char prevState;
+	public:
+		// Methods
+		hotkey_t(void);
 
-	hotkey_t(void);
+		int init( QWidget *parent );
 
-	int getState(void);
+		int readConfig(void);
 
-	int getRisingEdge(void);
+		int getState(void);
 
-	int getString( char *s );
+		int getRisingEdge(void);
 
-	void setModifierFromString( const char *s );
+		int getString( char *s );
+
+		void setModifierFromString( const char *s );
+
+		void setConfigName(const char *cName);
+		void setAction( QAction *act );
+
+		const char *getConfigName(void);
+		QShortcut *getShortcut(void);
+
+		QKeySequence getKeySeq(void){ return keySeq; };
+
+		// Member variables
+		struct 
+		{
+			int value;
+			int modifier;
+		} sdl;
+
+		struct
+		{
+			int value;
+			int modifier;
+		} qkey;
+
+		char prevState;
+
+	private:
+		void conv2SDL(void);
+
+		const char *configName;
+		QKeySequence keySeq;
+		QShortcut *shortcut;
+		QAction   *act;
+		QString    actText;
 };
-extern struct hotkey_t Hotkeys[];
+extern class hotkey_t Hotkeys[];
+
+struct gamepad_function_key_t
+{
+	struct {
+		int  key;
+		unsigned int modifier;
+		std::string  name;
+
+	} keySeq[2];
+
+	int  hk[2];
+	char  keyRelReq[2];
+
+	struct ButtConfig  bmap[2];
+
+	gamepad_function_key_t(void);
+	~gamepad_function_key_t(void);
+
+	void sendKeyPressEvent(int idx);
+	void sendKeyReleaseEvent(int idx);
+
+	void updateStatus(void);
+};
+
+//extern std::list <gamepad_function_key_t*> gpKeySeqList;
 
 #define FCFGD_GAMEPAD   1
 #define FCFGD_POWERPAD  2
@@ -75,12 +140,13 @@ void FCEUD_UpdateInput(void);
 
 void UpdateInput(Config *config);
 
-std::string GetUserText(const char* title);
 const char* ButtonName(const ButtConfig* bc);
 
 int getInputSelection( int port, int *cur, int *usr );
 int saveInputSettingsToFile( const char *fileBase = NULL );
 int loadInputSettingsFromFile( const char *filename = NULL );
+void toggleFamilyKeyboardFunc(void);
+bool isFamilyKeyboardActv(void);
 
 #endif
 

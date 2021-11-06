@@ -114,6 +114,12 @@ char* inputDevList[] = {
 	"RacerMate Bicycle",
 	"U-Force",
 	"R.O.B. Stack-Up",
+	"City Patrolman Lightgun",
+	"Sharp C1 Cassette Interface",
+	"Standard Controller with swapped Left-Right/Up-Down/B-A",
+	"Excalibor Sudoku Pad",
+	"ABL Pinball",
+	"Golden Nugget Casino extra buttons",
 	0
 };
 
@@ -909,7 +915,7 @@ void SetHeaderData(HWND hwnd, iNES_HEADER* header) {
 	}
 
 	// Input Device:
-	int input = header->reserved[1] & 0x1F;
+	int input = header->reserved[1] & 0x3F;
 	if (SendDlgItemMessage(hwnd, IDC_INPUT_DEVICE_COMBO, CB_SETCURSEL, input, 0) == CB_ERR)
 	{
 		sprintf(buf, "$%02X", input);
@@ -1085,11 +1091,11 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 								SetFocus(GetDlgItem(hwnd, IDC_PRGROM_COMBO));
 								SendDlgItemMessage(hwnd, IDC_PRGROM_COMBO, EM_SETSEL, 0, -1);
 							}
-							return false;
 						}
 						else
 							SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
 
+						return false;
 					}
 				}
 				else {
@@ -1307,29 +1313,29 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 
 					if (!fit)
 					{
-						int result10 = (chr_rom / 1024 / 8 + 1) * 8 * 1024;
-						if (result10 < result)
-							result = result10;
-						char buf2[64];
-						if (result % 1024 != 0)
-							sprintf(buf2, "%dB", result);
-						else
-							sprintf(buf2, "%dKB", result / 1024);
-						sprintf(buf, "CHR ROM size you entered is invalid in iNES 2.0, do you want to set to its nearest value %s?", buf2);
-						if (MessageBox(hwnd, buf, "Error", MB_YESNO | MB_ICONERROR) == IDYES)
-							SetDlgItemText(hwnd, IDC_CHRROM_COMBO, buf2);
-						else
+						if (header)
 						{
-							if (header)
+							int result10 = (chr_rom / 1024 / 8 + 1) * 8 * 1024;
+							if (result10 < result)
+								result = result10;
+							char buf2[64];
+							if (result % 1024 != 0)
+								sprintf(buf2, "%dB", result);
+							else
+								sprintf(buf2, "%dKB", result / 1024);
+							sprintf(buf, "CHR ROM size you entered is invalid in iNES 2.0, do you want to set to its nearest value %s?", buf2);
+							if (MessageBox(hwnd, buf, "Error", MB_YESNO | MB_ICONERROR) == IDYES)
+								SetDlgItemText(hwnd, IDC_CHRROM_COMBO, buf2);
+							else
 							{
 								SetFocus(GetDlgItem(hwnd, IDC_CHRROM_COMBO));
 								SendDlgItemMessage(hwnd, IDC_CHRROM_COMBO, EM_SETSEL, 0, -1);
 							}
-							else
-								SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
-
-							return false;
 						}
+						else
+							SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
+						return false;
 					}
 				}
 				else {
@@ -1657,12 +1663,9 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 			{
 				SetFocus(GetDlgItem(hwnd, IDC_MAPPER_COMBO));
 				SendDlgItemMessage(hwnd, IDC_MAPPER_COMBO, EM_SETSEL, 0, -1);
+				return false;
 			}
 		}
-		else
-			SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
-
-		return false;
 	}
 
 	memcpy(_header.ID, "NES\x1A", 4);
@@ -1719,30 +1722,30 @@ int GetComboBoxByteSize(HWND hwnd, UINT id, int* value, iNES_HEADER* header)
 		}
 	}
 
-	if (header)
+	if (err)
 	{
-		switch (err)
+		if (header)
 		{
-			case errors::FORMAT_ERR:
-				sprintf(buf, "%s size you entered is invalid, it should be positive decimal integer followed with unit, e.g. 1024B, 128KB, 4MB", name);
-				break;
-			case errors::UNIT_ERR:
-				sprintf(buf, "The unit of %s size you entered is invalid, it must be B, KB or MB", name);
-				break;
-			case errors::MINUS_ERR:
-				sprintf(buf, "Negative value of %s is not supported by iNES header.", name);
-				break;
-		}
+			switch (err)
+			{
+				case errors::FORMAT_ERR:
+					sprintf(buf, "%s size you entered is invalid, it should be positive decimal integer followed with unit, e.g. 1024B, 128KB, 4MB", name);
+					break;
+				case errors::UNIT_ERR:
+					sprintf(buf, "The unit of %s size you entered is invalid, it must be B, KB or MB", name);
+					break;
+				case errors::MINUS_ERR:
+					sprintf(buf, "Negative value of %s is not supported by iNES header.", name);
+					break;
+			}
 
-		if (err)
-		{
 			MessageBox(hwnd, buf, "Error", MB_OK | MB_ICONERROR);
 			SetFocus(GetDlgItem(hwnd, id));
 			SendDlgItemMessage(hwnd, id, EM_SETSEL, 0, -1);
 		}
+		else
+			SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
 	}
-	else
-		SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
 
 	return err;
 }
@@ -1809,7 +1812,7 @@ bool GetComboBoxListItemData(HWND hwnd, UINT id, int* value, char* buf, iNES_HEA
 // Warning: when in save mode, the content of buf might be overwritten by the save filename which user changed.
 bool ShowINESFileBox(HWND parent, char* buf, iNES_HEADER* header)
 {
-	char *filename = NULL, *path = NULL;
+	char filename[2048] = { 0 }, path[2048] = { 0 };
 	bool success = true;
 
 	if (header)
@@ -1817,24 +1820,23 @@ bool ShowINESFileBox(HWND parent, char* buf, iNES_HEADER* header)
 		// When open this dialog for saving prpose, the buf must be a separate buf.
 		if (buf && buf != LoadedRomFName)
 		{
-			extern char* GetRomName(bool force = false);
-			extern char* GetRomPath(bool force = false);
-			filename = GetRomName(true);
+			extern std::string GetRomName(bool force = false);
+			extern std::string GetRomPath(bool force = false);
+			strcpy(filename, GetRomName(true).c_str());
 			char* second = strchr(filename, '|');
 			if (second)
 			{
-				char* _filename = (char*)calloc(1, 2048);
+				char _filename[2048];
 				strcpy(_filename, second + 1);
 				char* third = strrchr(filename, '\\');
 				if (third)
 					strcpy(_filename, third + 1);
-				free(filename);
-				filename = _filename;
+				strcpy(filename, _filename);
 			}
 			char header_str[32];
 			sprintf(header_str, " [%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X].nes", header->ROM_size, header->VROM_size, header->ROM_size, header->ROM_type2, header->ROM_type3, header->Upper_ROM_VROM_size, header->RAM_size, header->VRAM_size, header->TV_system, header->VS_hardware, header->reserved[0], header->reserved[1]);
 			strcat(filename, header_str);
-			path = GetRomPath(true);
+			strcpy(path, GetRomPath(true).c_str());
 		}
 		else
 			success = false;
@@ -1842,8 +1844,6 @@ bool ShowINESFileBox(HWND parent, char* buf, iNES_HEADER* header)
 	else {
 		if (!buf)
 			buf = LoadedRomFName;
-		filename = (char*)calloc(1, 2048);
-		path = (char*)calloc(1, 2048);
 	}
 
 	if (success)
@@ -1866,9 +1866,6 @@ bool ShowINESFileBox(HWND parent, char* buf, iNES_HEADER* header)
 		else
 			success = false;
 	}
-
-	if (filename) free(filename);
-	if (path) free(path);
 
 	return success;
 }

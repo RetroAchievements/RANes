@@ -64,8 +64,8 @@ pkg-config --cflags --libs  minizip
 #echo '****************************************'
 #echo 'Install Dependency libgtk-3-dev'
 #echo '****************************************'
-sudo apt-get --assume-yes  install libgtk-3-dev
-pkg-config --cflags --libs  gtk+-3.0
+#sudo apt-get --assume-yes  install libgtk-3-dev
+#pkg-config --cflags --libs  gtk+-3.0
 #
 ## Install GTK+-3 Sourceview
 #sudo apt-get --assume-yes  install libgtksourceview-3.0-dev
@@ -76,12 +76,29 @@ echo '****************************************'
 echo 'Install Dependency Qt5'
 echo '****************************************'
 sudo apt-get --assume-yes  install qt5-default
+sudo apt-get --assume-yes  install qttools5-dev  # For Qt Help
 
-# Install scons
-#echo '****************************************'
-#echo 'Install Build Dependency scons'
-#echo '****************************************'
-#sudo apt-get --assume-yes  install scons
+# Install x264 
+echo '****************************************'
+echo 'Install Optional Dependency libx264-dev'
+echo '****************************************'
+sudo apt-get --assume-yes  install libx264-dev
+
+# Install x265 
+echo '****************************************'
+echo 'Install Optional Dependency libx265-dev'
+echo '****************************************'
+sudo apt-get --assume-yes  install libx265-dev
+
+# Install libav (ffmpeg) 
+echo '****************************************'
+echo 'Install Optional Dependency libav (ffmpeg)'
+echo '****************************************'
+sudo apt-get --assume-yes  install libavcodec-dev
+sudo apt-get --assume-yes  install libavformat-dev
+sudo apt-get --assume-yes  install libavutil-dev
+sudo apt-get --assume-yes  install libswscale-dev
+sudo apt-get --assume-yes  install libavresample-dev
 
 # Install cppcheck
 echo '****************************************'
@@ -95,6 +112,8 @@ echo '**************************'
 mkdir -p $INSTALL_PREFIX/usr;
 
 echo "Num CPU: `nproc`";
+./scripts/unix_make_docs.sh;
+
 mkdir buildQT; cd buildQT;
 cmake  \
    -DCMAKE_BUILD_TYPE=Release  \
@@ -105,15 +124,15 @@ make -j `nproc`
 make  install  DESTDIR=$INSTALL_PREFIX
 
 cd ..;
-mkdir buildGTK; cd buildGTK;
-cmake  \
-   -DGTK=1 \
-   -DCMAKE_BUILD_TYPE=Release  \
-   -DCMAKE_INSTALL_PREFIX=/usr \
-   -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
-	..
-make -j `nproc`
-make  install  DESTDIR=$INSTALL_PREFIX
+#mkdir buildGTK; cd buildGTK;
+#cmake  \
+#   -DGTK=1 \
+#   -DCMAKE_BUILD_TYPE=Release  \
+#   -DCMAKE_INSTALL_PREFIX=/usr \
+#   -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
+#	..
+#make -j `nproc`
+#make  install  DESTDIR=$INSTALL_PREFIX
 
 # Install Files
 #cd .. # cd out of build
@@ -147,15 +166,15 @@ else
    exit 1;
 fi
 
-if [ -e $INSTALL_PREFIX/usr/bin/fceux-gtk ]; then
-   echo '**************************************************************'
-   echo 'Printing Shared Object Dependencies for fceux-gtk Executable'
-   echo '**************************************************************'
-   ldd  $INSTALL_PREFIX/usr/bin/fceux-gtk
-else
-   echo "Error: Executable Failed to build: $INSTALL_PREFIX/usr/bin/fceux-gtk";
-   exit 1;
-fi
+#if [ -e $INSTALL_PREFIX/usr/bin/fceux-gtk ]; then
+#   echo '**************************************************************'
+#   echo 'Printing Shared Object Dependencies for fceux-gtk Executable'
+#   echo '**************************************************************'
+#   ldd  $INSTALL_PREFIX/usr/bin/fceux-gtk
+#else
+#   echo "Error: Executable Failed to build: $INSTALL_PREFIX/usr/bin/fceux-gtk";
+#   exit 1;
+#fi
 
 echo '**************************************************************'
 echo 'Printing To Be Packaged Files '

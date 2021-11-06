@@ -1,10 +1,29 @@
+/* FCE Ultra - NES/Famicom Emulator
+ *
+ * Copyright notice for this file:
+ *  Copyright (C) 2020 mjbudd77
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ */
 /// \file
 /// \brief Handles emulation speed throttling using the SDL timing functions.
 
 #include "Qt/sdl.h"
 #include "Qt/throttle.h"
 
-#if defined(__linux) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
 #include <time.h>
 #endif
 
@@ -19,20 +38,28 @@ static const double Normal  = 1.0;      // 1x speed    (around 60 fps on NTSC)
 static uint32 frameLateCounter = 0;
 static double Lasttime=0, Nexttime=0, Latetime=0;
 static double desired_frametime = (1.0 / 60.099823);
+static double desired_frameRate = (60.099823);
+static double baseframeRate     = (60.099823);
 static double frameDeltaCur = 0.0;
 static double frameDeltaMin = 1.0;
 static double frameDeltaMax = 0.0;
 static double frameIdleCur = 0.0;
 static double frameIdleMin = 1.0;
 static double frameIdleMax = 0.0;
+static double videoLastTs  = 0.0;
+static double videoPeriodCur  = 0.0;
+static double videoPeriodMin  = 1.0;
+static double videoPeriodMax  = 0.0;
 static bool   keepFrameTimeStats = false;
 static int InFrame = 0;
 double g_fpsScale = Normal; // used by sdl.cpp
 bool MaxSpeed = false;
+bool useIntFrameRate = false;
+static double frmRateAdjRatio = 1.000000f; // Frame Rate Adjustment Ratio
 
 double getHighPrecTimeStamp(void)
 {
-#if defined(__linux) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
 	struct timespec ts;
 	double t;
 
@@ -157,7 +184,32 @@ int  getFrameTimingStats( struct frameTimingStat_t *stats )
 		stats->frameTimeWork.max = 0;
 	}
 
+	stats->videoTimeDel.tgt = desired_frametime;
+	stats->videoTimeDel.cur = videoPeriodCur;
+	stats->videoTimeDel.min = videoPeriodMin;
+	stats->videoTimeDel.max = videoPeriodMax;
+
 	return 0;
+}
+
+void videoBufferSwapMark(void)
+{
+	if ( keepFrameTimeStats )
+	{
+		double ts = getHighPrecTimeStamp();
+
+		videoPeriodCur = ts - videoLastTs;
+
+		if ( videoPeriodCur < videoPeriodMin )
+		{
+			videoPeriodMin = videoPeriodCur;
+		}
+		if ( videoPeriodCur > videoPeriodMax )
+		{
+			videoPeriodMax = videoPeriodCur;
+		}
+		videoLastTs = ts;
+	}
 }
 
 void resetFrameTiming(void)
@@ -167,6 +219,8 @@ void resetFrameTiming(void)
 	frameDeltaMin = 1.0;
 	frameIdleMax = 0.0;
 	frameIdleMin = 1.0;
+	videoPeriodMin = 1.0;
+	videoPeriodMax = 0.0;
 }
 
 /* LOGMUL = exp(log(2) / 3)
@@ -185,19 +239,35 @@ void resetFrameTiming(void)
 void
 RefreshThrottleFPS(void)
 {
-   double hz;
+	double hz;
 	int32_t fps = FCEUI_GetDesiredFPS(); // Do >> 24 to get in Hz
 	int32_t T;
 
-   hz = ( ((double)fps) / 16777216.0 );
+	hz = ( ((double)fps) / 16777216.0 );
 
 	desired_frametime = 1.0 / ( hz * g_fpsScale );
+
+	if ( useIntFrameRate )
+	{
+		hz = (double)( (int)(hz) );
+
+		frmRateAdjRatio = (1.0 / ( hz * g_fpsScale )) / desired_frametime;
+
+		//printf("frameAdjRatio:%f \n", frmRateAdjRatio );
+	}
+	else
+	{
+		frmRateAdjRatio = 1.000000f;
+	}
+	desired_frametime = 1.0 / ( hz * g_fpsScale );
+	desired_frameRate = ( hz * g_fpsScale );
+	baseframeRate = hz;
 
 	T = (int32_t)( desired_frametime * 1000.0 );
 
 	if ( T < 0 ) T = 1;
 
-   //printf("FrameTime: %llu  %llu  %f  %lf \n", fps, fps >> 24, hz, desired_frametime );
+	//printf("FrameTime: %llu  %llu  %f  %lf \n", fps, fps >> 24, hz, desired_frametime );
 
 	Lasttime=0;   
 	Nexttime=0;
@@ -209,10 +279,25 @@ RefreshThrottleFPS(void)
 
 }
 
+double getBaseFrameRate(void)
+{
+	return baseframeRate;
+}
+
+double getFrameRate(void)
+{
+	return desired_frameRate;
+}
+
+double getFrameRateAdjustmentRatio(void)
+{
+	return frmRateAdjRatio;
+}
+
 int highPrecSleep( double timeSeconds )
 {
 	int ret = 0;
-#if defined(__linux) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
 	struct timespec req, rem;
 	
 	req.tv_sec  = (long)timeSeconds;
@@ -220,7 +305,7 @@ int highPrecSleep( double timeSeconds )
 
 	ret = nanosleep( &req, &rem );
 #else
-	SDL_Delay( (long)(time_left * 1e3) );
+	SDL_Delay( (long)(timeSeconds * 1e3) );
 #endif
 	return ret;
 }
@@ -231,7 +316,7 @@ int highPrecSleep( double timeSeconds )
 int
 SpeedThrottle(void)
 {
-	if (g_fpsScale >= 32)
+	if ( (g_fpsScale >= 32) || (NoWaiting & 0x01) )
 	{
 		return 0; /* Done waiting */
 	}

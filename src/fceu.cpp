@@ -43,7 +43,7 @@
 #include "file.h"
 #include "vsuni.h"
 #include "ines.h"
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 #include "drivers/win/pref.h"
 #include "utils/xstring.h"
 
@@ -69,7 +69,7 @@ extern void RefreshThrottleFPS();
 #endif
 
 //TODO - we really need some kind of global platform-specific options api
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 #include "drivers/win/main.h"
 #include "drivers/win/memview.h"
 #include "drivers/win/cheat.h"
@@ -124,19 +124,23 @@ char romNameWhenClosingEmulator[2048] = {0};
 
 FCEUGI::FCEUGI()
 	: filename(0),
-	  archiveFilename(0) {
+	  archiveFilename(0) 
+{
 	//printf("%08x",opsize); // WTF?!
 }
 
-FCEUGI::~FCEUGI() {
-	if (filename) {
-        free(filename);
-        filename = NULL;
-    }
-	if (archiveFilename) {
-        delete archiveFilename;
-        archiveFilename = NULL;
-    }
+FCEUGI::~FCEUGI() 
+{
+	if (filename) 
+	{
+		free(filename);
+		filename = NULL;
+	}
+	if (archiveFilename) 
+	{
+		free(archiveFilename);
+		archiveFilename = NULL;
+	}
 }
 
 bool CheckFileExists(const char* filename) {
@@ -165,7 +169,7 @@ void FCEU_TogglePPU(void) {
 		FCEUI_printf("Old PPU loaded");
 	}
 	normalscanlines = (dendy ? 290 : 240)+newppu; // use flag as number!
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 	SetMainWindowText();
 #endif
 }
@@ -187,7 +191,7 @@ static void FCEU_CloseGame(void)
 		}
 #endif
 
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 		extern char LoadedRomFName[2048];
 		if (storePreferences(mass_replace(LoadedRomFName, "|", ".").c_str()))
 			FCEUD_PrintError("Couldn't store debugging data");
@@ -204,7 +208,7 @@ static void FCEU_CloseGame(void)
 		}
 
 		if (GameInfo->type != GIT_NSF) {
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 			if (disableAutoLSCheats == 2)
 				FCEU_FlushGameCheats(0, 1);
 			else if (disableAutoLSCheats == 1)
@@ -432,7 +436,7 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 	int lastpal = PAL;
 	int lastdendy = dendy;
 
-	const char* romextensions[] = { "nes", "fds", 0 };
+	const char* romextensions[] = { "nes", "fds", "nsf", 0 };
 
 	// indicator for if the operaton was canceled by user
 	// currently there's only one situation:
@@ -507,7 +511,7 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 	if (load_result == LOADER_OK)
 	{
 
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 		// ################################## Start of SP CODE ###########################
 		extern char LoadedRomFName[2048];
 		extern int loadDebugDataFailed;
@@ -527,7 +531,7 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 			FCEU_OpenGenie())
 		{
 			FCEUI_SetGameGenie(false);
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 			genie = 0;
 #endif
 		}
@@ -573,7 +577,7 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 
 		ResetScreenshotsCounter();
 
-#if defined (WIN32) || defined (WIN64)
+#ifdef __WIN_DRIVER__
 		DoDebuggerDataReload(); // Reloads data without reopening window
 		CDLoggerROMChanged();
 		if (hMemView) UpdateColorTable();
@@ -658,46 +662,81 @@ void FCEUI_Kill(void) {
 }
 
 int rapidAlternator = 0;
-int AutoFirePattern[8] = { 1, 0, 0, 0, 0, 0, 0, 0 };
+//int AutoFirePattern[8] = { 1, 0, 0, 0, 0, 0, 0, 0 };
 int AutoFirePatternLength = 2;
 
-void SetAutoFirePattern(int onframes, int offframes) {
-	int i;
-	for (i = 0; i < onframes && i < 8; i++) {
-		AutoFirePattern[i] = 1;
-	}
-	for (; i < 8; i++) {
-		AutoFirePattern[i] = 0;
-	}
-	if (onframes + offframes < 2) {
-		AutoFirePatternLength = 2;
-	} else if (onframes + offframes > 8) {
-		AutoFirePatternLength = 8;
-	} else {
-		AutoFirePatternLength = onframes + offframes;
-	}
+void SetAutoFirePattern(int onframes, int offframes) 
+{
+	//int i;
+	//for (i = 0; i < onframes && i < 8; i++) {
+	//	AutoFirePattern[i] = 1;
+	//}
+	//for (; i < 8; i++) {
+	//	AutoFirePattern[i] = 0;
+	//}
+	//if (onframes + offframes < 2) {
+	//	AutoFirePatternLength = 2;
+	//} else if (onframes + offframes > 8) {
+	//	AutoFirePatternLength = 8;
+	//} else {
+	//	AutoFirePatternLength = onframes + offframes;
+	//}
+	AutoFirePatternLength = onframes + offframes;
 	AFon = onframes; AFoff = offframes;
 }
 
-void SetAutoFireOffset(int offset) {
+void GetAutoFirePattern( int *onframes, int *offframes)
+{
+	if ( onframes )
+	{
+		*onframes = AFon;
+	}
+	if ( offframes )
+	{
+		*offframes = AFoff;
+	}
+}
+
+void SetAutoFireOffset(int offset)
+{
 	if (offset < 0 || offset > 8) return;
 	AutoFireOffset = offset;
 }
 
-void AutoFire(void) {
+bool GetAutoFireState(int btnIdx)
+{
+	return rapidAlternator;
+}
+
+void AutoFire(void) 
+{
 	static int counter = 0;
 	if (justLagged == false)
-		counter = (counter + 1) % (8 * 7 * 5 * 3);
+	{
+		//counter = (counter + 1) % (8 * 7 * 5 * 3);
+		counter = (counter + 1) % AutoFirePatternLength;
+	}
 	//If recording a movie, use the frame # for the autofire so the offset
 	//doesn't get screwed up when loading.
-	if (FCEUMOV_Mode(MOVIEMODE_RECORD | MOVIEMODE_PLAY)) {
-		rapidAlternator = AutoFirePattern[(AutoFireOffset + FCEUMOV_GetFrame()) % AutoFirePatternLength]; //adelikat: TODO: Think through this, MOVIEMODE_FINISHED should not use movie data for auto-fire?
-	} else {
-		rapidAlternator = AutoFirePattern[(AutoFireOffset + counter) % AutoFirePatternLength];
+	if (FCEUMOV_Mode(MOVIEMODE_RECORD | MOVIEMODE_PLAY)) 
+	{
+		//rapidAlternator = AutoFirePattern[(AutoFireOffset + FCEUMOV_GetFrame()) % AutoFirePatternLength]; //adelikat: TODO: Think through this, MOVIEMODE_FINISHED should not use movie data for auto-fire?
+		//adelikat: TODO: Think through this, MOVIEMODE_FINISHED should not use movie data for auto-fire?
+		rapidAlternator = ( (AutoFireOffset + FCEUMOV_GetFrame()) % AutoFirePatternLength ) < AFon; 
+	}
+	else
+	{
+		//rapidAlternator = AutoFirePattern[(AutoFireOffset + counter) % AutoFirePatternLength];
+		rapidAlternator = ( (AutoFireOffset + counter) % AutoFirePatternLength ) < AFon;
 	}
 }
 
 void UpdateAutosave(void);
+
+
+#ifdef __QT_DRIVER__
+extern unsigned int frameAdvHoldTimer;
+#endif
 
 ///Emulates a single frame.
 
@@ -710,10 +749,27 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 
 	if (frameAdvanceRequested)
 	{
+#ifdef __QT_DRIVER__
+		uint32_t frameAdvanceDelayScaled = frameAdvance_Delay * (PAL ? 20 : 16);
+
+		if ( frameAdvanceDelayScaled < 1 )
+		{
+			frameAdvanceDelayScaled = 1;
+		}
+		if ( (frameAdvance_Delay_count == 0) || (frameAdvHoldTimer >= frameAdvanceDelayScaled) )
+		{
+			EmulationPaused = EMULATIONPAUSED_FA;
+		}
+		if (frameAdvance_Delay_count < frameAdvanceDelayScaled)
+		{
+			frameAdvance_Delay_count++;
+		}
+#else
 		if (frameAdvance_Delay_count == 0 || frameAdvance_Delay_count >= frameAdvance_Delay)
 			EmulationPaused = EMULATIONPAUSED_FA;
 		if (frameAdvance_Delay_count < frameAdvance_Delay)
 			frameAdvance_Delay_count++;
+#endif
 	}
 
 	if (EmulationPaused & EMULATIONPAUSED_FA)
@@ -721,7 +777,7 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 		// the user is holding Frame Advance key
 		// clear paused flag temporarily
 		EmulationPaused &= ~EMULATIONPAUSED_PAUSED;
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 		// different emulation speed when holding Frame Advance
 		if (fps_scale_frameadvance > 0)
 		{
@@ -731,7 +787,7 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 #endif
 	} else
 	{
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 		if (fps_scale_frameadvance > 0)
 		{
 			// restore emulation speed when Frame Advance is not held
@@ -780,7 +836,7 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 
 	FCEU_PutImage();
 
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 	//These Windows only dialogs need to be updated only once per frame so they are included here
 	// CaH4e3: can't see why, this is only cause problems with selection
 	// adelikat: selection is only a problem when not paused, it should be paused to select, we want to see the values update
@@ -819,7 +875,7 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 	{
 		EmulationPaused = EMULATIONPAUSED_PAUSED;		   // restore EMULATIONPAUSED_PAUSED flag and clear EMULATIONPAUSED_FA flag
 		JustFrameAdvanced = true;
-		#ifdef WIN32
+		#ifdef __WIN_DRIVER__
 		if (soundoptions & SO_MUTEFA)  //mute the frame advance if the user requested it
 			*SoundBufSize = 0;         //keep sound muted
 		#endif
@@ -984,7 +1040,7 @@ void PowerNES(void) {
 
 	timestampbase = 0;
 	X6502_Power();
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 	ResetDebugStatisticsCounters();
 #endif
 	FCEU_PowerCheats();
@@ -993,7 +1049,7 @@ void PowerNES(void) {
 	extern uint8 *XBackBuf;
 	memset(XBackBuf, 0, 256 * 256);
 
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 	Update_RAM_Search(); // Update_RAM_Watch() is also called.
 #endif
 
@@ -1091,7 +1147,27 @@ int FCEUI_GetCurrentVidSystem(int *slstart, int *slend) {
 	return(PAL);
 }
 
-void FCEUI_SetRegion(int region, int notify) {
+int  FCEUI_GetRegion(void)
+{
+	int region;
+
+	if ( pal_emulation )
+	{
+		region = 1;
+	}
+	else if ( dendy )
+	{
+		region = 2;
+	}
+	else
+	{
+		region = 0;
+	}
+	return region;
+}
+
+void FCEUI_SetRegion(int region, int notify) 
+{
 	switch (region) {
 		case 0: // NTSC
 			normalscanlines = 240;
@@ -1131,7 +1207,7 @@ void FCEUI_SetRegion(int region, int notify) {
 	totalscanlines = normalscanlines + (overclock_enabled ? postrenderscanlines : 0);
 	FCEUI_SetVidSystem(pal_emulation);
 	RefreshThrottleFPS();
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 	UpdateCheckedMenuItems();
 	PushCurrentVideoSettings();
 #endif
@@ -1304,7 +1380,7 @@ bool FCEU_IsValidUI(EFCEUI ui) {
 	case FCEUI_INSERT_COIN:
 		if (!GameInfo) return false;
 		if (FCEUMOV_Mode(MOVIEMODE_RECORD)) return true;
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 		if (FCEUMOV_Mode(MOVIEMODE_TASEDITOR) && isTaseditorRecording()) return true;
 #endif
 		if (!FCEUMOV_Mode(MOVIEMODE_INACTIVE)) return false;
@@ -1445,7 +1521,7 @@ uint8 FCEU_ReadRomByte(uint32 i) {
 
 void FCEU_WriteRomByte(uint32 i, uint8 value) {
 	if (i < 16)
-#ifdef WIN32
+#ifdef __WIN_DRIVER__
 		MessageBox(hMemView, "Sorry", "You can't edit the ROM header.", MB_OK | MB_ICONERROR);
 #else
 		printf("Sorry, you can't edit the ROM header.\n");

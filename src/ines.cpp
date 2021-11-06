@@ -197,7 +197,8 @@ static void SetInput(void) {
 		{0x41ef9ac4,	SI_UNSET,		SI_UNSET,		SIFC_SUBORKB	},	// Subor
 		{0x8b265862,	SI_UNSET,		SI_UNSET,		SIFC_SUBORKB	},	// Subor
 		{0x82f1fb96,	SI_UNSET,		SI_UNSET,		SIFC_SUBORKB	},	// Subor 1.0 Russian
-		{0x9f8f200a,	SI_GAMEPAD,		SI_GAMEPAD,		SIFC_FTRAINERA	},	// Super Mogura Tataki!! - Pokkun Moguraa
+		{0x9f8f200a,	SI_GAMEPAD,		SI_GAMEPAD,		SIFC_FTRAINERA	},	// Super Mogura Tataki!! - Pokkun Moguraa (bad dump)
+		{0xc7bcc981,	SI_GAMEPAD,		SI_GAMEPAD,		SIFC_FTRAINERA	},	// Super Mogura Tataki!! - Pokkun Moguraa
 		{0xd74b2719,	SI_GAMEPAD,		SI_POWERPADB,	SIFC_UNSET		},	// Super Team Games
 		{0x74bea652,	SI_GAMEPAD,		SI_ZAPPER,		SIFC_NONE		},	// Supergun 3-in-1
 		{0x5e073a1b,	SI_UNSET,		SI_UNSET,		SIFC_SUBORKB	},	// Supor English (Chinese)
@@ -290,6 +291,7 @@ static void CheckHInfo(void) {
 		0x2b7103b7a27bd72fULL,	/* AD&D Pool of Radiance */
 		0x498c10dc463cfe95ULL,	/* Battle Fleet */
 		0x854d7947a3177f57ULL,	/* Crystalis */
+		0xfad22d265cd70820ULL,	/* Downtown Special: Kunio-kun no Jidaigeki Dayo Zenin Shuugou! */
 		0x4a1f5336b86851b6ULL,	/* DW */
 		0xb0bcc02c843c1b79ULL,	/* DW */
 		0x2dcf3a98c7937c22ULL,	/* DW 2 */
@@ -725,6 +727,7 @@ BMAPPINGLocal bmap[] = {
 	{"F-15 MMC3 Based",		259, BMCF15_Init},
 	{"HP10xx/H20xx Boards",	260, BMCHPxx_Init},
 	{"810544-CA-1",			261, BMC810544CA1_Init},
+	{"SMD132/SMD133",		268, SMD132_SMD133_Init},
 
 	{"Impact Soft MMC3 Flash Board",	406, Mapper406_Init },
 
@@ -763,8 +766,18 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 	} else
 		Mirroring = (head.ROM_type & 1);
 
-	int not_round_size = head.ROM_size;
-	if(iNES2) not_round_size |= ((head.Upper_ROM_VROM_size & 0x0F) << 8);
+	int not_round_size;
+	if (!iNES2)	{
+		not_round_size = head.ROM_size;
+	}
+	else {
+		if ((head.Upper_ROM_VROM_size & 0x0F) != 0x0F)
+			// simple notation
+			not_round_size = head.ROM_size | ((head.Upper_ROM_VROM_size & 0x0F) << 8);
+		else
+			// exponent-multiplier notation
+			not_round_size = ((1 << (head.ROM_size >> 2)) * ((head.ROM_size & 0b11) * 2 + 1)) >> 14;
+	}
 	
 	if (!head.ROM_size && !iNES2)
 		ROM_size = 256;
@@ -772,6 +785,16 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 		ROM_size = uppow2(not_round_size);
 
 	VROM_size = uppow2(head.VROM_size | (iNES2?((head.Upper_ROM_VROM_size & 0xF0)<<4):0));
+	if (!iNES2)	{
+		VROM_size = head.VROM_size;
+	}
+	else {
+		if ((head.Upper_ROM_VROM_size & 0xF0) != 0xF0)
+			// simple notation
+			VROM_size = uppow2(head.VROM_size | ((head.Upper_ROM_VROM_size & 0xF0) << 4));
+		else
+			VROM_size = ((1 << (head.VROM_size >> 2)) * ((head.VROM_size & 0b11) * 2 + 1)) >> 13;
+	}
 
 	int round = true;
 	for (int i = 0; i != sizeof(not_power2) / sizeof(not_power2[0]); ++i) {
@@ -829,9 +852,9 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 
 	iNESCart.CRC32 = iNESGameCRC32;
 
-	FCEU_printf(" PRG ROM:  %3d x 16KiB\n", (round) ? ROM_size: not_round_size);
-	FCEU_printf(" CHR ROM:  %3d x  8KiB\n", head.VROM_size);
-	FCEU_printf(" ROM CRC32:  0x%08lx\n", iNESGameCRC32);
+	FCEU_printf(" PRG ROM: %d x 16KiB = %d KiB\n", round ? ROM_size : not_round_size, (round ? ROM_size : not_round_size) * 16);
+	FCEU_printf(" CHR ROM: %d x  8KiB = %d KiB\n", VROM_size, VROM_size * 8);
+	FCEU_printf(" ROM CRC32: 0x%08lx\n", iNESGameCRC32);
 	{
 		int x;
 		FCEU_printf(" ROM MD5:  0x");
@@ -849,7 +872,7 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 		}
 	}
 
-	FCEU_printf(" Mapper #:  %d\n", MapperNo);
+	FCEU_printf(" Mapper #: %d\n", MapperNo);
 	FCEU_printf(" Mapper name: %s\n", mappername);
 	FCEU_printf(" Mirroring: %s\n", Mirroring == 2 ? "None (Four-screen)" : Mirroring ? "Vertical" : "Horizontal");
 	FCEU_printf(" Battery-backed: %s\n", (head.ROM_type & 2) ? "Yes" : "No");
@@ -858,12 +881,12 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 	{
 		FCEU_printf(" NES2.0 Extensions\n");
 		FCEU_printf(" Sub Mapper #: %d\n", iNESCart.submapper);
-		FCEU_printf(" Total WRAM size: %d\n", iNESCart.wram_size + iNESCart.battery_wram_size);
-		FCEU_printf(" Total VRAM size: %d\n", iNESCart.vram_size + iNESCart.battery_vram_size);
+		FCEU_printf(" Total WRAM size: %d KiB\n", (iNESCart.wram_size + iNESCart.battery_wram_size) / 1024);
+		FCEU_printf(" Total VRAM size: %d KiB\n", (iNESCart.vram_size + iNESCart.battery_vram_size) / 1024);
 		if(head.ROM_type & 2)
 		{
-			FCEU_printf(" WRAM backed by battery: %d\n", iNESCart.battery_wram_size);
-			FCEU_printf(" VRAM backed by battery: %d\n", iNESCart.battery_vram_size);
+			FCEU_printf(" WRAM backed by battery: %d KiB\n", iNESCart.battery_wram_size / 1024);
+			FCEU_printf(" VRAM backed by battery: %d KiB\n", iNESCart.battery_vram_size / 1024);
 		}
 	}
 

@@ -44,10 +44,10 @@
 		The Win32 port has an extensive set of native gui amenities and tools. 
 		The SDL port supports most of the features of the Win32 build (debug tools, Lua scripting, movie recording), 
 		but some of the Win32 features (TAS Editor) are exclusive to Windows.
-		The SDL port should run in any UNIX-like OS (Linux/Solaris/BSD/OSX).
+		The SDL port should run in any UNIX-like OS (Linux/Solaris/BSD/OSX) as well as Windows.
 		</p>
 		
-		<p>Network play in Win32 is not presently functional. Fixing it is a high priority.</p>
+		<p>Network play in both the Win32 and SDL ports is not presently functional. There are no plans to fix it at this time.</p>
 		
 		<h4>Win32</h4>
 		<ul>
@@ -61,6 +61,8 @@
 			<li><a href="https://cmake.org/">Cmake is required to build from source.</a></li>
 			<li>Cross platform Qt GUI replaces deprecated GTK GUI</li>
 			<li>Requires Qt5, SDL2, minizip, zlib, and OpenGL</li>
+			<li>ffmpeg libraries (libavutil, libavformat, libavcodec, libswscale, libswresample) are recommended optional dependencies that provide many encoding features for AVI recording</li>
+			<li>libx264 is an optional dependency that provides H.264 video encoding for AVI recording</li>
 			<li>Lua 5.1 is optional, if the system cannot provide this, an internal version of Lua will be statically linked</li>
 			<li>The Qt GUI is required and will automatically be part of the build.</li>
 			<li>For installation instructions on Linux systems, see the README at the root level of the source tree</li>
@@ -69,21 +71,22 @@
 		
 		<h3>Download</h3>
 		<ul>
-			<li><a href="http://sourceforge.net/projects/fceultra/files/Binaries/2.2.3/fceux-2.2.3-win32.zip/download">FCEUX 2.2.3 win32 Binary</a></li>
-			<li><a href="http://sourceforge.net/projects/fceultra/files/Source%20Code/2.2.3%20src/fceux-2.2.3.src.tar.gz/download">FCEUX 2.2.3 src</a></li>
+			<li><a href="http://sourceforge.net/projects/fceultra/files/Binaries/2.3.0/fceux-2.3.0-win32.zip/download">FCEUX 2.3.0 win32 Binary</a></li>
+			<li><a href="https://sourceforge.net/projects/fceultra/files/latest/download">FCEUX 2.3.0 src</a></li>
 		</ul>
 
 		<p>If you would like to test the current in-development version of FCEUX, interim builds are available here:</p>
 		<ul>
 			<li><a href="https://ci.appveyor.com/api/projects/zeromus/fceux/artifacts/fceux.zip?branch=master&job=Windows%2032">Windows 32-bit</a></li>
 			<li><a href="https://ci.appveyor.com/api/projects/zeromus/fceux/artifacts/fceux64.zip?branch=master&job=Windows%2064">Windows 64-bit</a></li>
-			<li><a href="https://ci.appveyor.com/api/projects/zeromus/fceux/artifacts/fceux-2.3.0-amd64.deb?branch=master&job=Ubuntu">Ubuntu Linux</a></li>
-			<li><a href="https://ci.appveyor.com/api/projects/zeromus/fceux/artifacts/fceux-2.3.0-Darwin.dmg?branch=master&job=MacOS">Mac OS X</a></li>
+			<li><a href="https://ci.appveyor.com/api/projects/zeromus/fceux/artifacts/qfceux64.zip?branch=master&job=Win64%20Qt">Win 64 Qt/SDL</a></li>
+			<li><a href="https://ci.appveyor.com/api/projects/zeromus/fceux/artifacts/fceux-2.5.0-amd64.deb?branch=master&job=Ubuntu">Ubuntu Linux</a></li>
+			<li><a href="https://ci.appveyor.com/api/projects/zeromus/fceux/artifacts/fceux-2.5.0-Darwin.dmg?branch=master&job=MacOS">Mac OS X</a></li>
 		</ul>
 		
 		<h3>Source Code</h3>
 		<ul>
-		<li><a href="https://github.com/TASVideos/fceux">Git repository</a></li>
+		<li><a href="https://github.com/TASEmulators/fceux">Git repository</a></li>
 		</ul>
 		<p>FCEUX development is done commited to a Git repository hosted at Github.  The last version of the source can be found there.</p>
 		<h4>Compiling</h4>
@@ -97,6 +100,12 @@
 		<table border="1">
 		<tr>
 		<th>Win32 Binary</th><th>SRC</th><th>Deb Binary</th>
+
+		</tr>
+		<tr>
+		<td><a href="https://sourceforge.net/projects/fceultra/files/Binaries/2.2.3/fceux-2.2.3-win32.zip/download">FCEUX 2.2.3</a></td>
+		<td><a href="https://sourceforge.net/projects/fceultra/files/Source%20Code/2.2.3%20src/fceux-2.2.3.src.tar.gz/download">FCEUX 2.2.3 src</a></td>
+		</tr>
 
 		</tr>
 		<tr>

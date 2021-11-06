@@ -25,7 +25,8 @@
 
 #include "common/configSys.h"
 #include "utils/memory.h"
-#include "nes_shm.h"
+#include "Qt/nes_shm.h"
+#include "Qt/throttle.h"
 
 #include <cstdio>
 #include <cstring>
@@ -35,50 +36,146 @@ extern Config *g_config;
 
 static volatile int *s_Buffer = 0;
 static unsigned int s_BufferSize;
+static unsigned int s_BufferSize25;
+static unsigned int s_BufferSize50;
+static unsigned int s_BufferSize75;
 static unsigned int s_BufferRead;
 static unsigned int s_BufferWrite;
 static volatile unsigned int s_BufferIn;
+static unsigned int s_SampleRate = 44100;
+static double noiseGate = 0.0;
+static double noiseGateRate = 0.010;
+static bool   noiseGateActive = true;
+static bool   muteSoundOutput = false;
+static bool   fillInit = 1;
 
 static int s_mute = 0;
 
+extern int EmulationPaused;
+extern double frmRateAdjRatio;
+extern double g_fpsScale;
 
 /**
  * Callback from the SDL to get and play audio data.
  */
 static void
 fillaudio(void *udata,
-			uint8 *stream,
-			int len)
+		uint8 *stream,
+		int len)
 {
 	char bufStarveDetected = 0;
-   static int16_t sample = 0;
+	static int16_t sample = 0;
+	char mute;
+	//unsigned int starve_lp = nes_shm->sndBuf.starveCounter;
 	int16 *tmps = (int16*)stream;
 	len >>= 1;
-	while (len) 
-   {
-		//int16 sample = 0;
-		if (s_BufferIn) 
-      {
-			sample = s_Buffer[s_BufferRead];
-			s_BufferRead = (s_BufferRead + 1) % s_BufferSize;
-			s_BufferIn--;
-		} else {
-         // Retain last known sample value, helps avoid clicking
-         // noise when sound system is starved of audio data.
-			//sample = 0; 
-			bufStarveDetected = 1;
-         nes_shm->sndBuf.starveCounter++;
+
+	if ( s_BufferIn > s_BufferSize25 )
+	{
+		fillInit = 0;
+	}
+	// If emulation is paused:
+	// 1. preserve sound buffer as is
+	// 2. fade from last known sample to zero
+	// 3. activate noise gate to avoid popping when coming out of pause.
+	if ( EmulationPaused || fillInit )
+	{
+		while ( len )
+		{
+			if ( sample > 0 )
+			{
+				sample--;
+			}
+			else if ( sample < 0 )
+			{
+				sample++;
+			}
+			*tmps = sample;
+			tmps++;
+			len--;
 		}
+		noiseGate = 0.0;
+		noiseGateActive = 1;
+		return;
+	}
+	mute = EmulationPaused || muteSoundOutput;
 
-      nes_shm->push_sound_sample( sample );
+	if ( mute || noiseGateActive )
+	{
+		// This noise gate helps avoid abrupt snaps in audio
+		// when pausing emulation.
+		while (len) 
+		{
+			if (mute)
+			{
+				noiseGate -= noiseGateRate;
 
-		*tmps = sample;
-		tmps++;
-		len--;
+				if ( noiseGate < 0.0 )
+				{
+					noiseGate = 0.0;
+				}
+				noiseGateActive = 1;
+			}
+			else
+			{
+				if ( s_BufferIn )
+				{	
+					noiseGate += noiseGateRate;
+
+					if ( noiseGate > 1.0 )
+					{
+						noiseGate = 1.0;
+						noiseGateActive = 0;
+					}
+				}
+			}
+			if (s_BufferIn) 
+			{
+				sample = s_Buffer[s_BufferRead] * noiseGate;
+				s_BufferRead = (s_BufferRead + 1) % s_BufferSize;
+				s_BufferIn--;
+
+				*tmps = sample * noiseGate;
+			}
+			else
+			{
+         			// Retain last known sample value, helps avoid clicking
+         			// noise when sound system is starved of audio data.
+				*tmps = sample * noiseGate;
+			}
+
+			tmps++;
+			len--;
+		}
+	}
+	else
+	{
+		while (len) 
+		{
+			if (s_BufferIn) 
+			{
+				sample = s_Buffer[s_BufferRead];
+				s_BufferRead = (s_BufferRead + 1) % s_BufferSize;
+				s_BufferIn--;
+			} else {
+        	 		// Retain last known sample value, helps avoid clicking
+        	 		// noise when sound system is starved of audio data.
+				//sample = 0; 
+				bufStarveDetected = 1;
+				nes_shm->sndBuf.starveCounter++;
+			}
+
+			nes_shm->push_sound_sample( sample );
+
+			*tmps = sample;
+			tmps++;
+			len--;
+		}
 	}
 	if ( bufStarveDetected )
 	{
-      //printf("Starve:%u\n", nes_shm->sndBuf.starveCounter );
+		//s_StarveCounter = nes_shm->sndBuf.starveCounter - starve_lp;
+		//printf("Starve:%u\n", s_StarveCounter );
 	}
 }
 
@@ -91,6 +188,7 @@ InitSound()
 	int sound, soundrate, soundbufsize, soundvolume, soundtrianglevolume, soundsquare1volume, soundsquare2volume, soundnoisevolume, soundpcmvolume, soundq;
 	SDL_AudioSpec spec;
 	const char *driverName;
+	int frmRateSampleAdj = 0;
 
 	g_config->getOption("SDL.Sound", &sound);
 	if (!sound) 
@@ -117,10 +215,11 @@ InitSound()
 	g_config->getOption("SDL.Sound.NoiseVolume", &soundnoisevolume);
 	g_config->getOption("SDL.Sound.PCMVolume", &soundpcmvolume);
 
-	spec.freq = soundrate;
+	spec.freq = s_SampleRate = soundrate;
 	spec.format = AUDIO_S16SYS;
 	spec.channels = 1;
-	spec.samples = 512;
+	//spec.samples = 512;
+	spec.samples = (int)( ( (double)s_SampleRate / getBaseFrameRate() ) );
 	spec.callback = fillaudio;
 	spec.userdata = 0;
 
@@ -131,6 +230,16 @@ InitSound()
 	{
 		s_BufferSize = spec.samples * 2;
 	}
+	s_BufferSize25 =    s_BufferSize/4;
+	s_BufferSize50 =    s_BufferSize/2;
+	s_BufferSize75 = (3*s_BufferSize)/4;
+
+	//printf("Audio Buffer: %i  %i \n", spec.samples, s_BufferSize );
+
+	noiseGate = 0.0;
+	noiseGateRate = 1.0 / (double)spec.samples;
+	noiseGateActive = true;
+	fillInit = 1;
 
 	s_Buffer = (int *)FCEU_dmalloc(sizeof(int) * s_BufferSize);
 
@@ -145,7 +254,7 @@ InitSound()
 		puts(SDL_GetError());
 		KillSound();
 		return 0;
-   }
+	}
 	SDL_PauseAudio(0);
 
 	driverName = SDL_GetCurrentAudioDriver();
@@ -154,10 +263,14 @@ InitSound()
 	{
 		fprintf(stderr, "Loading SDL sound with %s driver...\n", driverName);
 	}
+ 
+	frmRateSampleAdj = (int)( ( ((double)soundrate) * getFrameRateAdjustmentRatio()) - ((double)soundrate) );
+	//frmRateSampleAdj = 0;
+	//printf("Sample Rate Adjustment: %+i\n", frmRateSampleAdj );
 
 	FCEUI_SetSoundVolume(soundvolume);
 	FCEUI_SetSoundQuality(soundq);
-	FCEUI_Sound(soundrate);
+	FCEUI_Sound(soundrate + frmRateSampleAdj);
 	FCEUI_SetTriangleVolume(soundtrianglevolume);
 	FCEUI_SetSquare1Volume(soundsquare1volume);
 	FCEUI_SetSquare2Volume(soundsquare2volume);
@@ -192,35 +305,161 @@ void
 WriteSound(int32 *buf,
            int Count)
 {
+
+	int uflowMode = 0;
+	int ovrFlowSkip = 1;
+	int udrFlowDup  = 1;
+	static int skipCounter = 0;
+
+	if ( NoWaiting & 0x01 )
+	{	// During Turbo mode, don't bother with sound as
+		// overflowing the audio buffer can cause delays.
+		return;
+	}
+
+	if ( g_fpsScale >= 0.99995 )
+	{
+		uflowMode = 0;
+		ovrFlowSkip = (int)(g_fpsScale * 1000);
+
+		if ( s_BufferIn >= s_BufferSize50 )
+		{
+			ovrFlowSkip += 1;
+		}
+	}
+	else
+	{
+		udrFlowDup = (int)(1.0 / g_fpsScale);
+
+		if ( udrFlowDup < 1 )
+		{
+			udrFlowDup = 1;
+		}
+		if ( s_BufferIn < s_BufferSize50 )
+		{
+			udrFlowDup++;
+		}
+		else if ( s_BufferIn > s_BufferSize75 )
+		{
+			udrFlowDup--;
+		}
+		uflowMode = (udrFlowDup > 1);
+	}
 	extern int EmulationPaused;
 	if (EmulationPaused == 0)
-   {
+	{
 		int waitCount = 0;
 
-		while(Count)
-		{
-			while(s_BufferIn == s_BufferSize) 
+		if ( uflowMode )
+		{	// Underflow mode
+			SDL_LockAudio();
+			while (Count)
 			{
-				SDL_Delay(1); waitCount++;
-
-				if ( waitCount > 1000 )
+				if ( s_BufferIn == s_BufferSize )
 				{
-					printf("Error: Sound sink is not draining... Breaking out of audio loop to prevent lockup.\n");
-					return;
+					SDL_UnlockAudio();
+					while (s_BufferIn == s_BufferSize) 
+					{
+						SDL_Delay(1); waitCount++;
+
+						if ( waitCount > 1000 )
+						{
+							printf("Error: Sound sink is not draining... Breaking out of audio loop to prevent lockup.\n");
+							return;
+						}
+					}
+					SDL_LockAudio();
 				}
+
+				for (int i=0; i<udrFlowDup; i++)
+				{
+					s_Buffer[s_BufferWrite] = *buf;
+					s_BufferWrite = (s_BufferWrite + 1) % s_BufferSize;
+            
+					s_BufferIn++;
+				}
+            
+				Count--;
+				buf++;
+			}
+			SDL_UnlockAudio();
+		}
+		else
+		{
+			if ( ovrFlowSkip <= 1000 )
+			{	// Perfect one to one realtime
+				skipCounter = 0;
+
+				SDL_LockAudio();
+				while (Count)
+				{
+					if (s_BufferIn == s_BufferSize) 
+					{
+						SDL_UnlockAudio();
+						while (s_BufferIn == s_BufferSize) 
+						{
+							SDL_Delay(1); waitCount++;
+
+							if ( waitCount > 1000 )
+							{
+								printf("Error: Sound sink is not draining... Breaking out of audio loop to prevent lockup.\n");
+								return;
+							}
+						}
+						SDL_LockAudio();
+					}
+
+					s_Buffer[s_BufferWrite] = *buf;
+					Count--;
+					s_BufferWrite = (s_BufferWrite + 1) % s_BufferSize;
+            
+					s_BufferIn++;
+					buf++;
+				}
+				SDL_UnlockAudio();
+			}
+			else
+			{	// Overflow mode
+				SDL_LockAudio();
+				while (Count)
+				{
+					if (s_BufferIn == s_BufferSize) 
+					{
+						SDL_UnlockAudio();
+						while (s_BufferIn == s_BufferSize) 
+						{
+							SDL_Delay(1); waitCount++;
+
+							if ( waitCount > 1000 )
+							{
+								printf("Error: Sound sink is not draining... Breaking out of audio loop to prevent lockup.\n");
+								return;
+							}
+						}
+						SDL_LockAudio();
+					}
+
+					//printf("%i >= %i \n", skipCounter, ovrFlowSkip );
+
+					if ( skipCounter >= ovrFlowSkip )
+					{
+						s_Buffer[s_BufferWrite] = *buf;
+						s_BufferWrite = (s_BufferWrite + 1) % s_BufferSize;
+            
+						s_BufferIn++;
+
+						skipCounter -= ovrFlowSkip;
+					}
+					skipCounter = (skipCounter+1000);
+            
+					Count--;
+					buf++;
+				}
+				SDL_UnlockAudio();
 			}
 
-			s_Buffer[s_BufferWrite] = *buf;
-			Count--;
-			s_BufferWrite = (s_BufferWrite + 1) % s_BufferSize;
-            
-			SDL_LockAudio();
-			s_BufferIn++;
-			SDL_UnlockAudio();
-            
-			buf++;
 		}
-   }
+	}
 }
 
 /**
@@ -302,4 +541,9 @@ FCEUD_SoundToggle(void)
 		FCEUI_SetSoundVolume(0);
 		FCEU_DispMessage("Sound mute on.",0);
 	}
+}
+
+void FCEUD_MuteSoundOutput( bool value )
+{
+	muteSoundOutput = value;
 }

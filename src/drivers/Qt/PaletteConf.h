@@ -19,36 +19,57 @@
 
 class PaletteConfDialog_t : public QDialog
 {
-   Q_OBJECT
+	Q_OBJECT
 
-	public:
-		PaletteConfDialog_t(QWidget *parent = 0);
-		~PaletteConfDialog_t(void);
+public:
+	PaletteConfDialog_t(QWidget *parent = 0);
+	~PaletteConfDialog_t(void);
 
-	protected:
-		void closeEvent(QCloseEvent *event);
+protected:
+	void closeEvent(QCloseEvent *event);
 
-		QLineEdit   *custom_palette_path;
-		QCheckBox   *useCustom;
-		QCheckBox   *GrayScale;
-		QCheckBox   *deemphSwap;
-		QCheckBox   *useNTSC;
-		QSlider     *tintSlider;
-		QSlider     *hueSlider;
-		QGroupBox   *tintFrame;
-		QGroupBox   *hueFrame;
-	private:
+	QLineEdit *custom_palette_path;
+	QCheckBox *useCustom;
+	QCheckBox *GrayScale;
+	QCheckBox *deemphSwap;
+	QPushButton *ntscReset;
+	QPushButton *palReset;
+	QSlider *tintSlider;
+	QSlider *hueSlider;
+	QSlider *notchSlider;
+	QSlider *saturationSlider;
+	QSlider *sharpnessSlider;
+	QSlider *contrastSlider;
+	QSlider *brightnessSlider;
+	QGroupBox *tintFrame;
+	QGroupBox *hueFrame;
+	QGroupBox *ntscFrame;
+	QGroupBox *palFrame;
+	QGroupBox *notchFrame;
+	QGroupBox *saturationFrame;
+	QGroupBox *sharpnessFrame;
+	QGroupBox *contrastFrame;
+	QGroupBox *brightnessFrame;
+	QTimer    *updateTimer;
 
-   public slots:
-      void closeWindow(void);
-	private slots:
-		void hueChanged(int value);
-		void tintChanged(int value);
-		void openPaletteFile(void);
-		void clearPalette(void);
-		void use_NTSC_Changed(int v);
-		void use_Custom_Changed(int v);
-		void force_GrayScale_Changed(int v);
-		void deemphswap_Changed(int v);
-
+private:
+public slots:
+	void closeWindow(void);
+private slots:
+	void updatePeriodic(void);
+	void hueChanged(int value);
+	void tintChanged(int value);
+	void openPaletteFile(void);
+	void clearPalette(void);
+	void ntscResetClicked(void);
+	void use_NTSC_Changed(bool v);
+	void use_Custom_Changed(int v);
+	void force_GrayScale_Changed(int v);
+	void deemphswap_Changed(int v);
+	void palResetClicked(void);
+	void palNotchChanged(int value);
+	void palSaturationChanged(int value);
+	void palSharpnessChanged(int value);
+	void palContrastChanged(int value);
+	void palBrightnessChanged(int value);
 };

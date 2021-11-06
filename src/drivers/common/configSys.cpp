@@ -3,7 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
+#ifndef WIN32
 #include <dirent.h>
+#endif
 
 #include "../../types.h"
 #include "configSys.h"
@@ -446,6 +449,23 @@ Config::getOption(const std::string &name,
 
 int
 Config::getOption(const std::string &name,
+                  bool *value) const
+{
+    std::map<std::string, int>::const_iterator opt_i;
+
+    // confirm that the option exists
+    opt_i = _intOptMap.find(name);
+    if(opt_i == _intOptMap.end()) {
+        return -1;
+    }
+
+    // get the option
+    (*value) = opt_i->second ? true : false;
+    return 0;
+}
+
+int
+Config::getOption(const std::string &name,
                   double *value) const
 {
     std::map<std::string, double>::const_iterator opt_i;
@@ -559,6 +579,7 @@ Config::parse(int argc,
         return error;
     }
 
+#ifndef WIN32
 	// try to read cfg.d/*
 	std::string cfgd_dir_name = _dir + "/" + "cfg.d/";
 	DIR *d;
@@ -576,7 +597,7 @@ Config::parse(int argc,
 						
 			// TODO  0 = good -1 = bad
 			std::string fname = cfgd_dir_name + dir->d_name;
-			printf("Loading auxilary configuration file at %s...\n", fname.c_str());
+			printf("Loading auxiliary configuration file at %s...\n", fname.c_str());
 			if (_loadFile(fname.c_str()) != 0)
 			{
 				printf("Failed to parse configuration at %s\n", fname.c_str());
@@ -585,7 +606,9 @@ Config::parse(int argc,
 
 		closedir(d);
 	}
-
+#else
+// FIXME TODO WIN32
+#endif
     // parse the arguments
     return _parseArgs(argc, argv);
 }
@@ -681,7 +704,7 @@ Config::_loadFile(const char* fname)
 
 		// close the file
 		config.close();
-	} catch(std::fstream::failure e) {
+	} catch(std::fstream::failure &e) {
 		std::cerr << e.what() << std::endl;
 		return -1;
 	}
@@ -737,7 +760,7 @@ Config::save()
 
 		// close the file
 		config.close();
-	} catch(std::fstream::failure e)
+	} catch(std::fstream::failure &e)
 	{
 		std::cerr << e.what() << std::endl;
 		return -1;

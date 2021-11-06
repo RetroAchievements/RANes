@@ -10,6 +10,7 @@
 #include "7zip/IArchive.h"
 #include "file.h"
 #include "utils/guid.h"
+#include "utils/xstring.h"
 
 #include "driver.h"
 #include "main.h"
@@ -18,6 +19,11 @@
 //it would be nonreadable because we wouldnt actually decompress the contents
 
 static FCEUARCHIVEFILEINFO *currFileSelectorContext;
+static RECT oldWindowRect;
+static RECT newWindowRect;
+// Minimum window size
+static const int MIN_WIDTH = 250;
+static const int MIN_HEIGHT = 150;
 
 DEFINE_GUID(CLSID_CFormat_07,0x23170F69,0x40C1,0x278A,0x10,0x00,0x00,0x01,0x10,0x07,0x00,0x00);
 
@@ -261,6 +267,37 @@ public:
 	}
 };
 
+// Callback for resizing child controls
+BOOL CALLBACK ArchiveEnumWindowsProc(HWND hwnd, LPARAM lParam)
+{
+	RECT crect;
+	HWND parent = GetParent(hwnd);
+	GetWindowRect(hwnd, &crect);					//Get rect of current child to be resized
+	ScreenToClient(parent, (LPPOINT)&crect);		//Convert rect coordinates to client area coordinates
+	ScreenToClient(parent, ((LPPOINT)&crect) + 1);
+
+	int plusWidth = (newWindowRect.right - newWindowRect.left) - (oldWindowRect.right - oldWindowRect.left);
+	int plusHeight = (newWindowRect.bottom - newWindowRect.top) - (oldWindowRect.bottom - oldWindowRect.top);
+
+	switch (GetDlgCtrlID(hwnd))
+	{
+	case IDC_LIST1:
+		// horizontal and vertical stretch
+		SetWindowPos(hwnd, 0, crect.left, crect.top, 
+			crect.right - crect.left + plusWidth, crect.bottom - crect.top + plusHeight,
+			SWP_NOZORDER);
+		break;
+	case IDOK:
+	case IDCANCEL:
+		// movement only
+		SetWindowPos(hwnd, 0, crect.left + plusWidth, crect.top + plusHeight,
+			crect.right - crect.left, crect.bottom - crect.top,
+			SWP_NOZORDER);
+		break;
+	}
+
+	return TRUE;
+}
 
 class LibRef
 {
@@ -287,6 +324,7 @@ static INT_PTR CALLBACK ArchiveFileSelectorCallback(HWND hwndDlg, UINT uMsg, WPA
 				std::string& name = (*currFileSelectorContext)[i].name;
 				SendMessage(hwndListbox, LB_ADDSTRING, 0, (LPARAM)name.c_str());
 			}
+			GetWindowRect(hwndDlg, &oldWindowRect);
 		}
 		break;
 
@@ -309,6 +347,32 @@ static INT_PTR CALLBACK ArchiveFileSelectorCallback(HWND hwndDlg, UINT uMsg, WPA
 				return TRUE;
 		}
 		break;
+	case WM_SIZE:
+		{
+			GetWindowRect(hwndDlg, &newWindowRect);	// Get new size
+			// Limit window size
+			bool fixSize = false;
+			if (newWindowRect.right - newWindowRect.left < MIN_WIDTH)
+			{
+				newWindowRect.right = newWindowRect.left + MIN_WIDTH;
+				fixSize = true;
+			}
+			if (newWindowRect.bottom - newWindowRect.top < MIN_HEIGHT)
+			{
+				newWindowRect.bottom = newWindowRect.top + MIN_HEIGHT;
+				fixSize = true;
+			}
+			if (fixSize)
+			{
+				SetWindowPos(hwndDlg, 0, newWindowRect.left, newWindowRect.top,
+					newWindowRect.right - newWindowRect.left, newWindowRect.bottom - newWindowRect.top, 0);
+			}
+			// Initiate callback for resizing child controls
+			EnumChildWindows(hwndDlg, ArchiveEnumWindowsProc, 0);
+			InvalidateRect(hwndDlg, 0, TRUE);
+			UpdateWindow(hwndDlg);
+			oldWindowRect = newWindowRect; // Store for future calculations
+		}
 	}
 	return FALSE;
 }
@@ -324,7 +388,13 @@ struct FormatRecord
 typedef std::vector<FormatRecord> TFormatRecords;
 TFormatRecords formatRecords;
 static bool archiveSystemInitialized=false;
-static LibRef libref("7z.dll");
+
+#ifdef WIN64
+#define _7Z_DLL "7z_64.dll"
+#else
+#define _7Z_DLL "7z.dll"
+#endif
+static LibRef libref(_7Z_DLL);
 
 void initArchiveSystem()
 {
@@ -365,6 +435,18 @@ void initArchiveSystem()
 		for(int j=0;j<len;j++)
 			fr.signature.push_back(((char*)prop.bstrVal)[j]);
 
+		//for some reason 7z dropped the signature for zip at some point
+		//it was working perfectly fine before...
+		GetHandlerProperty2(i,NArchive::kExtension,&prop);
+		if(!wcscmp((wchar_t*)prop.bstrVal,L"zip z01 zipx jar xpi odt ods docx xlsx epub ipa apk appx"))
+		{
+			if(fr.signature.size() == 0)
+			{
+				fr.signature.push_back('P');
+				fr.signature.push_back('K');
+			}
+		}
+
 		GetHandlerProperty2(i,NArchive::kClassID,&prop);
 		memcpy((char*)&fr.guid,(char*)prop.bstrVal,16);
 
@@ -398,7 +480,14 @@ ArchiveScanRecord FCEUD_ScanArchive(std::string fname)
 {
 	if(!archiveSystemInitialized)
 	{
-		return ArchiveScanRecord();
+		std::string fext = getExtension(fname.c_str());
+		if ((fext == "zip") || (fext == "7z") || (fext == "rar"))
+		{
+			MessageBox(hAppWnd, "Could not locate " _7Z_DLL, "Failure reading archive file", 0);
+			ArchiveScanRecord error = ArchiveScanRecord();
+			error.numFilesInArchive = -1;
+			return error;
+		}
 	}
 
 	//check the file against the signatures
@@ -495,7 +584,7 @@ static FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, s
 	FCEUFILE* fp = 0;
 	
 	if(!archiveSystemInitialized) {
-		MessageBox(hAppWnd,"Could not locate 7z.dll","Failure launching archive browser",0);
+		MessageBox(hAppWnd,"Could not locate " _7Z_DLL, "Failure launching archive browser", 0);
 		return 0;
 	}
 
@@ -503,7 +592,7 @@ static FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, s
 	CreateObjectFunc CreateObject = (CreateObjectFunc)GetProcAddress(libref.hmod,"CreateObject");
 	if(!CreateObject)
 	{
-		MessageBox(hAppWnd,"7z.dll was invalid","Failure launching archive browser",0);
+		MessageBox(hAppWnd, _7Z_DLL " was invalid","Failure launching archive browser",0);
 		return 0;
 	}
 

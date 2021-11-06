@@ -539,7 +539,11 @@ void DoFCEUExit()
 			}
 		}
 
+		exiting = 1;
+
 		KillDebugger(); //mbg merge 7/19/06 added
+		ResetWatches();
+		KillMemView(); 
 
 		FCEUI_StopMovie();
 		FCEUD_AviStop();
@@ -547,7 +551,6 @@ void DoFCEUExit()
 		FCEU_LuaStop(); // kill lua script before the gui dies
 #endif
 
-		exiting = 1;
 		closeGame = true;//mbg 6/30/06 - for housekeeping purposes we need to exit after the emulation cycle finishes
 		// remember the ROM name
 		extern char LoadedRomFName[2048];
@@ -835,17 +838,18 @@ int main(int argc,char *argv[])
 
 	CreateMainWindow();
 
-	if(!InitDInput())
+	if (!InitDInput())
 	{
 		do_exit();
 		return 1;
 	}
 
-	if(!DriverInitialize())
+	if (!DriverInitialize())
 	{
 		do_exit();
 		return 1;
 	}
+	UpdateMenuHotkeys(FCEUMENU_MAIN);
 
 	debugSystem = new DebugSystem();
 	debugSystem->init();
@@ -1187,7 +1191,7 @@ void FCEUD_ToggleStatusIcon(void)
 	UpdateCheckedMenuItems();
 }
 
-char *GetRomName(bool force)
+std::string GetRomName(bool force)
 {
 	//The purpose of this function is to format the ROM name stored in LoadedRomFName
 	//And return a char array with just the name with path or extension
@@ -1195,20 +1199,18 @@ char *GetRomName(bool force)
 	extern char LoadedRomFName[2048];	//Contains full path of ROM
 	std::string Rom;					//Will contain the formatted path
 	if(GameInfo || force)						//If ROM is loaded
-		{
+	{
 		char drv[PATH_MAX], dir[PATH_MAX], name[PATH_MAX], ext[PATH_MAX];
 		splitpath(LoadedRomFName,drv,dir,name,ext);	//Extract components of the ROM path
 		Rom = name;						//Pull out the Name only
-		}
+	}
 	else
 		Rom = "";
-	char*mystring = (char*)malloc(2048*sizeof(char));
-	strcpy(mystring, Rom.c_str());		//Convert string to char*
 
-	return mystring;
+	return Rom;
 }
 
-char *GetRomPath(bool force)
+std::string GetRomPath(bool force)
 {
 	//The purpose of this function is to format the ROM name stored in LoadedRomFName
 	//And return a char array with just the name with path or extension
@@ -1216,16 +1218,13 @@ char *GetRomPath(bool force)
 	extern char LoadedRomFName[2048];	//Contains full path of ROM
 	std::string Rom;					//Will contain the formatted path
 	if(GameInfo || force)						//If ROM is loaded
-		{
+	{
 		char drv[PATH_MAX], dir[PATH_MAX], name[PATH_MAX], ext[PATH_MAX];
 		splitpath(LoadedRomFName,drv,dir,name,ext);	//Extract components of the ROM path
 		Rom = drv;						//Pull out the Path only
 		Rom.append(dir);
-		}
+	}
 	else
 		Rom = "";
-	char*mystring = (char*)malloc(2048*sizeof(char));
-	strcpy(mystring, Rom.c_str());		//Convert string to char*
-
-	return mystring;
+	return Rom;
 }
