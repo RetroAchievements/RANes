@@ -1099,7 +1099,7 @@
     <ClCompile Include="..\src\retroachievements.cpp">
       <Filter>retroachievements</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\RAInterface\RA_Interface.cpp">
+    <ClCompile Include="..\RAInterface\RA_Interface.cpp">
       <Filter>retroachievements</Filter>
     </ClCompile>
     <ClCompile Include="..\src\drivers\win\header_editor.cpp">

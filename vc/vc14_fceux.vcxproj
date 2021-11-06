@@ -1124,7 +1124,7 @@ $(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h R
     <ClCompile Include="..\src\retroachievements.cpp">
       <ExcludedFromBuild Condition="!$(Configuration.StartsWith('RA-'))">true</ExcludedFromBuild>
     </ClCompile>
-    <ClCompile Include="..\..\RAInterface\RA_Interface.cpp">
+    <ClCompile Include="..\RAInterface\RA_Interface.cpp">
       <ExcludedFromBuild Condition="!$(Configuration.StartsWith('RA-'))">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\src\utils\ConvertUTF.c" />
