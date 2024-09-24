@@ -149,7 +149,7 @@ std::string consoleWin_t::findHelpFile(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	QFileDialog  dialog(this, tr("Open Help File") );
 	QList<QUrl> urls;
 	//QDir d;
@@ -177,7 +177,7 @@ std::string consoleWin_t::findHelpFile(void)
 	{
 		getDirFromFile( last.c_str(), dir );
 
-		dialog.setDirectory( tr(dir) );
+		dialog.setDirectory( tr(dir.c_str()) );
 	}
 	else
 	{

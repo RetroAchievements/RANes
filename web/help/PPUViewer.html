@@ -7,7 +7,7 @@
 
   <meta charset="utf-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <meta name="generator" content="HelpNDoc Personal Edition 7.3.0.348">
+  <meta name="generator" content="HelpNDoc Personal Edition 7.9.1.631">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="favicon.ico"/>
 
@@ -51,6 +51,7 @@
   <link href="css/theme-light-blue.min.css" rel="stylesheet" />
   <link href="css/print.min.css" rel="stylesheet" media="print" />
   <style type="text/css">nav { width: 250px} @media screen and (min-width:769px) { body.md-nav-expanded div#main { margin-left: 250px} body.md-nav-expanded header { padding-left: 264px} }</style>
+  <style type="text/css">.navigation #inline-toc { width: auto !important}</style>
 
   <!-- Content style -->
   <link href="css/hnd.content.css" rel="stylesheet" />
@@ -189,7 +190,7 @@
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts17">Introduction</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
-<p class="rvps2"><span class="rvts6">The NES architecture includes a 6502 CPU as well as a custom video controller known as a PPU (Picture Processing Unit). &nbsp;The PPU's video memory is separated from the main CPU memory and can be read/written via special ports (see </span><a class="rvts78" href="PPU.html">PPU Memory</a><span class="rvts6">).</span></p>
+<p class="rvps2"><span class="rvts6">The NES architecture includes a 6502 CPU as well as a custom video controller known as a PPU (Picture Processing Unit). &nbsp;The PPU's video memory is separated from the main CPU memory and can be read/written via special ports (see </span><a class="rvts81" href="PPU.html">PPU Memory</a><span class="rvts6">).</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts6">The PPU viewer will only display the contents of the current PPU memory. It does not alter game data in any way.</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
@@ -202,7 +203,7 @@
 <p class="rvps2"><span class="rvts6">Right clicking on one of the PPU panels will change the palette it is shown with, cycling though pattern palettes, then sprite ones, then a ninth fixed grey palette (useful for inspecting CHR if all the palettes are currently black).</span></p>
 <p class="rvps2"><span class="rvts6">Putting the mouse cursor over a tile will display the tile address. Moving cursor over palette color will give palette address.</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
-<p class="rvps2"><span class="rvts6">When </span><a class="rvts78" href="CodeDataLogger.html">Code/Data Logger</a><span class="rvts6"> is running, you can also use the "Mask unused graphics" feature. Alternatively, you can only mask tiles that were used (drawn or otherwise accessed) and emphasize the tiles that weren't used (e.g. in order to find secret sprites).</span></p>
+<p class="rvps2"><span class="rvts6">When </span><a class="rvts81" href="CodeDataLogger.html">Code/Data Logger</a><span class="rvts6"> is running, you can also use the "Mask unused graphics" feature. Alternatively, you can only mask tiles that were used (drawn or otherwise accessed) and emphasize the tiles that weren't used (e.g. in order to find secret sprites).</span></p>
 <p class="rvps2"><span class="rvts6">Note: this feature only works with games that use CHR ROM, because Code/Data Logger only logs accesses to CHR ROM.</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
@@ -269,7 +270,9 @@
   <script>
     $(function() {
       // Create the app
-      var app = new Hnd.App();
+      var app = new Hnd.App({
+        searchEngineMinChars: 3
+      });
       // Update translations
       hnd_ut(app);
 	  // Instanciate imageMapResizer

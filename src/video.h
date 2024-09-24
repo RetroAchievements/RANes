@@ -7,12 +7,23 @@ int SaveSnapshot(char[]);
 void ResetScreenshotsCounter();
 uint32 GetScreenPixel(int x, int y, bool usebackup);
 int GetScreenPixelPalette(int x, int y, bool usebackup);
+
+//in case we need more flags in the future we can change the size here
+//bit0 : monochrome bit
+//bit5 : emph red
+//bit6 : emph green
+//bit7 : emph blue
+typedef uint8 xfbuf_t;
+
 extern uint8 *XBuf;
 extern uint8 *XBackBuf;
 extern uint8 *XDBuf;
 extern uint8 *XDBackBuf;
+extern xfbuf_t *XFBuf;
+
 extern int ClipSidesOffset;
-extern struct GUIMESSAGE
+
+struct GUIMESSAGE
 {
 	//countdown for gui messages
 	int howlong;
@@ -26,9 +37,20 @@ extern struct GUIMESSAGE
 	//in case of multiple lines, allow one to move the message
 	int linesFromBottom;
 
-} guiMessage;
+	// constructor
+	GUIMESSAGE(void)
+	{
+		howlong = 0;
+		linesFromBottom = 0;
+		isMovieMessage = false;
+		errmsg[0] = 0;
+	}
+};
 
+extern GUIMESSAGE guiMessage;
 extern GUIMESSAGE subtitleMessage;
+
+extern bool vidGuiMsgEna;
 
 void FCEU_DrawNumberRow(uint8 *XBuf, int *nstatus, int cur);
 

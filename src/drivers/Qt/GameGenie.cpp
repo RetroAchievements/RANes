@@ -42,6 +42,7 @@
 #include "Qt/config.h"
 #include "Qt/keyscan.h"
 #include "Qt/fceuWrapper.h"
+#include "Qt/CheatsConf.h"
 #include "Qt/HexEditor.h"
 #include "Qt/GameGenie.h"
 
@@ -243,7 +244,7 @@ GameGenieDialog_t::~GameGenieDialog_t(void)
 //----------------------------------------------------------------------------
 void GameGenieDialog_t::closeEvent(QCloseEvent *event)
 {
-	printf("Game Genie Close Window Event\n");
+	//printf("Game Genie Close Window Event\n");
 	done(0);
 	deleteLater();
 	event->accept();
@@ -276,9 +277,10 @@ void GameGenieDialog_t::addCheatClicked(void)
 		c = strtol( cmp->text().toStdString().c_str(), NULL, 16 );
 	}
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_AddCheat( name.c_str(), a, v, c, 1 );
-	fceuWrapperUnLock();
+	updateCheatDialog();
+	FCEU_WRAPPER_UNLOCK();
 
 }
 //----------------------------------------------------------------------------
@@ -433,7 +435,6 @@ void EncodeGG(char *str, int a, int v, int c)
 //----------------------------------------------------------------------------
 void GameGenieDialog_t::ListGGAddresses(void)
 {
-	int i; //mbg merge 7/18/06 changed from int
 	int a = -1; int v = -1; int c = -1;
 	QTreeWidgetItem *item;
 	char str[32];
@@ -460,7 +461,7 @@ void GameGenieDialog_t::ListGGAddresses(void)
 
 	if (a != -1 && v != -1)
 	{
-		for (i = 0; i < PRGsize[0]; i += 0x2000)
+		for (unsigned int i = 0; i < PRGsize[0]; i += 0x2000)
 		{
 			if (c == -1 || PRGptr[0][i + (a & 0x1FFF)] == c)
 			{

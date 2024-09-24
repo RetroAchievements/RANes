@@ -21,10 +21,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 
 #include <QWindow>
 #include <QScreen>
 #include <QToolTip>
+#include <QFileInfo>
 #include <QApplication>
 
 #if WIN32
@@ -46,32 +48,27 @@
 #include "Qt/fceuWrapper.h"
 #include "Qt/ConsoleUtilities.h"
 
+static std::string fceuExecPath;
 //---------------------------------------------------------------------------
-int  getDirFromFile( const char *path, char *dir )
+int  getDirFromFile( const char *path, std::string &dir )
 {
-	int i, lastSlash = -1, lastPeriod = -1;
+	dir.clear();
 
-	i=0; 
-	while ( path[i] != 0 )
+	if (path[0] != 0)
 	{
-		if ( path[i] == '/' )
-		{
-			lastSlash = i;
-		}
-		else if ( path[i] == '.' )
-		{
-			lastPeriod = i;
-		}
-		dir[i] = path[i]; i++;
-	}
-	dir[i] = 0;
+		QFileInfo fi;
 
-	if ( lastPeriod >= 0 )
-	{
-		if ( lastPeriod > lastSlash )
+		fi.setFile( QString(path) );
+
+		if (fi.exists())
 		{
-			dir[lastSlash] = 0;
+			dir = fi.canonicalPath().toStdString();
 		}
+		else
+		{
+			dir = fi.absolutePath().toStdString();
+		}
+		//printf("Dir: '%s'\n", dir.c_str());
 	}
 
 	return 0;
@@ -79,7 +76,7 @@ int  getDirFromFile( const char *path, char *dir )
 //---------------------------------------------------------------------------
 const char *getRomFile( void )
 {
-	static char filePath[2048];
+	static std::string filePath;
 
 	if ( GameInfo )
 	{
@@ -88,32 +85,32 @@ const char *getRomFile( void )
 
 		if ( GameInfo->archiveFilename != NULL )
 		{
-			char dir[1024], base[512], suffix[64];
+			std::string dir, base, suffix;
 
-			parseFilepath( GameInfo->archiveFilename, dir, base, suffix );
+			parseFilepath( GameInfo->archiveFilename, &dir, &base, &suffix );
 
-			filePath[0] = 0;
+			filePath.clear();
 
-			if ( dir[0] != 0 )
+			if ( dir.size() != 0 )
 			{
-				strcat( filePath, dir );
+				filePath.append( dir );
 			}
 
-			parseFilepath( GameInfo->filename, dir, base, suffix );
+			parseFilepath( GameInfo->filename, &dir, &base, &suffix );
 
-			strcat( filePath, base   );
-			strcat( filePath, suffix );
+			filePath.append( base   );
+			filePath.append( suffix );
 
-			//printf("ArchivePath: '%s' \n", filePath );
+			//printf("ArchivePath: '%s' \n", filePath.c_str() );
 
-			return filePath;
+			return filePath.c_str();
 		}
 		else
 		{
 			return GameInfo->filename;
 		}
 	}
-	return NULL;
+	return nullptr;
 }
 //---------------------------------------------------------------------------
 // Return file base name stripping out preceding path and trailing suffix.
@@ -163,19 +160,25 @@ int getFileBaseName( const char *filepath, char *base, char *suffix )
 	return end;
 }
 //---------------------------------------------------------------------------
-int parseFilepath( const char *filepath, char *dir, char *base, char *suffix )
+int parseFilepath( const char *filepath, std::string *dir, std::string *base, std::string *suffix )
 {
-	int i=0,j=0,end=0;
-
-	if ( suffix != NULL )
+	if (dir)
 	{
-		suffix[0] = 0;
+		dir->clear();
 	}
+	if (base)
+	{
+		base->clear();
+	}
+	if (suffix)
+	{
+		suffix->clear();
+	}
+
+	size_t i=0,j=0;
+
 	if ( filepath == NULL )
 	{
-		if ( dir   ) dir[0] = 0;
-		if ( base  ) base[0] = 0;
-		if ( suffix) suffix[0] = 0;
 		return 0;
 	}
 	i=0; j=0;
@@ -187,57 +190,55 @@ int parseFilepath( const char *filepath, char *dir, char *base, char *suffix )
 		}
 		if ( dir )
 		{
-			dir[i] = filepath[i];
+			dir->push_back(filepath[i]);
 		}
 		i++;
 	}
-	if ( dir )
+	if (dir)
 	{
-		dir[j] = 0;
+		if (j > 0)
+		{
+			dir->erase(j);
+		}
 	}
 	i = j;
 
-	if ( base == NULL )
-	{
-		return end;
-	}
-
-	j=0;
 	while ( filepath[i] != 0 )
 	{
-		base[j] = filepath[i]; i++; j++;
-	}
-	base[j] = 0; end=j;
-
-	if ( suffix )
-	{
-		suffix[0] = 0;
-	}
-
-	while ( j > 1 )
-	{
-		j--;
-		if ( base[j] == '.' )
+		if (filepath[i] == '.')
 		{
-			if ( suffix )
+			j = i;
+		}
+		if (base)
+		{
+			base->push_back(filepath[i]);
+		}
+		i++;
+	}
+
+	if (filepath[j] == '.')
+	{
+		if ( suffix )
+		{
+			suffix->assign( &filepath[j] );
+		}
+		if (base)
+		{
+			i = base->find_last_of('.');
+
+			if ( i != std::string::npos )
 			{
-				strcpy( suffix, &base[j] );
+				base->erase(i);
 			}
-			end=j; base[j] = 0; 
-			break;
 		}
 	}
-	return end;
+	return 0;
 }
 //---------------------------------------------------------------------------
 //  Returns the path of fceux.exe as a string.
-int fceuExecutablePath( char *outputPath, int outputSize )
+static int _fceuExecutablePath( std::string &outputPath )
 {
-	if ( (outputPath == NULL) || (outputSize <= 0) )
-	{
-		return -1;
-	}
-	outputPath[0] = 0;
+	outputPath.clear();
 
 #ifdef WIN32
 	char fullPath[2048];
@@ -248,8 +249,7 @@ int fceuExecutablePath( char *outputPath, int outputSize )
 	GetModuleFileNameA(NULL, fullPath, 2048);
 	_splitpath(fullPath, driveLetter, directory, NULL, NULL);
 	snprintf(finalPath, sizeof(finalPath), "%s%s", driveLetter, directory);
-	strncpy( outputPath, finalPath, outputSize );
-	outputPath[outputSize-1] = 0;
+	outputPath.assign( finalPath );
 
 	return 0;
 #elif __linux__ || __unix__
@@ -267,8 +267,7 @@ int fceuExecutablePath( char *outputPath, int outputSize )
 		if ( dir )
 		{
 			//printf("DIR Path: '%s' \n", dir );
-			strncpy( outputPath, dir, outputSize );
-			outputPath[outputSize-1] = 0;
+			outputPath.assign( dir );
 			return 0;
 		}
 	}
@@ -288,13 +287,21 @@ int fceuExecutablePath( char *outputPath, int outputSize )
 		if ( dir )
 		{
 			//printf("DIR Path: '%s' \n", dir );
-			strncpy( outputPath, dir, outputSize );
-			outputPath[outputSize-1] = 0;
+			outputPath.assign( dir );
 			return 0;
 		}
 	}
 #endif
 	return -1;
+}
+//---------------------------------------------------------------------------
+const char *fceuExecutablePath(void)
+{
+	if (fceuExecPath.size() == 0)
+	{
+		_fceuExecutablePath( fceuExecPath );
+	}
+	return fceuExecPath.c_str();
 }
 //---------------------------------------------------------------------------
 int fceuLoadConfigColor( const char *confName, QColor *color )
@@ -312,7 +319,7 @@ int fceuLoadConfigColor( const char *confName, QColor *color )
 //---------------------------------------------------------------------------
 // FCEU Custom Tool Tip Helper Functions
 //---------------------------------------------------------------------------
-QDialog *fceuCustomToolTipShow( QHelpEvent *helpEvent, QDialog *popup )
+QDialog *fceuCustomToolTipShow( const QPoint &globalPos, QDialog *popup )
 {
 	int xo = 32, yo = 32;
 	QPoint pos;
@@ -332,19 +339,19 @@ QDialog *fceuCustomToolTipShow( QHelpEvent *helpEvent, QDialog *popup )
 
 	popup->show();
 
-	pos.setX( helpEvent->globalPos().x() + xo );
-	pos.setY( helpEvent->globalPos().y() + yo );
+	pos.setX( globalPos.x() + xo );
+	pos.setY( globalPos.y() + yo );
 
 	if ( scr )
 	{
 
 		if ( ( (pos.x() + popup->width()) > scr->virtualSize().width() ) )
 		{
-			pos.setX( helpEvent->globalPos().x() - popup->width() - xo );
+			pos.setX( globalPos.x() - popup->width() - xo );
 		}
 		if ( ( (pos.y() + popup->height()) > scr->virtualSize().height() ) )
 		{
-			pos.setY( helpEvent->globalPos().y() - popup->height() - yo );
+			pos.setY( globalPos.y() - popup->height() - yo );
 		}
 		popup->move( pos );
 	}
@@ -492,7 +499,11 @@ void fceuCustomToolTip::mouseMoveEvent(QMouseEvent *event)
 
 	if (!w->rect().isNull()) 
 	{
+#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+		QPoint pos = event->globalPosition().toPoint();
+#else
 		QPoint pos = event->globalPos();
+#endif
 		pos = mapFromGlobal(pos);
 
 		//printf("QEvent::MouseMove:  (%i,%i)   (%i,%i)\n", 

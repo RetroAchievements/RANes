@@ -32,6 +32,7 @@
 #include <vfw.h>
 #endif
 
+#include <QFile>
 #include <QDate>
 #include <QLocale>
 #include <QSysInfo>
@@ -756,6 +757,7 @@ struct OutputStream
 	AVCodecContext *enc;
 	AVFrame *frame;
 	AVFrame *tmp_frame;
+	AVPacket *pkt;
 	struct SwsContext *sws_ctx;
 	struct SwrContext *swr_ctx;
 	int64_t next_pts;
@@ -774,6 +776,7 @@ struct OutputStream
 		st  = NULL;
 		enc = NULL;
 		frame = tmp_frame = NULL;
+		pkt = NULL;
 		sws_ctx = NULL;
 		swr_ctx = NULL;
 		bytesPerSample = 0;
@@ -799,6 +802,10 @@ struct OutputStream
 		if ( enc != NULL )
 		{
 			avcodec_free_context(&enc); enc = NULL;
+		}
+		if ( pkt != NULL )
+		{
+			av_packet_free(&pkt); pkt = NULL;
 		}
 		if ( frame != NULL )
 		{
@@ -834,6 +841,8 @@ static void log_callback( void *avcl, int level, const char *fmt, va_list vl)
 		va_copy( vl2, vl );
 
 		vfprintf( avLogFp, fmt, vl2 );
+
+		va_end(vl2);
 	}
 
 	av_log_default_callback( avcl, level, fmt, vl );
@@ -844,14 +853,16 @@ static void log_callback( void *avcl, int level, const char *fmt, va_list vl)
 int loadCodecConfig( int type, const char *codec_name, AVCodecContext *ctx)
 {
 	int i,j;
-	char filename[512];
+	char filename[4096];
 	char line[512];
 	char section[256], id[256], val[256];
 	void *obj, *child;
 	FILE *fp;
 	const char *baseDir = FCEUI_GetBaseDirectory();
 
-	sprintf( filename, "%s/avi/%s.conf", baseDir, codec_name );
+	snprintf( filename, sizeof(filename), "%s/avi/%s.conf", baseDir, codec_name );
+
+	filename[sizeof(filename)-1] = 0;
 
 	fp = fopen( filename, "r");
 
@@ -982,12 +993,14 @@ int saveCodecConfig( int type, const char *codec_name, AVCodecContext *ctx)
 	void *obj, *child = NULL;
 	FILE *fp;
 	uint8_t *str;
-	char filename[512];
+	char filename[4096];
 	const AVOption *opt;
 	bool useOpt;
 	const char *baseDir = FCEUI_GetBaseDirectory();
 
-	sprintf( filename, "%s/avi/%s.conf", baseDir, codec_name );
+	snprintf( filename, sizeof(filename), "%s/avi/%s.conf", baseDir, codec_name );
+
+	filename[sizeof(filename)-1] = 0;
 
 	fp = fopen( filename, "w");
 
@@ -1223,6 +1236,14 @@ static int initVideoStream( const char *codec_name, OutputStream *ost )
 		return -1;
 	}
 
+	/* packet for holding encoded output */
+	ost->pkt = av_packet_alloc();
+	if (ost->pkt == NULL)
+	{
+	    fprintf( avLogFp, "Could not allocate the video packet\n");
+	    return -1;
+	}
+
 	/* Allocate the encoded raw picture. */
 	ost->frame = alloc_picture(c->pix_fmt, c->width, c->height);
 
@@ -1268,9 +1289,8 @@ static int initVideoStream( const char *codec_name, OutputStream *ost )
 	return 0;
 }
 
-static AVFrame *alloc_audio_frame(enum AVSampleFormat sample_fmt,
-                                  uint64_t channel_layout,
-                                  int sample_rate, int nb_samples)
+static AVFrame *alloc_audio_frame(const AVCodecContext *c,
+                                  int nb_samples)
 {
 	AVFrame *frame = av_frame_alloc();
 	int ret;
@@ -1279,9 +1299,13 @@ static AVFrame *alloc_audio_frame(enum AVSampleFormat sample_fmt,
 		fprintf(stderr, "Error allocating an audio frame\n");
 		return NULL;
 	}
-	frame->format = sample_fmt;
-	frame->channel_layout = channel_layout;
-	frame->sample_rate = sample_rate;
+	frame->format = c->sample_fmt;
+	#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(57, 28, 100)
+	frame->channel_layout = c->channel_layout;
+	#else
+	av_channel_layout_copy(&frame->ch_layout, &c->ch_layout);
+	#endif
+	frame->sample_rate = c->sample_rate;
 	frame->nb_samples = nb_samples;
 
 	if (nb_samples)
@@ -1295,6 +1319,48 @@ static AVFrame *alloc_audio_frame(enum AVSampleFormat sample_fmt,
 	}
 	return frame;
 }
+
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 28, 100)
+static int select_audio_channel_layout(const OutputStream *ost, const AVCodec *codec, AVChannelLayout *dst)
+{
+	int best_nb_channels = 0;
+	const AVChannelLayout *p, *best_ch_layout;
+	#if __cplusplus >= 202002L
+	const AVChannelLayout defaultLayout = AV_CHANNEL_LAYOUT_MONO;
+	#else
+	AVChannelLayout defaultLayout;
+	av_channel_layout_from_mask( &defaultLayout, AV_CH_LAYOUT_MONO );
+	#endif
+
+	if (!codec->ch_layouts)
+	{
+		return av_channel_layout_copy(dst, &defaultLayout);
+	}
+
+	best_ch_layout = p = codec->ch_layouts;
+	while (p && p->nb_channels)
+	{
+		int nb_channels = p->nb_channels;
+
+		if ( ost->chanLayout > 0 )
+		{
+			if (ost->chanLayout == p->u.mask)
+			{
+				best_ch_layout   = p;
+				best_nb_channels = nb_channels;
+				break;
+			}
+		}
+		if (nb_channels > best_nb_channels)
+		{
+			best_ch_layout   = p;
+			best_nb_channels = nb_channels;
+		}
+		p++;
+	}
+	return av_channel_layout_copy(dst, best_ch_layout);
+}
+#endif
 
 static int initAudioStream( const char *codec_name, OutputStream *ost )
 {
@@ -1389,6 +1455,7 @@ static int initAudioStream( const char *codec_name, OutputStream *ost )
 	}
 
 	// Channel Layout Selection
+#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(57, 28, 100)
 	if ( ost->chanLayout > 0 )
 	{
 		c->channel_layout = ost->chanLayout;
@@ -1415,6 +1482,13 @@ static int initAudioStream( const char *codec_name, OutputStream *ost )
 		c->channel_layout = codec->channel_layouts       ? codec->channel_layouts[0]       : AV_CH_LAYOUT_STEREO;
 	}
 	c->channels       = av_get_channel_layout_nb_channels(c->channel_layout);
+#else
+	if (select_audio_channel_layout( ost, codec, &c->ch_layout) )
+	{
+		fprintf( avLogFp, "Error selecting the audio channel layout\n");
+		return -1;
+	}
+#endif
 	c->bit_rate       = 64000;
 	//ost->st->time_base = (AVRational){ 1, c->sample_rate };
 	ost->st->time_base.num = 1;
@@ -1437,10 +1511,24 @@ static int initAudioStream( const char *codec_name, OutputStream *ost )
 	}
 	av_opt_set_sample_fmt(ost->swr_ctx, "in_sample_fmt",      AV_SAMPLE_FMT_S16,   0);
 	av_opt_set_int(ost->swr_ctx, "in_sample_rate",     audioSampleRate,     0);
+#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(57, 28, 100)
 	av_opt_set_int(ost->swr_ctx, "in_channel_layout",  AV_CH_LAYOUT_MONO,   0);
+#else
+	#if __cplusplus >= 202002L
+	AVChannelLayout src_ch_layout = AV_CHANNEL_LAYOUT_MONO;
+	#else
+	AVChannelLayout src_ch_layout;
+	av_channel_layout_from_mask( &src_ch_layout, AV_CH_LAYOUT_MONO );
+	#endif
+	av_opt_set_chlayout(ost->swr_ctx, "in_chlayout", &src_ch_layout, 0);
+#endif
 	av_opt_set_sample_fmt(ost->swr_ctx, "out_sample_fmt",     c->sample_fmt,       0);
 	av_opt_set_int(ost->swr_ctx, "out_sample_rate",    c->sample_rate,      0);
+#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(57, 28, 100)
 	av_opt_set_int(ost->swr_ctx, "out_channel_layout", c->channel_layout,   0);
+#else
+	av_opt_set_chlayout(ost->swr_ctx, "out_chlayout", &c->ch_layout, 0);
+#endif
 
 	ret = swr_init(ost->swr_ctx);
 	if (ret < 0)
@@ -1454,6 +1542,14 @@ static int initAudioStream( const char *codec_name, OutputStream *ost )
 	{
 		fprintf( avLogFp, "Error: Could not open codec: %s\n", codec_name);
 		return -1;
+	}
+
+	/* packet for holding encoded output */
+	ost->pkt = av_packet_alloc();
+	if (ost->pkt == NULL)
+	{
+	    fprintf( avLogFp, "Could not allocate the audio packet\n");
+	    return -1;
 	}
 
 	if (c->codec->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE)
@@ -1473,9 +1569,8 @@ static int initAudioStream( const char *codec_name, OutputStream *ost )
 	ost->frameSize = nb_samples;
 	ost->bytesPerSample  = av_get_bytes_per_sample( c->sample_fmt );
 
-	ost->frame     = alloc_audio_frame(c->sample_fmt, c->channel_layout, c->sample_rate, nb_samples);
-	ost->tmp_frame = alloc_audio_frame(c->sample_fmt, c->channel_layout, c->sample_rate, nb_samples);
-	//ost->tmp_frame = alloc_audio_frame(AV_SAMPLE_FMT_S16, AV_CH_LAYOUT_MONO, audioSampleRate, nb_samples);
+	ost->frame     = alloc_audio_frame(c, nb_samples);
+	ost->tmp_frame = alloc_audio_frame(c, nb_samples);
 
 	//printf("Audio: FMT:%i  ChanLayout:%li  Rate:%i  FrameSize:%i  bytesPerSample:%i \n",
 	//		c->sample_fmt, c->channel_layout, c->sample_rate, nb_samples, ost->bytesPerSample );
@@ -1722,9 +1817,11 @@ static int write_audio_frame( AVFrame *frame )
 	}
 	while (ret >= 0)
 	{
-		AVPacket pkt = { 0 }; // data and size must be 0;
-		av_init_packet(&pkt);
-		ret = avcodec_receive_packet(ost->enc, &pkt);
+		//AVPacket pkt = { 0 }; // data and size must be 0;
+//#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT( 59, 0, 0 )
+//		av_init_packet(&pkt);
+//#endif
+		ret = avcodec_receive_packet(ost->enc, ost->pkt);
 		if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF)
 		{
 			fprintf( avLogFp, "Error encoding audio frame\n");
@@ -1733,16 +1830,17 @@ static int write_audio_frame( AVFrame *frame )
 		}
 		else if (ret >= 0)
 		{
-			av_packet_rescale_ts(&pkt, ost->enc->time_base, ost->st->time_base);
-			pkt.stream_index = ost->st->index;
+			av_packet_rescale_ts(ost->pkt, ost->enc->time_base, ost->st->time_base);
+			ost->pkt->stream_index = ost->st->index;
 			/* Write the compressed frame to the media file. */
-			ret = av_interleaved_write_frame(oc, &pkt);
+			ret = av_interleaved_write_frame(oc, ost->pkt);
 			if (ret < 0)
 			{
 				fprintf( avLogFp, "Error while writing audio frame\n");
 				ost->writeError = true;
 				return -1;
 			}
+			av_packet_unref(ost->pkt);
 		}
 	}
 	return 0;
@@ -1828,7 +1926,12 @@ static int encode_audio_frame( int16_t *audioOut, int numSamples)
 
 			ret = av_samples_copy( ost->frame->data, ost->tmp_frame->data,
 					ost->frame->nb_samples, srcOffset, copySize, 
-						ost->frame->channels, ost->enc->sample_fmt );
+					#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(57, 28, 100)
+						ost->frame->channels,
+					#else
+						ost->frame->ch_layout.nb_channels,
+					#endif
+							ost->enc->sample_fmt );
 
 			if ( ret < 0 )
 			{
@@ -1916,11 +2019,12 @@ static int encode_video_frame( unsigned char *inBuf )
 
 	while (ret >= 0)
 	{
-		AVPacket pkt = { 0 };
+		//AVPacket pkt = { 0 };
 
-		av_init_packet(&pkt);
-
-		ret = avcodec_receive_packet(c, &pkt);
+//#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT( 59, 0, 0 )
+//		av_init_packet(&pkt);
+//#endif
+		ret = avcodec_receive_packet(c, ost->pkt);
 
 		if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF)
 		{
@@ -1930,16 +2034,17 @@ static int encode_video_frame( unsigned char *inBuf )
 		}
 		else if (ret >= 0)
 		{
-			av_packet_rescale_ts(&pkt, c->time_base, video_st.st->time_base);
-			pkt.stream_index = video_st.st->index;
+			av_packet_rescale_ts(ost->pkt, c->time_base, video_st.st->time_base);
+			ost->pkt->stream_index = video_st.st->index;
 			/* Write the compressed frame to the media file. */
-			ret = av_interleaved_write_frame(oc, &pkt);
+			ret = av_interleaved_write_frame(oc, ost->pkt);
 			if (ret < 0)
 			{
 				fprintf( avLogFp, "Error while writing video frame\n");
 				ost->writeError = true;
 				return -1;
 			}
+			av_packet_unref(ost->pkt);
 		}
 	}
 
@@ -2033,7 +2138,7 @@ int aviRecordOpenFile( const char *filepath )
 	char fourcc[8];
 	gwavi_audio_t  audioConfig;
 	double fps;
-	char fileName[1024];
+	std::string fileName;
 	char txt[512];
 	const char *romFile;
 
@@ -2046,7 +2151,7 @@ int aviRecordOpenFile( const char *filepath )
 
 	if ( filepath != NULL )
 	{
-		strcpy( fileName, filepath );
+		fileName.assign( filepath );
 	}
 	else
 	{
@@ -2065,21 +2170,21 @@ int aviRecordOpenFile( const char *filepath )
 
 			if ( lastPath.size() > 0 )
 			{
-				strcpy( fileName, lastPath.c_str() );
-				strcat( fileName, "/" );
+				fileName.assign( lastPath.c_str() );
+				fileName.append( "/" );
 			}
 			else if ( baseDir )
 			{
-				strcpy( fileName, baseDir );
-				strcat( fileName, "/avi/" );
+				fileName.assign( baseDir );
+				fileName.append( "/avi/" );
 			}
 			else
 			{
-				fileName[0] = 0;
+				fileName.clear();
 			}
-			strcat( fileName, base );
-			strcat( fileName, ".avi");
-			//printf("AVI Filepath:'%s'\n", fileName );
+			fileName.append( base );
+			fileName.append(".avi");
+			//printf("AVI Filepath:'%s'\n", fileName.c_str() );
 		}
 		else
 		{
@@ -2087,9 +2192,9 @@ int aviRecordOpenFile( const char *filepath )
 		}
 	}
 
-	if ( fileName[0] != 0 )
+	if ( fileName.size() > 0 )
 	{
-		QFile file(fileName);
+		QFile file(fileName.c_str());
 
 		if ( file.exists() )
 		{
@@ -2097,7 +2202,7 @@ int aviRecordOpenFile( const char *filepath )
 			std::string msg;
 
 			msg = "Pre-existing AVI file will be overwritten:\n\n" +
-				std::string(fileName) +	"\n\nReplace file?";
+				fileName +	"\n\nReplace file?";
 
 			ret = QMessageBox::warning( consoleWindow, QObject::tr("Overwrite Warning"),
 					QString::fromStdString(msg), QMessageBox::Yes | QMessageBox::No );
@@ -2195,7 +2300,7 @@ int aviRecordOpenFile( const char *filepath )
 #ifdef _USE_LIBAV
 	if ( aviDriver == AVI_DRIVER_LIBAV )
 	{
-		if ( LIBAV::initMedia( fileName ) )
+		if ( LIBAV::initMedia( fileName.c_str() ) )
 		{
 			char msg[512];
 			fprintf( avLogFp, "Error: Failed to open AVI file.\n");
@@ -2210,7 +2315,7 @@ int aviRecordOpenFile( const char *filepath )
 	{
 		gwavi = new gwavi_t();
 
-		if ( gwavi->open( fileName, nes_shm->video.ncol, nes_shm->video.nrow, fourcc, fps, recordAudio ? &audioConfig : NULL ) )
+		if ( gwavi->open( fileName.c_str(), nes_shm->video.ncol, nes_shm->video.nrow, fourcc, fps, recordAudio ? &audioConfig : NULL ) )
 		{
 			char msg[512];
 			fprintf( avLogFp, "Error: Failed to open AVI file.\n");
@@ -2475,6 +2580,7 @@ int FCEUD_AviGetFormatOpts( std::vector <std::string> &formatList )
 AviRecordDiskThread_t::AviRecordDiskThread_t( QObject *parent )
 	: QThread(parent)
 {
+	setObjectName( QString("AviRecordDiskThread") );
 }
 //----------------------------------------------------
 AviRecordDiskThread_t::~AviRecordDiskThread_t(void)
@@ -3063,6 +3169,7 @@ void LibavOptionsPage::initChannelLayoutSelect( const char *codec_name )
 	{
 		return;
 	}
+	#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(57, 28, 100)
 	if ( c->channel_layouts )
 	{
 		int i=0;
@@ -3074,14 +3181,34 @@ void LibavOptionsPage::initChannelLayoutSelect( const char *codec_name )
 
 			audioChanLayout->addItem( tr(layoutDesc), (unsigned long long)c->channel_layouts[i] );
 
-			if ( LIBAV::audio_st.chanLayout == c->channel_layouts[i] )
+			if ( static_cast<uint64_t>(LIBAV::audio_st.chanLayout) == c->channel_layouts[i] )
 			{
 				audioChanLayout->setCurrentIndex( audioChanLayout->count() - 1 );
 				formatOk = true;
 			}
 			i++;
 		}
+
 	}
+	#else
+	const AVChannelLayout *p = c->ch_layouts;
+
+	while (p && p->nb_channels)
+	{
+		char layoutDesc[256];
+
+		av_channel_layout_describe(p, layoutDesc, sizeof(layoutDesc));
+
+		audioChanLayout->addItem( tr(layoutDesc), (unsigned long long)p->u.mask );
+
+		if ( LIBAV::audio_st.chanLayout == p->u.mask )
+		{
+			audioChanLayout->setCurrentIndex( audioChanLayout->count() - 1 );
+			formatOk = true;
+		}
+		p++;
+	}
+	#endif
 	if ( !formatOk )
 	{
 		LIBAV::audio_st.chanLayout = -1;
@@ -3305,7 +3432,9 @@ void LibavEncOptItem::setValueText(void)
 			break;
 			case AV_OPT_TYPE_INT:
 			case AV_OPT_TYPE_INT64:
+			#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(55, 58, 100)
 			case AV_OPT_TYPE_UINT64:
+			#endif
 			{
 				int64_t i;
 
@@ -3677,7 +3806,9 @@ LibavEncOptInputWin::LibavEncOptInputWin( LibavEncOptItem *itemIn, QWidget *pare
 	{
 		case AV_OPT_TYPE_INT:
 		case AV_OPT_TYPE_INT64:
+		#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(55, 58, 100)
 		case AV_OPT_TYPE_UINT64:
+		#endif
 		{
 			int64_t val;
 
@@ -3942,7 +4073,9 @@ void LibavEncOptInputWin::applyChanges(void)
 	{
 		case AV_OPT_TYPE_INT:
 		case AV_OPT_TYPE_INT64:
+		#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(55, 58, 100)
 		case AV_OPT_TYPE_UINT64:
+		#endif
 		{
 			if ( intEntry )
 			{
@@ -4032,7 +4165,9 @@ void LibavEncOptInputWin::resetDefaultsCB(void)
 	{
 		case AV_OPT_TYPE_INT:
 		case AV_OPT_TYPE_INT64:
+		#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(55, 58, 100)
 		case AV_OPT_TYPE_UINT64:
+		#endif
 		{
 			if ( intEntry )
 			{

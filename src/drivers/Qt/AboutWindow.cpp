@@ -30,7 +30,12 @@
 #endif
 
 #ifdef _USE_X264
+#include <cstdint>
 #include "x264.h"
+#endif
+
+#ifdef _USE_LIBARCHIVE
+#include <archive.h>
 #endif
 
 #ifdef _USE_LIBAV
@@ -62,6 +67,7 @@ static const char *Authors[] = {
 	"\t mjbudd77",
 	"\t Lukas Sabota //punkrockguy318", "\t Soules", "\t Bryan Cain", "\t radsaq",
 		"\t Shinydoofy",
+	"\nQt GUI written by mjbudd77\n",
 	"FceuX 2.0 Developers:",
 	"\t SP", "\t zeromus", "\t adelikat", "\t caH4e3", "\t qfox",
 	"\t Luke Gustafson", "\t _mz", "\t UncombedCoconut", "\t DwEdit", "\t AnS",
@@ -146,7 +152,7 @@ AboutWindow::AboutWindow(QWidget *parent)
 
 	hbox1 = new QHBoxLayout();
 	lbl = new QLabel();
-	lbl->setText("<a href=\"http://fceux.com\">Website</a>");
+	lbl->setText("<a href=\"https://fceux.com\">Website</a>");
 	lbl->setTextInteractionFlags(Qt::TextBrowserInteraction);
 	lbl->setOpenExternalLinks(true);
 
@@ -199,6 +205,23 @@ AboutWindow::AboutWindow(QWidget *parent)
 #ifdef ZLIB_VERSION
 	sprintf( stmp, "	Compiled with zlib %s\n", ZLIB_VERSION );
 	credits->insertPlainText( stmp );
+#endif
+#ifdef _USE_LIBARCHIVE
+	sprintf( stmp, "	Compiled with libarchive %s\n", ARCHIVE_VERSION_ONLY_STRING );
+	credits->insertPlainText( stmp );
+	const char *libArcName[]    = { "zlib", "liblzma", "bzlib", "liblz4", "libzstd", nullptr };
+	const char *libArcVersion[] = { archive_zlib_version(), archive_liblzma_version(), 
+		archive_bzlib_version(), archive_liblz4_version(), archive_libzstd_version(), nullptr };
+	i=0;
+	while (libArcName[i])
+	{
+		if (libArcVersion[i])
+		{
+			sprintf( stmp, "		%s %s\n", libArcName[i], libArcVersion[i]);
+			credits->insertPlainText( stmp );
+		}
+		i++;
+	}
 #endif
 
 #ifdef _S9XLUA_H
@@ -253,7 +276,7 @@ AboutWindow::~AboutWindow(void)
 //----------------------------------------------------------------------------
 void AboutWindow::closeEvent(QCloseEvent *event)
 {
-	printf("About Window Close Event\n");
+	//printf("About Window Close Event\n");
 	done(0);
 	deleteLater();
 	event->accept();

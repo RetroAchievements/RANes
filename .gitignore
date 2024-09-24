@@ -17,6 +17,7 @@
 /output/auxlib.lua
 /output/fceux.pdb
 /output/7z.dll
+/output/7z_64.dll
 /output/fceux.exe
 /output/fceux.exp
 /output/fceux.lib
@@ -26,7 +27,6 @@
 /vc/userconfig/scmrev.h
 /vc/fceux.zip
 /vc/fceux64.zip
-
 # retroachievements
 /src/RA_BuildVer.h
 /vc/Temp.txt
@@ -42,6 +42,8 @@
 /output/RAPrefs_RANes.cfg
 /output/RA_Integration.dll
 /output/overlay
+# macOS junk
+.DS_Store
 
 # linux build output
 bin

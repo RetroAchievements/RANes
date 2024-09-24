@@ -21,8 +21,11 @@
 #include "common.h"
 #include "utils/xstring.h"
 #include "debuggersp.h"
+#include "window.h"
 #include "../../fceu.h"
+#include "../../ines.h"
 #include "../../debug.h"
+#include "../../debugsymboltable.h"
 #include "../../conddebug.h"
 
 #include <stdio.h>
@@ -53,13 +56,13 @@ int pageNumbersLoaded[32] = {
 Name* ramBankNames = 0;
 bool ramBankNamesLoaded = false;
 
-extern char LoadedRomFName[2048];
 char NLfilename[2048];
 bool symbDebugEnabled = true;
 bool symbRegNames = true;
 int debuggerWasActive = 0;
 char temp_chr[40] = {0};
 char delimiterChar[2] = "#";
+
 
 INT_PTR CALLBACK nameDebuggerBookmarkCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 extern WNDPROC DefaultEditCtrlProc;
@@ -153,10 +156,10 @@ int parseLine(char* line, Name* n)
 	if (llen == 5) // Offset size of normal lines of the form $XXXX
 	{
 		if (line[0] != '$'
-			|| !IsLetterLegalHex(line[1])
-			|| !IsLetterLegalHex(line[2])
-			|| !IsLetterLegalHex(line[3])
-			|| !IsLetterLegalHex(line[4])
+			|| !IsLetterLegalHex(0,line[1])
+			|| !IsLetterLegalHex(1,line[2])
+			|| !IsLetterLegalHex(2,line[3])
+			|| !IsLetterLegalHex(3,line[4])
 		)
 		{
 			return 4;
@@ -166,10 +169,10 @@ int parseLine(char* line, Name* n)
 	{
 		int i;
 		if (line[0] != '$'
-			|| !IsLetterLegalHex(line[1])
-			|| !IsLetterLegalHex(line[2])
-			|| !IsLetterLegalHex(line[3])
-			|| !IsLetterLegalHex(line[4])
+			|| !IsLetterLegalHex(0,line[1])
+			|| !IsLetterLegalHex(1,line[2])
+			|| !IsLetterLegalHex(2,line[3])
+			|| !IsLetterLegalHex(3,line[4])
 			|| line[5] != '/'
 		)
 		{
@@ -178,7 +181,7 @@ int parseLine(char* line, Name* n)
 		
 		for (i=6;line[i];i++)
 		{
-			if (!IsLetterLegalHex(line[i]))
+			if (!IsLetterLegalHex(i,line[i]))
 			{
 				return 6;
 			}
@@ -669,6 +672,16 @@ char* generateNLFilenameForAddress(uint16 address)
 	}
 	return NLfilename;
 }
+static int getBankIndexForAddress(uint16 address)
+{
+	int bank = -1;
+
+	if (address >= 0x8000)
+	{
+		bank = getBank(address);
+	}
+	return bank;
+}
 Name* getNamesPointerForAddress(uint16 address)
 {
 	if(address >= 0x8000)
@@ -1148,6 +1161,8 @@ void AddNewSymbolicName(uint16 newAddress, char* newOffset, char* newName, char*
 
 				node->next = 0;
 				setNamesPointerForAddress(tmpNewAddress, node);
+
+				debugSymbolTable.addSymbolAtBankOffset(getBankIndexForAddress(tmpNewAddress), tmpNewAddress, node->name, node->comment);
 			}
 			else
 			{
@@ -1189,6 +1204,28 @@ void AddNewSymbolicName(uint16 newAddress, char* newOffset, char* newName, char*
 							strcpy(node->comment, newComment);
 						}
 
+						debugSymbol_t* sym = debugSymbolTable.getSymbolAtBankOffset(getBankIndexForAddress(tmpNewAddress), tmpNewAddress);
+
+						if (sym)
+						{
+							if (node->name)
+							{
+								sym->updateName(node->name);
+							}
+							else
+							{
+								sym->updateName("");
+							}
+							if (node->comment)
+							{
+								sym->commentAssign(node->comment);
+							}
+							else
+							{
+								sym->commentAssign("");
+							}
+							sym->trimTrailingSpaces();
+						}
 						break;
 					}
 
@@ -1231,6 +1268,7 @@ void AddNewSymbolicName(uint16 newAddress, char* newOffset, char* newName, char*
 
 						newNode->next = 0;
 						node->next = newNode;
+						debugSymbolTable.addSymbolAtBankOffset(getBankIndexForAddress(tmpNewAddress), tmpNewAddress, newNode->name, newNode->comment);
 						break;
 					}
 				}
@@ -1268,6 +1306,7 @@ void DeleteSymbolicName(uint16 address, int size)
 			prev = node;
 			node = node->next;
 		}
+		debugSymbolTable.deleteSymbolAtBankOffset(getBankIndexForAddress(tmpAddress), tmpAddress);
 		++tmpAddress;
 	} while (++i < size);
 }

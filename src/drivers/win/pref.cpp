@@ -254,6 +254,9 @@ int loadDebuggerPreferences(FILE* f)
 
 	// Read the number of CPU bookmarks
 	if (fread(&size, sizeof(unsigned int), 1, f) != 1) return 1;
+	// If there's more than 65536 bookmarks (bookmarking every address in the whole 16-bit address space), we're probably reading a corrupt file
+	if (size > 65536) return 1;
+
 	bookmarks.resize(size);
 	// Read the data of those bookmarks
 	char buffer[256];
@@ -284,19 +287,19 @@ int loadDebuggerPreferences(FILE* f)
 	// Read the breakpoints
 	for (i=0;i<65;i++)
 	{
-		uint16 start, end;
-		uint8 flags;
 		unsigned int len;
 		
 		// Read the start address of the BP
-		if (fread(&start, sizeof(start), 1, f) != 1) return 1;
+		if (fread(&watchpoint[myNumWPs].address, sizeof(watchpoint[myNumWPs].address), 1, f) != 1) return 1;
 		// Read the end address of the BP
-		if (fread(&end, sizeof(end), 1, f) != 1) return 1;
+		if (fread(&watchpoint[myNumWPs].endaddress, sizeof(watchpoint[myNumWPs].endaddress), 1, f) != 1) return 1;
 		// Read the flags of the BP
-		if (fread(&flags, sizeof(flags), 1, f) != 1) return 1;
+		if (fread(&watchpoint[myNumWPs].flags, sizeof(watchpoint[myNumWPs].flags), 1, f) != 1) return 1;
 		
 		// Read the length of the BP condition
 		if (fread(&len, sizeof(len), 1, f) != 1) return 1;
+		// Windows enforces 32767 max characters for a textbox by default, if it exceeds that, it's probably a corrupt file
+		if (len > 32767) return 1;
 		
 		// Delete eventual older conditions
 		if (watchpoint[myNumWPs].condText)
@@ -314,7 +317,9 @@ int loadDebuggerPreferences(FILE* f)
 		
 		// Read length of the BP description
 		if (fread(&len, sizeof(len), 1, f) != 1) return 1;
-		
+		// Windows enforces 32767 max characters for a textbox by default, if it exceeds that, it's probably a corrupt file
+		if (len > 32767) return 1;
+
 		// Delete eventual older description
 		if (watchpoint[myNumWPs].desc)
 			free(watchpoint[myNumWPs].desc);
@@ -327,17 +332,8 @@ int loadDebuggerPreferences(FILE* f)
 			if (fread(watchpoint[myNumWPs].desc, 1, len, f) != len) return 1;
 		}
 		
-		watchpoint[i].address = 0;
-		watchpoint[i].endaddress = 0;
-		watchpoint[i].flags = 0;
-
-		// Activate breakpoint
-		if (start || end || flags)
+		if (watchpoint[myNumWPs].address || watchpoint[myNumWPs].endaddress || watchpoint[myNumWPs].flags)
 		{
-			watchpoint[myNumWPs].address = start;
-			watchpoint[myNumWPs].endaddress = end;
-			watchpoint[myNumWPs].flags = flags;
-
 			myNumWPs++;
 		}
 	}
@@ -384,6 +380,8 @@ int loadHexPreferences(FILE* f, HexBookmarkList& target = hexBookmarks)
 		if (fread(&target[i].address, sizeof(target[i].address), 1, f) != 1) return 1;
 		// Read length of description
 		if (fread(&len, sizeof(len), 1, f) != 1) return 1;
+		const int max_len = sizeof(target[i].description)/sizeof(target[i].description[0]) - 1;  //value of 50
+		if (len > max_len) return 1;
 		// Read the bookmark description
 		if (fread(target[i].description, 1, len, f) != len) return 1;
 	}
@@ -395,6 +393,8 @@ int loadHexPreferences(FILE* f, HexBookmarkList& target = hexBookmarks)
 	if (!feof(f))
 	{
 		fread(&target.shortcutCount, sizeof(target.shortcutCount), 1, f);
+		const int max_shortcuts = sizeof(target.shortcuts) / sizeof(target.shortcuts[0]);  //value of 10
+		if (target.shortcutCount > max_shortcuts) return 1;
 	
 		unsigned int bookmark_index, shortcut_index;
 		// read the matching index list of the shortcuts

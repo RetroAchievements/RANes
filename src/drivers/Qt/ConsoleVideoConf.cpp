@@ -42,7 +42,7 @@ extern int rerecord_display;
 ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	: QDialog( parent )
 {
-	QVBoxLayout *main_vbox, *vbox1, *vbox2, *vbox3, *vbox4, *vbox;
+	QVBoxLayout *main_vbox, *vbox1, *vbox2, *vbox3, *vbox4, *vbox5, *vbox;
 	QHBoxLayout *main_hbox, *hbox1, *hbox;
 	QLabel *lbl;
 	QPushButton *button;
@@ -67,6 +67,7 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	g_config->getOption("SDL.ShowFrameCount", &frame_display);
 	g_config->getOption("SDL.ShowLagCount", &lagCounterDisplay);
 	g_config->getOption("SDL.ShowRerecordCount", &rerecord_display);
+	g_config->getOption("SDL.ShowGuiMessages", &vidGuiMsgEna);
 	
 	style = this->style();
 
@@ -84,8 +85,9 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 
 	driverSelect = new QComboBox();
 
-	driverSelect->addItem( tr("OpenGL"), 0 );
-	driverSelect->addItem( tr("SDL"), 1 );
+	driverSelect->addItem( tr("OpenGL"), ConsoleViewerBase::VIDEO_DRIVER_OPENGL );
+	driverSelect->addItem( tr("SDL"), ConsoleViewerBase::VIDEO_DRIVER_SDL );
+	driverSelect->addItem( tr("QPainter"), ConsoleViewerBase::VIDEO_DRIVER_QPAINTER );
 	
 	hbox1 = new QHBoxLayout();
 
@@ -156,8 +158,11 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	// Enable New PPU Checkbox
 	new_PPU_ena  = new QCheckBox( tr("Enable New PPU") );
 
-	// Enable New PPU Checkbox
+	// Enable Frameskip
 	frmskipcbx  = new QCheckBox( tr("Enable Frameskip") );
+
+	// Enable Vertical Sync
+	vsync_ena  = new QCheckBox( tr("Enable Vertical Sync") );
 
 	// Use Integer Frame Rate Checkbox
 	intFrameRateCbx  = new QCheckBox( tr("Use Integer Frame Rate") );
@@ -167,6 +172,10 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 
 	// Clip Sides Checkbox
 	clipSidesCbx  = new QCheckBox( tr("Clip Left/Right Sides (8 px on each)") );
+
+	// Show GUI Messages Checkbox
+	showGuiMsgs_cbx  = new QCheckBox( tr("GUI Messages") );
+	showGuiMsgs_cbx->setChecked( vidGuiMsgEna );
 
 	// Show FPS Checkbox
 	showFPS_cbx  = new QCheckBox( tr("Frames Per Second") );
@@ -202,9 +211,20 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 
 	setComboBoxFromProperty( inputDisplaySel , "SDL.InputDisplay");
 
+	// Input Display Select
+	videoTest = new QComboBox();
+
+	videoTest->addItem( tr("None")         , 0 );
+	videoTest->addItem( tr("Vertical Sync"), 1 );
+
+	videoTest->setCurrentIndex( nes_shm->video.test );
+
+	connect(videoTest, SIGNAL(currentIndexChanged(int)), this, SLOT(testPatternChanged(int)) );
+
 	setCheckBoxFromProperty( autoRegion      , "SDL.AutoDetectPAL");
 	setCheckBoxFromProperty( new_PPU_ena     , "SDL.NewPPU");
 	setCheckBoxFromProperty( frmskipcbx      , "SDL.Frameskip");
+	setCheckBoxFromProperty( vsync_ena       , "SDL.VideoVsync");
 	setCheckBoxFromProperty( intFrameRateCbx , "SDL.IntFrameRate");
 	setCheckBoxFromProperty( sprtLimCbx      , "SDL.DisableSpriteLimit");
 	setCheckBoxFromProperty( clipSidesCbx    , "SDL.ClipSides");
@@ -213,25 +233,22 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	
 	if ( consoleWindow )
 	{
-		if ( consoleWindow->viewport_GL )
+		if ( consoleWindow->viewport_Interface )
 		{
-			autoScaleCbx->setChecked( consoleWindow->viewport_GL->getAutoScaleOpt() );
-			aspectCbx->setChecked( consoleWindow->viewport_GL->getForceAspectOpt() );
-		}
-		else if ( consoleWindow->viewport_SDL )
-		{
-			autoScaleCbx->setChecked( consoleWindow->viewport_SDL->getAutoScaleOpt() );
-			aspectCbx->setChecked( consoleWindow->viewport_SDL->getForceAspectOpt() );
+			autoScaleCbx->setChecked( consoleWindow->viewport_Interface->getAutoScaleOpt() );
+			aspectCbx->setChecked( consoleWindow->viewport_Interface->getForceAspectOpt() );
 		}
 	}
 
 	connect(new_PPU_ena     , SIGNAL(clicked(bool))    , this, SLOT(use_new_PPU_changed(bool)) );
 	connect(autoRegion      , SIGNAL(stateChanged(int)), this, SLOT(autoRegionChanged(int)) );
 	connect(frmskipcbx      , SIGNAL(stateChanged(int)), this, SLOT(frameskip_changed(int)) );
+	connect(vsync_ena       , SIGNAL(stateChanged(int)), this, SLOT(vsync_changed(int)) );
 	connect(intFrameRateCbx , SIGNAL(stateChanged(int)), this, SLOT(intFrameRate_changed(int)) );
 	connect(sprtLimCbx      , SIGNAL(stateChanged(int)), this, SLOT(useSpriteLimitChanged(int)) );
 	connect(clipSidesCbx    , SIGNAL(stateChanged(int)), this, SLOT(clipSidesChanged(int)) );
 	connect(showFPS_cbx     , SIGNAL(stateChanged(int)), this, SLOT(showFPSChanged(int)) );
+	connect(showGuiMsgs_cbx , SIGNAL(stateChanged(int)), this, SLOT(showGuiMsgsChanged(int)) );
 	connect(aspectCbx       , SIGNAL(stateChanged(int)), this, SLOT(aspectEnableChanged(int)) );
 	connect(autoScaleCbx    , SIGNAL(stateChanged(int)), this, SLOT(autoScaleChanged(int)) );
 	connect(drawInputAidsCbx, SIGNAL(stateChanged(int)), this, SLOT(drawInputAidsChanged(int)) );
@@ -245,6 +262,7 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	vbox1->addWidget( autoRegion  );
 	vbox1->addWidget( new_PPU_ena );
 	vbox1->addWidget( frmskipcbx  );
+	vbox1->addWidget( vsync_ena   );
 	vbox1->addWidget( intFrameRateCbx  );
 	vbox1->addWidget( sprtLimCbx  );
 	//vbox1->addWidget( drawInputAidsCbx );
@@ -283,15 +301,10 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 
 	if ( consoleWindow )
 	{
-		if ( consoleWindow->viewport_GL )
+		if ( consoleWindow->viewport_Interface )
 		{
-			xScaleBox->setValue( consoleWindow->viewport_GL->getScaleX() );
-			yScaleBox->setValue( consoleWindow->viewport_GL->getScaleY() );
-		}
-		else if ( consoleWindow->viewport_SDL )
-		{
-			xScaleBox->setValue( consoleWindow->viewport_SDL->getScaleX() );
-			yScaleBox->setValue( consoleWindow->viewport_SDL->getScaleY() );
+			xScaleBox->setValue( consoleWindow->viewport_Interface->getScaleX() );
+			yScaleBox->setValue( consoleWindow->viewport_Interface->getScaleY() );
 		}
 	}
 
@@ -343,12 +356,14 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	gbox  = new QGroupBox( tr("Overlay Options") );
 	vbox3 = new QVBoxLayout();
 	vbox4 = new QVBoxLayout();
+	vbox5 = new QVBoxLayout();
 	vbox  = new QVBoxLayout();
 
 	vbox3->addWidget( gbox, 1 );
 	vbox3->addStretch(5);
 	 gbox->setLayout( vbox );
 
+	vbox->addWidget( showGuiMsgs_cbx );
 	vbox->addWidget( drawInputAidsCbx );
 	vbox->addWidget( showFPS_cbx );
 	vbox->addWidget( showFrameCount_cbx );
@@ -359,6 +374,11 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	gbox->setLayout( vbox4 );
 	vbox->addWidget( gbox  );
 	vbox4->addWidget( inputDisplaySel );
+
+	gbox  = new QGroupBox( tr("Test Pattern:") );
+	gbox->setLayout( vbox5 );
+	vbox->addWidget( gbox  );
+	vbox5->addWidget( videoTest );
 
 	gbox  = new QGroupBox( tr("Drawing Area") );
 	vbox2 = new QVBoxLayout();
@@ -505,14 +525,14 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 //----------------------------------------------------
 ConsoleVideoConfDialog_t::~ConsoleVideoConfDialog_t(void)
 {
-	printf("Destroy Video Config Window\n");
+	//printf("Destroy Video Config Window\n");
 
 	updateTimer->stop();
 }
 //----------------------------------------------------------------------------
 void ConsoleVideoConfDialog_t::closeEvent(QCloseEvent *event)
 {
-	printf("Video Config Close Window Event\n");
+	//printf("Video Config Close Window Event\n");
 	done(0);
 	deleteLater();
 	event->accept();
@@ -550,10 +570,10 @@ void ConsoleVideoConfDialog_t::closeWindow(void)
 //----------------------------------------------------
 void  ConsoleVideoConfDialog_t::resetVideo(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	KillVideo ();
 	InitVideo (GameInfo);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::updateReadouts(void)
@@ -565,13 +585,9 @@ void ConsoleVideoConfDialog_t::updateReadouts(void)
 
 		w = consoleWindow->size();
 
-		if ( consoleWindow->viewport_GL )
+		if ( consoleWindow->viewport_Interface )
 		{
-			v = consoleWindow->viewport_GL->size();
-		}
-		else if ( consoleWindow->viewport_SDL )
-		{
-			v = consoleWindow->viewport_SDL->size();
+			v = consoleWindow->viewport_Interface->size();
 		}
 
 		sprintf( stmp, "%i x %i ", w.width(), w.height() );
@@ -697,13 +713,9 @@ void ConsoleVideoConfDialog_t::openGL_linearFilterChanged( int value )
 
    if ( consoleWindow != NULL )
    {
-      if ( consoleWindow->viewport_GL )
+      if ( consoleWindow->viewport_Interface )
       {
-         consoleWindow->viewport_GL->setLinearFilterEnable( opt );
-      }
-      if ( consoleWindow->viewport_SDL )
-      {
-         consoleWindow->viewport_SDL->setLinearFilterEnable( opt );
+         consoleWindow->viewport_Interface->setLinearFilterEnable( opt );
       }
    }
 }
@@ -716,13 +728,9 @@ void ConsoleVideoConfDialog_t::autoScaleChanged( int value )
 
    if ( consoleWindow != NULL )
    {
-      if ( consoleWindow->viewport_GL )
+      if ( consoleWindow->viewport_Interface )
       {
-         consoleWindow->viewport_GL->setAutoScaleOpt( opt );
-      }
-      if ( consoleWindow->viewport_SDL )
-      {
-         consoleWindow->viewport_SDL->setAutoScaleOpt( opt );
+         consoleWindow->viewport_Interface->setAutoScaleOpt( opt );
       }
    }
 }
@@ -760,7 +768,7 @@ void ConsoleVideoConfDialog_t::use_new_PPU_changed( bool value )
 	}
 
 	//printf("NEW PPU Value:%i \n", reqNewPPU );
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	newppu = reqNewPPU;
 
@@ -774,7 +782,7 @@ void ConsoleVideoConfDialog_t::use_new_PPU_changed( bool value )
 	g_config->save ();
 
 	UpdateEMUCore (g_config);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::frameskip_changed( int value )
@@ -783,9 +791,31 @@ void ConsoleVideoConfDialog_t::frameskip_changed( int value )
 	g_config->setOption("SDL.Frameskip", (value == Qt::Checked) );
 	g_config->save ();
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	UpdateEMUCore (g_config);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
+}
+//----------------------------------------------------
+void ConsoleVideoConfDialog_t::vsync_changed( int value )
+{
+	//printf("Value:%i \n", value );
+	bool opt =  (value != Qt::Unchecked);
+	g_config->setOption("SDL.VideoVsync", opt );
+	g_config->save ();
+
+	if ( consoleWindow != NULL )
+	{
+		if ( consoleWindow->viewport_GL )
+		{
+			// QOpenGLWidget required full driver reset
+			//consoleWindow->viewport_GL->setVsyncEnable( opt );
+			consoleWindow->loadVideoDriver( 0, true );
+		}
+		else if ( consoleWindow->viewport_Interface )
+		{
+			consoleWindow->viewport_Interface->setVsyncEnable( opt );
+		}
+	}
 }
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::intFrameRate_changed( int value )
@@ -795,11 +825,11 @@ void ConsoleVideoConfDialog_t::intFrameRate_changed( int value )
 	g_config->setOption("SDL.IntFrameRate", useIntFrameRate );
 	g_config->save ();
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	RefreshThrottleFPS();
 	KillSound();
 	InitSound();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::useSpriteLimitChanged( int value )
@@ -808,9 +838,9 @@ void ConsoleVideoConfDialog_t::useSpriteLimitChanged( int value )
 	g_config->setOption("SDL.DisableSpriteLimit", (value == Qt::Checked) );
 	g_config->save ();
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	UpdateEMUCore (g_config);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::clipSidesChanged( int value )
@@ -819,9 +849,9 @@ void ConsoleVideoConfDialog_t::clipSidesChanged( int value )
 	g_config->setOption("SDL.ClipSides", (value == Qt::Checked) );
 	g_config->save ();
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	UpdateEMUCore (g_config);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::showFPSChanged( int value )
@@ -830,9 +860,17 @@ void ConsoleVideoConfDialog_t::showFPSChanged( int value )
 	g_config->setOption("SDL.ShowFPS", (value == Qt::Checked) );
 	g_config->save ();
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_SetShowFPS( (value == Qt::Checked) );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
+}
+//----------------------------------------------------
+void ConsoleVideoConfDialog_t::showGuiMsgsChanged( int value )
+{
+	//printf("Value:%i \n", value );
+	vidGuiMsgEna = (value == Qt::Checked);
+	g_config->setOption("SDL.ShowGuiMessages", vidGuiMsgEna );
+	g_config->save ();
 }
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::aspectEnableChanged( int value )
@@ -907,21 +945,26 @@ void ConsoleVideoConfDialog_t::regionChanged(int index)
 	// reset sound subsystem for changes to take effect
 	if ( actRegion != region )
 	{
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		FCEUI_SetRegion (region, true);
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::inputDisplayChanged(int index)
 {
 	//printf("Scaler: %i : %i \n", index, scalerSelect->itemData(index).toInt() );
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	input_display = inputDisplaySel->itemData(index).toInt();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	g_config->setOption ("SDL.InputDisplay", input_display);
 	g_config->save ();
+}
+//----------------------------------------------------
+void ConsoleVideoConfDialog_t::testPatternChanged(int index)
+{
+	nes_shm->video.test = videoTest->itemData(index).toInt();
 }
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::aspectChanged(int index)
@@ -973,16 +1016,16 @@ void ConsoleVideoConfDialog_t::drawInputAidsChanged( int value )
 	g_config->setOption("SDL.DrawInputAids", draw );
 	g_config->save ();
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	drawInputAidsEnable = draw;
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::showFrameCountChanged( int value )
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	frame_display = (value != Qt::Unchecked);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	//printf("Value:%i \n", value );
 	g_config->setOption("SDL.ShowFrameCount", frame_display );
@@ -992,9 +1035,9 @@ void ConsoleVideoConfDialog_t::showFrameCountChanged( int value )
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::showLagCountChanged( int value )
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	lagCounterDisplay = (value != Qt::Unchecked);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	//printf("Value:%i \n", value );
 	g_config->setOption("SDL.ShowLagCount", lagCounterDisplay );
@@ -1004,9 +1047,9 @@ void ConsoleVideoConfDialog_t::showLagCountChanged( int value )
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::showRerecordCountChanged( int value )
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	rerecord_display = (value != Qt::Unchecked);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	//printf("Value:%i \n", value );
 	g_config->setOption("SDL.ShowRerecordCount", rerecord_display );
@@ -1030,15 +1073,10 @@ QSize ConsoleVideoConfDialog_t::calcNewScreenSize(void)
 
 		w = consoleWindow->size();
 
-		if ( consoleWindow->viewport_GL )
+		if ( consoleWindow->viewport_Interface )
 		{
-			v = consoleWindow->viewport_GL->size();
-			aspectRatio = consoleWindow->viewport_GL->getAspectRatio();
-		}
-		else if ( consoleWindow->viewport_SDL )
-		{
-			v = consoleWindow->viewport_SDL->size();
-			aspectRatio = consoleWindow->viewport_SDL->getAspectRatio();
+			v = consoleWindow->viewport_Interface->size();
+			aspectRatio = consoleWindow->viewport_Interface->getAspectRatio();
 		}
 
 		dw = w.width()  - v.width();
@@ -1103,21 +1141,13 @@ void ConsoleVideoConfDialog_t::applyChanges( void )
 		g_config->setOption("SDL.WinSizeX", s.width() );
 		g_config->setOption("SDL.WinSizeY", s.height() );
 
-		if ( consoleWindow->viewport_GL )
+		if ( consoleWindow->viewport_Interface )
 		{
-         		consoleWindow->viewport_GL->setLinearFilterEnable( gl_LF_chkBox->isChecked() );
-			consoleWindow->viewport_GL->setForceAspectOpt( aspectCbx->isChecked() );
-			consoleWindow->viewport_GL->setAutoScaleOpt( autoScaleCbx->isChecked() );
-			consoleWindow->viewport_GL->setScaleXY( xscale, yscale );
-			consoleWindow->viewport_GL->reset();
-		}
-		if ( consoleWindow->viewport_SDL )
-		{
-         		consoleWindow->viewport_SDL->setLinearFilterEnable( gl_LF_chkBox->isChecked() );
-			consoleWindow->viewport_SDL->setForceAspectOpt( aspectCbx->isChecked() );
-			consoleWindow->viewport_SDL->setAutoScaleOpt( autoScaleCbx->isChecked() );
-			consoleWindow->viewport_SDL->setScaleXY( xscale, yscale );
-			consoleWindow->viewport_SDL->reset();
+         		consoleWindow->viewport_Interface->setLinearFilterEnable( gl_LF_chkBox->isChecked() );
+			consoleWindow->viewport_Interface->setForceAspectOpt( aspectCbx->isChecked() );
+			consoleWindow->viewport_Interface->setAutoScaleOpt( autoScaleCbx->isChecked() );
+			consoleWindow->viewport_Interface->setScaleXY( xscale, yscale );
+			consoleWindow->viewport_Interface->reset();
 		}
 
 		if ( !consoleWindow->isFullScreen() && !consoleWindow->isMaximized() )

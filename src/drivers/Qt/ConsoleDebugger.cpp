@@ -35,6 +35,7 @@
 #include <QGridLayout>
 #include <QRadioButton>
 #include <QInputDialog>
+#include <QFileDialog>
 #include <QFontDialog>
 #include <QMessageBox>
 #include <QMenuBar>
@@ -43,6 +44,7 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QGuiApplication>
+#include <QStandardPaths>
 #include <QSettings>
 #include <QToolTip>
 #include <QWindow>
@@ -104,6 +106,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	QMenuBar    *menuBar;
 	QSettings settings;
 	std::string fontString;
+	bool autoStartTraceLogger = false;
 
 	g_config->getOption("SDL.DebuggerCpuStatusFont", &fontString);
 
@@ -169,7 +172,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 
 	loadDisplayViews();
 
-	windowUpdateReq   = true;
+	windowUpdateReq   = QAsmView::UPDATE_ALL;
 
 	dbgWin = this;
 
@@ -208,8 +211,19 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 
 	connect( this, SIGNAL(rejected(void)), this, SLOT(deleteLater(void)));
 
-	// Start Trace Logger for Step Back Function 
-	FCEUD_TraceLoggerStart();
+	g_config->getOption("SDL.DebugAutoStartTraceLogger", &autoStartTraceLogger);
+
+	startedTraceLogger = false;
+
+	if (autoStartTraceLogger)
+	{
+		// Start Trace Logger for Step Back Function 
+		if (!FCEUD_TraceLoggerRunning())
+		{
+			FCEUD_TraceLoggerStart();
+			startedTraceLogger = true;
+		}
+	}
 }
 //----------------------------------------------------------------------------
 ConsoleDebugger::~ConsoleDebugger(void)
@@ -220,6 +234,12 @@ ConsoleDebugger::~ConsoleDebugger(void)
 	periodicTimer->stop();
 
 	saveDisplayViews();
+
+	if (startedTraceLogger && FCEUD_TraceLoggerRunning() )
+	{
+		FCEUD_TraceLoggerStop();
+		startedTraceLogger = false;
+	}
 
 	if ( dbgWin == this )
 	{
@@ -262,6 +282,102 @@ void ConsoleDebugger::closeWindow(void)
 	deleteLater();
 }
 //----------------------------------------------------------------------------
+void ConsoleDebugger::ld65ImportDebug(void)
+{
+	int ret, useNativeFileDialogVal;
+	QString filename;
+	std::string last;
+	const char *romPath;
+	QFileDialog  dialog(this, tr("Open ld65 Debug File") );
+	QList<QUrl> urls;
+	QDir d;
+
+	const QStringList filters({
+           "dbg files (*.dbg *.DBG)",
+           "Any files (*)"
+         });
+
+	urls << QUrl::fromLocalFile( QDir::rootPath() );
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
+	urls << QUrl::fromLocalFile( QDir( FCEUI_GetBaseDirectory() ).absolutePath() );
+
+	romPath = getRomFile();
+
+	if ( romPath != nullptr )
+	{
+		std::string dir;
+
+		getDirFromFile( romPath, dir);
+
+		d.setPath(dir.c_str());
+
+		if ( d.exists() )
+		{
+			urls << QUrl::fromLocalFile( d.absolutePath() );
+
+			dialog.setDirectory( tr(dir.c_str()) );
+		}
+	}
+
+	dialog.setFileMode(QFileDialog::ExistingFile);
+
+	dialog.setNameFilters( filters );
+
+	dialog.setViewMode(QFileDialog::List);
+	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
+	dialog.setLabelText( QFileDialog::Accept, tr("Open") );
+
+	// Check config option to use native file dialog or not
+	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+
+	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
+	dialog.setSidebarUrls(urls);
+
+	ret = dialog.exec();
+
+	if ( ret )
+	{
+		QStringList fileList;
+		fileList = dialog.selectedFiles();
+
+		if ( fileList.size() > 0 )
+		{
+			filename = fileList[0];
+		}
+	}
+
+	if ( filename.isNull() )
+	{
+	   return;
+	}
+	//qDebug() << "selected file path : " << filename.toUtf8();
+
+	if (debugSymbolTable.numSymbols() > 0)
+	{
+		QString msg = tr("Do you wish to clear the existing symbol table and replace with the data contained in the selected file?\n\n") + filename;
+
+		ret = QMessageBox::warning( this, tr("Symbol Table Clear Warning"), msg,
+				QMessageBox::Yes | QMessageBox::No );
+
+		if ( ret == QMessageBox::No )
+		{
+			//printf("Aborting dbg file load.\n");
+			return;
+		}
+	}
+	debugSymbolTable.clear();
+
+	debugSymbolTable.loadRegisterMap();
+
+	debugSymbolTable.ld65LoadDebugFile( filename.toStdString().c_str() );
+
+	queueUpdate(QAsmView::UPDATE_ALL);
+
+	return;
+}
+//----------------------------------------------------------------------------
 QMenuBar *ConsoleDebugger::buildMenuBar(void)
 {
 	QMenu       *fileMenu, *viewMenu, *debugMenu,
@@ -282,6 +398,14 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 	//-----------------------------------------------------------------------
 	// File
 	fileMenu = menuBar->addMenu(tr("&File"));
+
+	// File -> Import ld65 dbg
+	act = new QAction(tr("&Import ld65 dbg file"), this);
+	//act->setShortcut(QKeySequence::Close);
+	act->setStatusTip(tr("Import ld65 Debug File"));
+	connect(act, SIGNAL(triggered()), this, SLOT(ld65ImportDebug(void)) );
+
+	fileMenu->addAction(act);
 
 	// File -> Close
 	act = new QAction(tr("&Close"), this);
@@ -716,15 +840,27 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 
 	optMenu->addAction(act);
 
-	// Options -> Load .DEB
+	// Options -> Load .FDB
 	g_config->getOption( "SDL.AutoLoadDebugFiles", &opt );
 
-	act = new QAction(tr("&Load .DEB on ROM Load"), this);
+	act = new QAction(tr("&Load .FDB on ROM Load"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
-	act->setStatusTip(tr("&Load .DEB on ROM Load"));
+	act->setStatusTip(tr("&Load .FDB on ROM Load"));
 	act->setCheckable(true);
 	act->setChecked( opt ? true : false );
 	connect( act, SIGNAL(triggered(bool)), this, SLOT(debFileAutoLoadCB(bool)) );
+
+	optMenu->addAction(act);
+
+	// Options -> Auto Start Trace Logger
+	g_config->getOption( "SDL.DebugAutoStartTraceLogger", &opt );
+
+	act = new QAction(tr("Auto Start &Trace Logger on Debugger Open"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Auto Start &Trace Logger on Debugger Open"));
+	act->setCheckable(true);
+	act->setChecked( opt ? true : false );
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(autoStartTraceLoggerOnOpen(bool)) );
 
 	optMenu->addAction(act);
 
@@ -740,6 +876,16 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 	//act->setCheckable(true);
 	//act->setChecked( break_on_unlogged_data );
 	connect( act, SIGNAL(triggered(void)), this, SLOT(reloadSymbolsCB(void)) );
+
+	symMenu->addAction(act);
+
+	// Symbols -> Save
+	act = new QAction(tr("&Save"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("&Save"));
+	//act->setCheckable(true);
+	//act->setChecked( break_on_unlogged_data );
+	connect( act, SIGNAL(triggered(void)), this, SLOT(saveSymbolsCB(void)) );
 
 	symMenu->addAction(act);
 
@@ -1698,28 +1844,26 @@ void ConsoleDebugger::selBmAddrChanged(const QString &txt)
 	//printf("selBmAddrVal = %04X\n", selBmAddrVal );
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool forceAccept )
+DebuggerBreakpointEditor::DebuggerBreakpointEditor(int editIndex, watchpointinfo *wpIn, QWidget *parent)
+	: QDialog(parent)
 {
-	int ret;
-	QDialog dialog(this);
+	editIdx = editIndex;
+	wp = wpIn;
+
 	QHBoxLayout *hbox;
 	QVBoxLayout *mainLayout, *vbox;
 	QLabel *lbl;
-	QLineEdit *addr1, *addr2, *cond, *name;
-	QCheckBox *forbidChkBox, *rbp, *wbp, *xbp, *ebp;
 	QGridLayout *grid;
 	QFrame *frame;
 	QGroupBox *gbox;
-	QPushButton *okButton, *cancelButton;
-	QRadioButton *cpu_radio, *ppu_radio, *oam_radio, *rom_radio;
 
 	if ( editIdx >= 0 )
 	{
-		dialog.setWindowTitle( tr("Edit Breakpoint") );
+		setWindowTitle( tr("Edit Breakpoint") );
 	}
 	else
 	{
-		dialog.setWindowTitle( tr("Add Breakpoint") );
+		setWindowTitle( tr("Add Breakpoint") );
 	}
 
 	hbox       = new QHBoxLayout();
@@ -1737,6 +1881,9 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 	addr2 = new QLineEdit();
 	hbox->addWidget( lbl );
 	hbox->addWidget( addr2 );
+
+	connect( addr1, SIGNAL(textChanged(const QString &)), this, SLOT(addressTextChanged(const QString &)));
+	connect( addr2, SIGNAL(textChanged(const QString &)), this, SLOT(addressTextChanged(const QString &)));
 
 	forbidChkBox = new QCheckBox( tr("Forbid") );
 	hbox->addWidget( forbidChkBox );
@@ -1770,6 +1917,11 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 	rom_radio    = new QRadioButton( tr("ROM") );
 	cpu_radio->setChecked(true);
 
+	connect( cpu_radio, SIGNAL(toggled(bool)), this, SLOT(typeChanged(bool)));
+	connect( ppu_radio, SIGNAL(toggled(bool)), this, SLOT(typeChanged(bool)));
+	connect( oam_radio, SIGNAL(toggled(bool)), this, SLOT(typeChanged(bool)));
+	connect( rom_radio, SIGNAL(toggled(bool)), this, SLOT(typeChanged(bool)));
+
 	gbox->setLayout( hbox );
 	hbox->addWidget( cpu_radio );
 	hbox->addWidget( ppu_radio );
@@ -1781,6 +1933,9 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 	mainLayout->addLayout( grid );
 	lbl   = new QLabel( tr("Condition") );
 	cond  = new QLineEdit();
+	condValid = true;
+
+	connect( cond, SIGNAL(textChanged(const QString &)), this, SLOT(conditionTextChanged(const QString &)));
 
 	grid->addWidget(  lbl, 0, 0 );
 	grid->addWidget( cond, 0, 1 );
@@ -1792,15 +1947,17 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 	grid->addWidget( name, 1, 1 );
 
 	hbox         = new QHBoxLayout();
+	msgLbl       = new QLabel();
 	okButton     = new QPushButton( tr("OK") );
 	cancelButton = new QPushButton( tr("Cancel") );
 
 	mainLayout->addLayout( hbox );
-	hbox->addWidget( cancelButton );
-	hbox->addWidget(     okButton );
+	hbox->addWidget( msgLbl, 5 );
+	hbox->addWidget( cancelButton, 1 );
+	hbox->addWidget(     okButton, 1 );
 
-	connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
-	connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
+	connect(     okButton, SIGNAL(clicked(void)), this, SLOT(accept(void)) );
+	connect( cancelButton, SIGNAL(clicked(void)), this, SLOT(reject(void)) );
 
 	    okButton->setIcon( style()->standardIcon( QStyle::SP_DialogOkButton ) );
 	cancelButton->setIcon( style()->standardIcon( QStyle::SP_DialogCancelButton ) );
@@ -1900,99 +2057,270 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 		ebp->setChecked(true);
 	}
 
-	dialog.setLayout( mainLayout );
+	setLayout( mainLayout );
+
+	connect( this  , SIGNAL(finished(int)), this, SLOT(closeWindow(int)) );
+}
+//----------------------------------------------------------------------------
+DebuggerBreakpointEditor::~DebuggerBreakpointEditor(void)
+{
+
+}
+//----------------------------------------------------------------------------
+void DebuggerBreakpointEditor::closeEvent(QCloseEvent *event)
+{
+	//printf("Close Window Event\n");
+	done(QDialog::Rejected);
+	deleteLater();
+	event->accept();
+}
+//----------------------------------------------------------------------------
+void DebuggerBreakpointEditor::closeWindow(int ret)
+{
+	//printf("Close Window %i\n", ret);
+	if ( ret == QDialog::Accepted )
+	{
+		loadBreakpoint();
+	}
+	deleteLater();
+}
+//----------------------------------------------------------------------------
+void DebuggerBreakpointEditor::checkDataValid(void)
+{
+	int type = 0;
+	bool startAddrValid = false;
+	bool endAddrValid = false;
+	bool allEntriesValid = false;
+	int addrLowerBound = 0;
+	int addrUpperBound = 0;
+	int start_addr = 0, end_addr = 0;
+
+	if ( cpu_radio->isChecked() )
+	{
+		type |= BT_C;
+		addrLowerBound = 0;
+		addrUpperBound = 0x10000;
+	}
+	else if ( ppu_radio->isChecked() ) 
+	{
+		type |= BT_P;
+		addrLowerBound = 0;
+		addrUpperBound = 0x4000;
+	}
+	else if ( oam_radio->isChecked() ) 
+	{
+		type |= BT_S;
+		addrLowerBound = 0;
+		addrUpperBound = 0x100;
+	}
+	else if ( rom_radio->isChecked() )
+	{
+		type |= BT_R;
+		addrLowerBound = 0;
+		addrUpperBound = 0x10000;
+
+		if (GameInfo != nullptr)
+		{
+			addrUpperBound = 16+PRGsize[0]+CHRsize[0];
+		}
+	}
+
+	if ( addr1->text().size() > 0 )
+	{
+		bool convOk = false;
+
+		start_addr = offsetStringToInt( type, addr1->text().toStdString().c_str(), &convOk );
+
+		//printf("StartAddr:0x%04X   Upper:0x%04X\n", start_addr, addrUpperBound);
+		startAddrValid = convOk && (start_addr >= addrLowerBound) && (start_addr < addrUpperBound);
+	}
+	else
+	{
+		startAddrValid = false;
+	}
+
+	if ( addr2->text().size() > 0 )
+	{
+		bool convOk = false;
+
+		end_addr = offsetStringToInt( type, addr2->text().toStdString().c_str(), &convOk );
+
+		endAddrValid = convOk && (end_addr >= addrLowerBound) && 
+			(end_addr < addrUpperBound) && (start_addr < end_addr);
+	}
+	else
+	{
+		endAddrValid = true;
+	}
+
+	allEntriesValid = startAddrValid && endAddrValid && condValid;
+
+	okButton->setEnabled( allEntriesValid );
+
+	if (allEntriesValid)
+	{
+		msgLbl->clear();
+	}
+	else if (!startAddrValid)
+	{
+		msgLbl->setText(tr("Start Address Invalid"));
+	}
+	else if (!endAddrValid)
+	{
+		msgLbl->setText(tr("End Address Invalid"));
+	}
+	else if (!condValid)
+	{
+		msgLbl->setText(tr("Condition Invalid"));
+	}
+	else
+	{
+		msgLbl->clear();
+	}
+}
+//----------------------------------------------------------------------------
+void DebuggerBreakpointEditor::typeChanged(bool checked)
+{
+	if (checked)
+	{
+		checkDataValid();
+	}
+}
+//----------------------------------------------------------------------------
+void DebuggerBreakpointEditor::addressTextChanged(const QString &txt)
+{
+	checkDataValid();
+}
+//----------------------------------------------------------------------------
+void DebuggerBreakpointEditor::conditionTextChanged(const QString &txt)
+{
+	if ( txt.size() > 0 )
+	{
+		Condition *c = generateCondition( txt.toStdString().c_str() );
+
+		condValid = (c != nullptr);
+
+		if (c)
+		{
+			delete c; c = nullptr;
+		}
+	}
+	else
+	{
+		condValid = true;
+	}
+	checkDataValid();
+}
+//----------------------------------------------------------------------------
+void DebuggerBreakpointEditor::loadBreakpoint(void)
+{
+	int  start_addr = -1, end_addr = -1, type = 0, enable = 1, slot;
+	std::string s;
+
+	FCEU_WRAPPER_LOCK();
+
+	slot = (editIdx < 0) ? numWPs : editIdx;
+
+	if ( cpu_radio->isChecked() )
+	{
+		type |= BT_C;
+	}
+	else if ( ppu_radio->isChecked() ) 
+	{
+		type |= BT_P;
+	}
+	else if ( oam_radio->isChecked() ) 
+	{
+		type |= BT_S;
+	}
+	else if ( rom_radio->isChecked() )
+	{
+		type |= BT_R;
+	}
+
+	s = addr1->text().toStdString();
+
+	if ( s.size() > 0 )
+	{
+		start_addr = offsetStringToInt( type, s.c_str() );
+	}
+
+	s = addr2->text().toStdString();
+
+	if ( s.size() > 0 )
+	{
+		end_addr = offsetStringToInt( type, s.c_str() );
+	}
+
+	if ( rbp->isChecked() )
+	{
+		type |= WP_R;
+	}
+	if ( wbp->isChecked() )
+	{
+		type |= WP_W;
+	}
+	if ( xbp->isChecked() )
+	{
+		type |= WP_X;
+	}
+
+	if ( forbidChkBox->isChecked() )
+	{
+		type |= WP_F;
+	}
+
+	enable = ebp->isChecked();
+
+	if ( (start_addr >= 0) && (numWPs < 64) )
+	{
+		unsigned int retval;
+		std::string nameString, condString;
+
+		nameString = name->text().toStdString();
+		condString = cond->text().toStdString();
+
+		retval = NewBreak( nameString.c_str(), start_addr, end_addr, type, condString.c_str(), slot, enable);
+
+		if ( (retval == 1) || (retval == 2) )
+		{
+			printf("Breakpoint Add Failed\n");
+		}
+		else
+		{
+			if (editIdx < 0)
+			{
+				numWPs++;
+			}
+
+			//bpListUpdate( false );
+		}
+	}
+	FCEU_WRAPPER_UNLOCK();
+}
+//----------------------------------------------------------------------------
+	       	//int editIndex, watchpointinfo *wp, bool forceAccept, 
+//----------------------------------------------------------------------------
+void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool forceAccept )
+{
+	int ret;
+
+	DebuggerBreakpointEditor *dialog = new DebuggerBreakpointEditor( editIdx, wp, this );
 
 	if ( forceAccept )
 	{
+		dialog->loadBreakpoint();
+		dialog->deleteLater();
 		ret = QDialog::Accepted;
 	}
 	else
 	{
-		ret = dialog.exec();
+		ret = dialog->exec();
 	}
 
-	if ( ret == QDialog::Accepted )
+	if (ret == QDialog::Accepted)
 	{
-		int  start_addr = -1, end_addr = -1, type = 0, enable = 1, slot;
-		std::string s;
-
-		slot = (editIdx < 0) ? numWPs : editIdx;
-
-		if ( cpu_radio->isChecked() )
-		{
-			type |= BT_C;
-		}
-		else if ( ppu_radio->isChecked() ) 
-		{
-			type |= BT_P;
-		}
-		else if ( oam_radio->isChecked() ) 
-		{
-			type |= BT_S;
-		}
-		else if ( rom_radio->isChecked() )
-		{
-			type |= BT_R;
-		}
-
-		s = addr1->text().toStdString();
-
-		if ( s.size() > 0 )
-		{
-			start_addr = offsetStringToInt( type, s.c_str() );
-		}
-
-		s = addr2->text().toStdString();
-
-		if ( s.size() > 0 )
-		{
-			end_addr = offsetStringToInt( type, s.c_str() );
-		}
-
-		if ( rbp->isChecked() )
-		{
-			type |= WP_R;
-		}
-		if ( wbp->isChecked() )
-		{
-			type |= WP_W;
-		}
-		if ( xbp->isChecked() )
-		{
-			type |= WP_X;
-		}
-
-		if ( forbidChkBox->isChecked() )
-		{
-			type |= WP_F;
-		}
-
-		enable = ebp->isChecked();
-
-		if ( (start_addr >= 0) && (numWPs < 64) )
-		{
-			unsigned int retval;
-			std::string nameString, condString;
-
-			nameString = name->text().toStdString();
-			condString = cond->text().toStdString();
-
-			retval = NewBreak( nameString.c_str(), start_addr, end_addr, type, condString.c_str(), slot, enable);
-
-			if ( (retval == 1) || (retval == 2) )
-			{
-				printf("Breakpoint Add Failed\n");
-			}
-			else
-			{
-				if (editIdx < 0)
-				{
-					numWPs++;
-				}
-
-				bpListUpdate( false );
-			}
-		}
+		bpListUpdate( false );
 	}
 }
 //----------------------------------------------------------------------------
@@ -2021,9 +2349,9 @@ void ConsoleDebugger::openDebugSymbolEditWindow( int addr )
 
 	if ( ret == QDialog::Accepted )
 	{
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		asmView->updateAssemblyView();
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 //----------------------------------------------------------------------------
@@ -2299,11 +2627,11 @@ static void DeleteBreak(int sel)
 	if(sel<0) return;
 	if(sel>=numWPs) return;
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	if (watchpoint[sel].cond)
 	{
-		freeTree(watchpoint[sel].cond);
+		delete watchpoint[sel].cond;
 	}
 	if (watchpoint[sel].condText)
 	{
@@ -2334,7 +2662,7 @@ static void DeleteBreak(int sel)
 	watchpoint[numWPs].desc = 0;
 	numWPs--;
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 void debuggerClearAllBookmarks(void)
@@ -2346,13 +2674,13 @@ void debuggerClearAllBreakpoints(void)
 {
 	int i;
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	for (i=0; i<numWPs; i++)
 	{
 	   if (watchpoint[i].cond)
 	   {
-	   	freeTree(watchpoint[i].cond);
+	   	delete watchpoint[i].cond;
 	   }
 	   if (watchpoint[i].condText)
 	   {
@@ -2363,7 +2691,7 @@ void debuggerClearAllBreakpoints(void)
 	   	free(watchpoint[i].desc);
 	   }
 
-		watchpoint[i].address = 0;
+	   watchpoint[i].address = 0;
 	   watchpoint[i].endaddress = 0;
 	   watchpoint[i].flags = 0;
 	   watchpoint[i].cond = 0;
@@ -2372,7 +2700,7 @@ void debuggerClearAllBreakpoints(void)
 	}
 	numWPs = 0;
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::delete_BP_CB(void)
@@ -2550,6 +2878,13 @@ void ConsoleDebugger::debFileAutoLoadCB( bool value )
 	}
 }
 //----------------------------------------------------------------------------
+void ConsoleDebugger::autoStartTraceLoggerOnOpen( bool value )
+{
+	int autoStartTraceLogger = value;
+
+	g_config->setOption("SDL.DebugAutoStartTraceLogger", autoStartTraceLogger);
+}
+//----------------------------------------------------------------------------
 void ConsoleDebugger::changeAsmFontCB(void)
 {
 	bool ok = false;
@@ -2603,11 +2938,18 @@ void ConsoleDebugger::changeCpuFontCB(void)
 //----------------------------------------------------------------------------
 void ConsoleDebugger::reloadSymbolsCB(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	debugSymbolTable.loadGameSymbols();
 
 	asmView->updateAssemblyView();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::saveSymbolsCB(void)
+{
+	FCEU_WRAPPER_LOCK();
+	debugSymbolTable.save();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::pcSetPlaceTop(void)
@@ -2753,13 +3095,13 @@ void ConsoleDebugger::debugStepBackCB(void)
 {
 	if (FCEUI_EmulationPaused()) 
 	{
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		FCEUD_TraceLoggerBackUpInstruction();
-		updateWindowData();
+		updateWindowData(QAsmView::UPDATE_ALL);
 		hexEditorUpdateMemoryValues(true);
 		hexEditorRequestUpdateAll();
 		lastBpIdx = BREAK_TYPE_STEP;
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 //----------------------------------------------------------------------------
@@ -2950,8 +3292,7 @@ void ConsoleDebugger::seekPCCB (void)
 		setRegsFromEntry();
 		//updateAllDebugWindows();
 	}
-	windowUpdateReq = true;
-	//asmView->scrollToPC();
+	windowUpdateReq = QAsmView::UPDATE_ALL;
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::openChangePcDialog(void)
@@ -3005,7 +3346,7 @@ void ConsoleDebugger::openChangePcDialog(void)
 	{
 		X.PC = sbox->value();
 	
-		windowUpdateReq = true;
+		windowUpdateReq = QAsmView::UPDATE_ALL;
 	}
 }
 //----------------------------------------------------------------------------
@@ -3075,12 +3416,12 @@ void ConsoleDebugger::resetCountersCB (void)
 //----------------------------------------------------------------------------
 void ConsoleDebugger::asmViewCtxMenuRunToCursor(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	watchpoint[64].address = asmView->getCtxMenuAddr();
 	watchpoint[64].flags   = WP_E|WP_X;
 
 	FCEUI_SetEmulationPaused(0);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::asmViewCtxMenuGoTo(void)
@@ -3190,7 +3531,7 @@ void QAsmView::setPC_placement( int mode, int ofs )
 //----------------------------------------------------------------------------
 void QAsmView::toggleBreakpoint(int line)
 {
-	if ( line < asmEntry.size() )
+	if ( static_cast<size_t>(line) < asmEntry.size() )
 	{
 		int bpNum = isBreakpointAtLine(line);
 
@@ -3230,15 +3571,15 @@ int QAsmView::isBreakpointAtAddr( int cpuAddr, int romAddr )
 		{
 			if ( watchpoint[i].endaddress )
 			{
-				if ( (romAddr >= watchpoint[i].address) && 
-					romAddr < watchpoint[i].endaddress )
+				if ( ( static_cast<unsigned int>(romAddr) >= watchpoint[i].address) && 
+					static_cast<unsigned int>(romAddr) < watchpoint[i].endaddress )
 				{
 					return i;
 				}
 			}
 			else
 			{
-				if (romAddr == watchpoint[i].address)
+				if ( static_cast<unsigned int>(romAddr) == watchpoint[i].address)
 				{
 					return i;
 				}
@@ -3248,15 +3589,15 @@ int QAsmView::isBreakpointAtAddr( int cpuAddr, int romAddr )
 		{
 			if ( watchpoint[i].endaddress )
 			{
-				if ( (cpuAddr >= watchpoint[i].address) && 
-					cpuAddr < watchpoint[i].endaddress )
+				if ( ( static_cast<unsigned int>(cpuAddr) >= watchpoint[i].address) && 
+					static_cast<unsigned int>(cpuAddr) < watchpoint[i].endaddress )
 				{
 					return i;
 				}
 			}
 			else
 			{
-				if (cpuAddr == watchpoint[i].address)
+				if ( static_cast<unsigned int>(cpuAddr) == watchpoint[i].address)
 				{
 					return i;
 				}
@@ -3268,7 +3609,7 @@ int QAsmView::isBreakpointAtAddr( int cpuAddr, int romAddr )
 //----------------------------------------------------------------------------
 int QAsmView::isBreakpointAtLine( int l )
 {
-	if ( l < asmEntry.size() )
+	if ( static_cast<size_t>(l) < asmEntry.size() )
 	{
 		if ( asmEntry[l]->type == dbg_asm_entry_t::ASM_TEXT )
 		{
@@ -3290,7 +3631,7 @@ void QAsmView::setBreakpointAtSelectedLine(void)
 {
 	int addr = -1;
 
-	if ( (selAddrLine >= 0) && (selAddrLine < asmEntry.size()) )
+	if ( (selAddrLine >= 0) && (static_cast<size_t>(selAddrLine) < asmEntry.size()) )
 	{
 		if ( selAddrValue == asmEntry[ selAddrLine ]->addr )
 		{
@@ -3300,18 +3641,18 @@ void QAsmView::setBreakpointAtSelectedLine(void)
 
 	if ( addr >= 0 )
 	{
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		watchpoint[64].address = addr;
 		watchpoint[64].flags = WP_E|WP_X;
 		
 		FCEUI_SetEmulationPaused(0);
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 //----------------------------------------------------------------------------
 int  QAsmView::getAsmAddrFromLine(int line)
 {
-	if ( (line >= 0) && (line < asmEntry.size()) )
+	if ( (line >= 0) && (static_cast<size_t>(line) < asmEntry.size()) )
 	{
 		return asmEntry[line]->addr;
 	}
@@ -3424,7 +3765,7 @@ int  QAsmView::getAsmLineFromAddr(int addr)
 	}
 
 	// Don't stop on an symbol name or comment line, search for next assembly line
-	while ( (line < asmEntry.size()) && (asmEntry[line]->type != dbg_asm_entry_t::ASM_TEXT) )
+	while ( (static_cast<size_t>(line) < asmEntry.size()) && (asmEntry[line]->type != dbg_asm_entry_t::ASM_TEXT) )
 	{
 		line++;
 	}
@@ -3546,7 +3887,7 @@ void  QAsmView::updateAssemblyView(void)
 		{
 			uint8_t cdl_data;
 			instruction_addr = GetNesFileAddress(addr) - 16;
-			if ( (instruction_addr >= 0) && (instruction_addr < cdloggerdataSize) )
+			if ( (instruction_addr >= 0) && (static_cast<unsigned int>(instruction_addr) < cdloggerdataSize) )
 			{
 				cdl_data = cdloggerdata[instruction_addr] & 3;
 				if (cdl_data == 3)
@@ -3677,13 +4018,13 @@ void  QAsmView::updateAssemblyView(void)
 				char stmp[256];
 				//printf("Debug symbol Found at $%04X \n", dbgSym->ofs );
 
-				if ( dbgSym->name.size() > 0 )
+				if ( dbgSym->name().size() > 0 )
 				{
 					d = new dbg_asm_entry_t();
 
 					*d = *a;
 					d->type = dbg_asm_entry_t::SYMBOL_NAME;
-					d->text.assign( "   " + dbgSym->name );
+					d->text.assign( "   " + dbgSym->name() );
 					d->text.append( ":");
 					d->line = asmEntry.size();
 					
@@ -3691,7 +4032,7 @@ void  QAsmView::updateAssemblyView(void)
 				}
 
 				i=0; j=0;
-				c = dbgSym->comment.c_str();
+				c = dbgSym->comment().c_str();
 
 				while ( c[i] != 0 )
 				{
@@ -3746,7 +4087,7 @@ void  QAsmView::updateAssemblyView(void)
 
 		a->line = asmEntry.size();
 
-		if ( maxLineLen < line.size() )
+		if ( static_cast<size_t>(maxLineLen) < line.size() )
 		{
 			maxLineLen = line.size();
 		}
@@ -3999,20 +4340,25 @@ void  ConsoleDebugger::updateRegisterView(void)
 	ppuScrollY->setText( tr(stmp) );
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::updateWindowData(void)
+void ConsoleDebugger::updateWindowData(enum QAsmView::UpdateType type)
 {
-	asmView->updateAssemblyView();
-	
-	asmView->scrollToPC();
+	if (type == QAsmView::UPDATE_ALL)
+	{
+		asmView->updateAssemblyView();
+		asmView->scrollToPC();
+		updateRegisterView();
+	} else if (type == QAsmView::UPDATE_NO_SCROLL)
+	{
+		asmView->updateAssemblyView();
+		updateRegisterView();
+	}
 
-	updateRegisterView();
-
-	windowUpdateReq = false;
+	windowUpdateReq = QAsmView::UPDATE_NONE;
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::queueUpdate(void)
+void ConsoleDebugger::queueUpdate(enum QAsmView::UpdateType type)
 {
-	windowUpdateReq = true;
+	windowUpdateReq = type;
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::updatePeriodic(void)
@@ -4024,17 +4370,17 @@ void ConsoleDebugger::updatePeriodic(void)
 
 	if ( bpNotifyReq )
 	{
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		breakPointNotify( lastBpIdx );
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 		bpNotifyReq = false;
 	}
 
-	if ( windowUpdateReq )
+	if ( windowUpdateReq != QAsmView::UPDATE_NONE )
 	{
-		fceuWrapperLock();
-		updateWindowData();
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_LOCK();
+		updateWindowData(windowUpdateReq);
+		FCEU_WRAPPER_UNLOCK();
 	}
 	asmView->update();
 
@@ -4203,7 +4549,7 @@ void ConsoleDebugger::breakPointNotify( int bpNum )
 		}
 	}
 
-	windowUpdateReq = true;
+	windowUpdateReq = QAsmView::UPDATE_ALL;
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::hbarChanged(int value)
@@ -4277,7 +4623,7 @@ void FCEUD_DebugBreakpoint( int bpNum )
 
 	printf("Breakpoint Hit: %i \n", bpNum );
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	while ( nes_shm->runEmulator && bpDebugEnable &&
 			FCEUI_EmulationPaused() && !FCEUI_EmulationFrameStepped())
@@ -4302,7 +4648,7 @@ void FCEUD_DebugBreakpoint( int bpNum )
 	// since we unfreezed emulation, reset delta_cycles counter
 	ResetDebugStatisticsDeltaCounters();
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	waitingAtBp = false;
 }
@@ -4318,7 +4664,6 @@ void debuggerWindowSetFocus(bool val)
 	{
 		dbgWin->activateWindow();
 		dbgWin->raise();
-		dbgWin->setFocus();
 	}
 }
 //----------------------------------------------------------------------------
@@ -4327,15 +4672,15 @@ bool debuggerWaitingAtBreakpoint(void)
 	return waitingAtBp;
 }
 //----------------------------------------------------------------------------
-void updateAllDebuggerWindows( void )
+void updateAllDebuggerWindows( enum QAsmView::UpdateType type )
 {
 	if ( dbgWin )
 	{
-		dbgWin->queueUpdate();
+		dbgWin->queueUpdate(type);
 	}
 }
 //----------------------------------------------------------------------------
-static int getGameDebugBreakpointFileName(char *filepath)
+static int getGameDebugBreakpointFileName(std::string &filepath)
 {
 	int i,j;
 	const char *romFile;
@@ -4352,11 +4697,11 @@ static int getGameDebugBreakpointFileName(char *filepath)
 
 		if ( romFile[i] == '|' )
 		{
-			filepath[i] = '.';
+			filepath.push_back('.');
 		}
 		else
 		{
-			if ( romFile[i] == '/' )
+			if ( (romFile[i] == '/') || (romFile[i] == '\\') )
 			{
 				j = -1;
 			}
@@ -4364,20 +4709,15 @@ static int getGameDebugBreakpointFileName(char *filepath)
 			{
 				j = i;
 			}
-			filepath[i] = romFile[i];
+			filepath.push_back(romFile[i]);
 		}
 		i++;
 	}
-	if ( j >= 0 )
+	if ( (j >= 0) && (static_cast<size_t>(j) < filepath.size()) )
 	{
-		filepath[j] = 0; i=j;
+		filepath.erase(j);
 	}
-
-	filepath[i] = '.'; i++;
-	filepath[i] = 'd'; i++;
-	filepath[i] = 'b'; i++;
-	filepath[i] = 'g'; i++;
-	filepath[i] =  0;
+	filepath.append(".fdb");
 
 	return 0;
 }
@@ -4386,28 +4726,28 @@ void saveGameDebugBreakpoints( bool force )
 {
 	int i;
 	FILE *fp;
-	char stmp[512];
 	char flags[8];
 	debuggerBookmark_t *bm;
+	std::string fileName;
 
 	// If no breakpoints are loaded, skip saving
 	if ( !force && (numWPs == 0) && (dbgBmMgr.size() == 0) )
 	{
 		return;
 	}
-	if ( getGameDebugBreakpointFileName( stmp ) )
+	if ( getGameDebugBreakpointFileName( fileName ) )
 	{
 		printf("Error: Failed to get save file name for debug\n");
 		return;
 	}
 
-	printf("Debug Save File: '%s' \n", stmp );
+	printf("Debug Save File: '%s' \n", fileName.c_str());
 
-	fp = fopen( stmp, "w");
+	fp = fopen( fileName.c_str(), "w");
 
 	if ( fp == NULL )
 	{
-		printf("Error: Failed to open file '%s' for writing\n", stmp );
+		printf("Error: Failed to open file '%s' for writing\n", fileName.c_str() );
 		return;
 	}
 
@@ -4532,6 +4872,7 @@ void loadGameDebugBreakpoints(void)
 	FILE *fp;
 	char stmp[512];
 	char id[64], data[128];
+	std::string fileName;
 
 	// If no debug windows are open, skip loading breakpoints
 	if ( dbgWin == NULL )
@@ -4539,19 +4880,19 @@ void loadGameDebugBreakpoints(void)
 		printf("No Debug Windows Open: Skipping loading of breakpoint data\n");
 		return;
 	}
-	if ( getGameDebugBreakpointFileName( stmp ) )
+	if ( getGameDebugBreakpointFileName( fileName ) )
 	{
 		printf("Error: Failed to get load file name for debug\n");
 		return;
 	}
 
-	//printf("Debug Load File: '%s' \n", stmp );
+	//printf("Debug Load File: '%s' \n", fileName.c_str() );
 
-	fp = fopen( stmp, "r");
+	fp = fopen( fileName.c_str(), "r");
 
 	if ( fp == NULL )
 	{
-		printf("Error: Failed to open file '%s' for writing\n", stmp );
+		printf("Warning: Failed to open file '%s' for reading\n", fileName.c_str() );
 		return;
 	}
 
@@ -4814,6 +5155,7 @@ QAsmView::QAsmView(QWidget *parent)
 
 	cursorLineAddr    = -1;
 	wheelPixelCounter =  0;
+	wheelAngleCounter =  0;
 
 	//setSizePolicy( QSizePolicy::Preferred, QSizePolicy::Expanding );
 	setFocusPolicy(Qt::StrongFocus);
@@ -4957,7 +5299,7 @@ void QAsmView::gotoAddr( int addr )
 //----------------------------------------------------------------------------
 void QAsmView::gotoLine( int line )
 {
-	if ( (line >= 0) && (line < asmEntry.size()) )
+	if ( (line >= 0) && (static_cast<size_t>(line) < asmEntry.size()) )
 	{
 		if ( curNavLoc.addr != asmEntry[line]->addr )
 		{	// Don't push back to back duplicates into the navigation history
@@ -5024,7 +5366,7 @@ void QAsmView::navHistForward(void)
 //----------------------------------------------------------------------------
 void QAsmView::setSelAddrToLine( int line )
 {
-	if ( (line >= 0) && (line < asmEntry.size()) )
+	if ( (line >= 0) && (static_cast<size_t>(line) < asmEntry.size()) )
 	{
 		int addr = asmEntry[line]->addr;
 		selAddrLine  = line;
@@ -5060,9 +5402,9 @@ void QAsmView::setDisplayByteCodes( bool value )
 		calcLineOffsets();
 		calcMinimumWidth();
 
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		updateAssemblyView();
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 //----------------------------------------------------------------------------
@@ -5072,9 +5414,9 @@ void QAsmView::setDisplayTraceData( bool value )
 	{
 		showTraceData = value;
 
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		updateAssemblyView();
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 //----------------------------------------------------------------------------
@@ -5084,9 +5426,9 @@ void QAsmView::setDisplayROMoffsets( bool value )
 	{
 		displayROMoffsets = value;
 
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		updateAssemblyView();
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 //----------------------------------------------------------------------------
@@ -5096,9 +5438,9 @@ void QAsmView::setSymbolDebugEnable( bool value )
 	{
 		symbolicDebugEnable = value;
 
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		updateAssemblyView();
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 //----------------------------------------------------------------------------
@@ -5108,9 +5450,9 @@ void QAsmView::setRegisterNameEnable( bool value )
 	{
 		registerNameEnable = value;
 
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		updateAssemblyView();
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 //----------------------------------------------------------------------------
@@ -5177,22 +5519,22 @@ bool QAsmView::event(QEvent *event)
 
 		line = lineOffset + c.y();
 
-		opcodeValid = (line < asmEntry.size()) && (asmEntry[line]->size > 0) &&
+		opcodeValid = (static_cast<size_t>(line) < asmEntry.size()) && (asmEntry[line]->size > 0) &&
 				(asmEntry[line]->type == dbg_asm_entry_t::ASM_TEXT);
 
 		showOpcodeDesc = (c.x() >= opcodeLinePos) && (c.x() < operandLinePos) && opcodeValid;
 
 		showAddrDesc = (c.x() >= pcLocLinePos) && (c.x() < byteCodeLinePos) && opcodeValid;
 
-		if ( (c.x() > operandLinePos) && opcodeValid && (asmEntry[line]->sym.name.size() > 0) )
+		if ( (c.x() > operandLinePos) && opcodeValid && (asmEntry[line]->sym.name().size() > 0) )
 		{
-			size_t subStrLoc = asmEntry[line]->text.find( asmEntry[line]->sym.name, operandLinePos );
+			size_t subStrLoc = asmEntry[line]->text.find( asmEntry[line]->sym.name(), operandLinePos );
 
-			if ( (subStrLoc != std::string::npos) && (subStrLoc > operandLinePos) )
+			if ( (subStrLoc != std::string::npos) && (subStrLoc > static_cast<size_t>(operandLinePos)) )
 			{
 				//printf("Line:%i asmEntry DB Sym: %zi  '%s'\n", line, subStrLoc, asmEntry[line]->sym.name.c_str() );
 				int symTextStart = subStrLoc;
-				int symTextEnd   = subStrLoc + asmEntry[line]->sym.name.size();
+				int symTextEnd   = subStrLoc + asmEntry[line]->sym.name().size();
 
 				if ( (c.x() >= symTextStart) && (c.x() < symTextEnd) )
 				{
@@ -5202,7 +5544,7 @@ bool QAsmView::event(QEvent *event)
 		}
 
 		if ( opcodeValid && (c.x() > operandLinePos) &&
-				(c.x() < asmEntry[line]->text.size()) )
+				( static_cast<size_t>(c.x()) < asmEntry[line]->text.size()) )
 		{
 			i = c.x();
 
@@ -5256,7 +5598,7 @@ bool QAsmView::event(QEvent *event)
 		}
 		else if ( showSymHexDecode )
 		{
-			sprintf( stmp, "$%04X", asmEntry[line]->sym.ofs );
+			sprintf( stmp, "$%04X", asmEntry[line]->sym.offset() );
 
 			QToolTip::showText(helpEvent->globalPos(), tr(stmp), this );
 		}
@@ -5272,7 +5614,7 @@ bool QAsmView::event(QEvent *event)
 					asmEntry[line]->addr, asmEntry[line]->bank, asmEntry[line]->rom );
 			}
 
-			//static_cast<asmLookAheadPopup*>(fceuCustomToolTipShow( helpEvent, new asmLookAheadPopup(asmEntry[line]->addr, this) ));
+			//static_cast<asmLookAheadPopup*>(fceuCustomToolTipShow( helpEvent->globalPos(), new asmLookAheadPopup(asmEntry[line]->addr, this) ));
 			QToolTip::showText(helpEvent->globalPos(), tr(stmp), this );
 			//QToolTip::hideText();
 			//event->ignore();
@@ -5297,7 +5639,10 @@ bool QAsmView::event(QEvent *event)
 					addr, bank, romOfs );
 			}
 
-			static_cast<asmLookAheadPopup*>(fceuCustomToolTipShow( helpEvent, new asmLookAheadPopup(addr, this) ));
+			if ( static_cast<asmLookAheadPopup*>(fceuCustomToolTipShow( helpEvent->globalPos(), new asmLookAheadPopup(addr, this) )) == NULL )
+			{
+				printf("ASM Lookahead Popup Error\n");
+			}
 			//QToolTip::showText(helpEvent->globalPos(), tr(stmp), this );
 			QToolTip::hideText();
 			event->ignore();
@@ -5552,7 +5897,7 @@ void QAsmView::mouseMoveEvent(QMouseEvent * event)
 
 	//printf("c (%i,%i) : Line %i : %04X \n", c.x(), c.y(), line, asmEntry[line]->addr );
 
-	if ( line < asmEntry.size() )
+	if ( static_cast<size_t>(line) < asmEntry.size() )
 	{
 		int addr;
 
@@ -5651,7 +5996,7 @@ void QAsmView::loadHighlightToClipboard(void)
 			}
 			hlgtXd = (hlgtXe - hlgtXs);
 
-			if ( hlgtXs < asmEntry[l]->text.size() )
+			if ( static_cast<size_t>(hlgtXs) < asmEntry[l]->text.size() )
 			{
 				s = asmEntry[l]->text.substr( hlgtXs, hlgtXd );
 			}
@@ -5742,7 +6087,7 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 	selAddrType  =  0;
 	selAddrText[0] = 0;
 
-	if ( line < asmEntry.size() )
+	if ( static_cast<size_t>(line) < asmEntry.size() )
 	{
 		int i,j, addr = -1, addrTextLoc = -1, selChar;
 		int symTextStart = -1, symTextEnd = -1;
@@ -5753,19 +6098,19 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 
 		if ( asmEntry[line]->type == dbg_asm_entry_t::ASM_TEXT )
 		{
-			if ( selChar < (int)asmEntry[line]->text.size() )
+			if ( static_cast<size_t>(selChar) < asmEntry[line]->text.size() )
 			{
 				i = selChar;
 
-				if ( asmEntry[line]->sym.name.size() > 0 )
+				if ( asmEntry[line]->sym.name().size() > 0 )
 				{
-					size_t subStrLoc = asmEntry[line]->text.find( asmEntry[line]->sym.name, operandLinePos );
+					size_t subStrLoc = asmEntry[line]->text.find( asmEntry[line]->sym.name(), operandLinePos );
 
-					if ( (subStrLoc != std::string::npos) && (subStrLoc > operandLinePos) )
+					if ( (subStrLoc != std::string::npos) && (subStrLoc > static_cast<size_t>(operandLinePos)) )
 					{
 						//printf("Line:%i asmEntry DB Sym: %zi  '%s'\n", line, subStrLoc, asmEntry[line]->sym.name.c_str() );
 						symTextStart = subStrLoc;
-						symTextEnd   = subStrLoc + asmEntry[line]->sym.name.size();
+						symTextEnd   = subStrLoc + asmEntry[line]->sym.name().size();
 					}
 				}
 
@@ -5774,14 +6119,14 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 					selAddrLine  = line;
 					selAddrChar  = symTextStart;
 					selAddrWidth = symTextEnd - symTextStart;
-					selAddrValue = addr = asmEntry[line]->sym.ofs;
+					selAddrValue = addr = asmEntry[line]->sym.offset();
 					selAddrType  = 0;
 
 					if ( selAddrWidth >= (int)sizeof(selAddrText) )
 					{
 						selAddrWidth = sizeof(selAddrText)-1;
 					}
-					strncpy( selAddrText, asmEntry[line]->sym.name.c_str(), selAddrWidth );
+					strncpy( selAddrText, asmEntry[line]->sym.name().c_str(), selAddrWidth );
 					selAddrText[ selAddrWidth ] = 0;
 				}
 				else if ( isxdigit( asmEntry[line]->text[i] ) )
@@ -5899,6 +6244,7 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 //----------------------------------------------------------------------------
 void QAsmView::wheelEvent(QWheelEvent *event)
 {
+	int zDelta = 0;
 
 	QPoint numPixels = event->pixelDelta();
 	QPoint numDegrees = event->angleDelta();
@@ -5907,42 +6253,59 @@ void QAsmView::wheelEvent(QWheelEvent *event)
 	{
 		wheelPixelCounter -= numPixels.y();
 	   //printf("numPixels: (%i,%i) \n", numPixels.x(), numPixels.y() );
+
+		if ( wheelPixelCounter >= pxLineSpacing )
+		{
+			zDelta = (wheelPixelCounter / pxLineSpacing);
+
+			wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
+		}
+		else if ( wheelPixelCounter <= -pxLineSpacing )
+		{
+			zDelta = (wheelPixelCounter / pxLineSpacing);
+
+			wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
+		}
 	} 
 	else if (!numDegrees.isNull()) 
 	{
+		int stepDeg = 120;
 		//QPoint numSteps = numDegrees / 15;
 		//printf("numSteps: (%i,%i) \n", numSteps.x(), numSteps.y() );
 		//printf("numDegrees: (%i,%i)  %i\n", numDegrees.x(), numDegrees.y(), pxLineSpacing );
-		wheelPixelCounter -= (pxLineSpacing * numDegrees.y()) / (15*8);
+		wheelAngleCounter -= numDegrees.y();
+
+		if ( wheelAngleCounter <= stepDeg )
+		{
+			zDelta = wheelAngleCounter / stepDeg;
+
+			wheelAngleCounter = wheelAngleCounter % stepDeg;
+		}
+		else if ( wheelAngleCounter >= stepDeg )
+		{
+			zDelta = wheelAngleCounter / stepDeg;
+
+			wheelAngleCounter = wheelAngleCounter % stepDeg;
+		}
 	}
 	//printf("Wheel Event: %i\n", wheelPixelCounter);
 
-	if ( wheelPixelCounter >= pxLineSpacing )
+	if ( zDelta != 0 )
 	{
-		lineOffset += (wheelPixelCounter / pxLineSpacing);
-
-		if ( lineOffset > maxLineOffset )
-		{
-			lineOffset = maxLineOffset;
-		}
-		vbar->setValue( lineOffset );
-
-		wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
-	}
-	else if ( wheelPixelCounter <= -pxLineSpacing )
-	{
-		lineOffset += (wheelPixelCounter / pxLineSpacing);
+		lineOffset += zDelta;
 
 		if ( lineOffset < 0 )
 		{
 			lineOffset = 0;
 		}
+		else if ( lineOffset > maxLineOffset )
+		{
+			lineOffset = maxLineOffset;
+		}
 		vbar->setValue( lineOffset );
-
-		wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
 	}
 
-	 event->accept();
+	event->accept();
 }
 //----------------------------------------------------------------------------
 void QAsmView::contextMenuEvent(QContextMenuEvent *event)
@@ -5962,9 +6325,9 @@ void QAsmView::contextMenuEvent(QContextMenuEvent *event)
 
 	ctxMenuAddr = -1;
 
-	if ( line < asmEntry.size() )
+	if ( static_cast<size_t>(line) < asmEntry.size() )
 	{
-		int addr, romAddr;
+		int addr, romAddr, bank = -1;
 
 		if ( selAddrValue < 0 )
 		{
@@ -6013,12 +6376,31 @@ void QAsmView::contextMenuEvent(QContextMenuEvent *event)
 		act->setShortcut( QKeySequence(tr("B")));
 		connect( act, SIGNAL(triggered(void)), parent, SLOT(asmViewCtxMenuAddBP(void)) );
 
-		act = new QAction(tr("Add &Symbolic Debug Marker"), &menu);
+		int cpuAddr = getAsmAddrFromLine( getCtxMenuLine() );
+		if ( cpuAddr >= 0x8000 )
+		{
+			bank = getBank(cpuAddr);
+		}
+		if ( debugSymbolTable.getSymbolAtBankOffset( bank, cpuAddr ) )
+		{
+			act = new QAction(tr("Edit &Symbolic Debug Marker"), &menu);
+		}
+		else
+		{
+			act = new QAction(tr("Add &Symbolic Debug Marker"), &menu);
+		}
 	 	menu.addAction(act);
 		act->setShortcut( QKeySequence(tr("S")));
 		connect( act, SIGNAL(triggered(void)), parent, SLOT(asmViewCtxMenuAddSym(void)) );
 
-		act = new QAction(tr("Add Book&mark"), &menu);
+		if ( dbgBmMgr.getAddr( cpuAddr ) )
+		{
+			act = new QAction(tr("Edit Book&mark"), &menu);
+		}
+		else
+		{
+			act = new QAction(tr("Add Book&mark"), &menu);
+		}
 	 	menu.addAction(act);
 		act->setShortcut( QKeySequence(tr("M")));
 		connect( act, SIGNAL(triggered(void)), parent, SLOT(asmViewCtxMenuAddBM(void)) );
@@ -6328,7 +6710,7 @@ void QAsmView::paintEvent(QPaintEvent *event)
 			lineIsPC = false;
 		}
 
-		if ( l < asmEntry.size() )
+		if ( static_cast<size_t>(l) < asmEntry.size() )
 		{
 			//if ( asmEntry[l]->type != dbg_asm_entry_t::ASM_TEXT )
 			//{
@@ -6360,7 +6742,7 @@ void QAsmView::paintEvent(QPaintEvent *event)
 			if ( (selAddrLine == l) )
 			{	// Highlight ASM line for selected address.
 				if ( !txtHlgtSet && (selAddr == selAddrValue) && 
-				  	    (asmEntry[l]->text.size() >= (selAddrChar + selAddrWidth) ) && 
+				  	    (asmEntry[l]->text.size() >= static_cast<size_t>(selAddrChar + selAddrWidth) ) && 
 						    ( asmEntry[l]->text.compare( selAddrChar, selAddrWidth, selAddrText ) == 0 ) )
 				{
 					int ax;
@@ -6415,7 +6797,7 @@ void QAsmView::paintEvent(QPaintEvent *event)
 				}
 				hlgtXd = (hlgtXe - hlgtXs);
 
-				if ( hlgtXs < asmEntry[l]->text.size() )
+				if ( static_cast<size_t>(hlgtXs) < asmEntry[l]->text.size() )
 				{
 					s = asmEntry[l]->text.substr( hlgtXs, hlgtXd );
 				}
@@ -6447,7 +6829,7 @@ void QAsmView::paintEvent(QPaintEvent *event)
 		x = -pxLineXScroll;
 		l = lineOffset + row;
 
-		if ( l < asmEntry.size() )
+		if ( static_cast<size_t>(l) < asmEntry.size() )
 		{
 			if ( asmPC != NULL )
 			{
@@ -6866,7 +7248,7 @@ bool ppuCtrlRegDpy::event(QEvent *event)
 		//{
 		//	printf("Tool Tip Show\n");
 		//}
-		popup = static_cast<ppuRegPopup*>(fceuCustomToolTipShow( helpEvent, new ppuRegPopup(this) ));
+		popup = static_cast<ppuRegPopup*>(fceuCustomToolTipShow( helpEvent->globalPos(), new ppuRegPopup(this) ));
 
 		QToolTip::hideText();
 		event->ignore();
@@ -6892,7 +7274,7 @@ asmLookAheadPopup::asmLookAheadPopup( int addr, QWidget *parent )
 	QFont        font;
 	char stmp[128];
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	vbox    = new QVBoxLayout();
 	vbox1   = new QVBoxLayout();
@@ -7029,7 +7411,7 @@ asmLookAheadPopup::asmLookAheadPopup( int addr, QWidget *parent )
 	resize(512, 512);
 
 	asmView->updateAssemblyView();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	hbar->hide();
 	vbar->hide();
@@ -7459,7 +7841,7 @@ DebugBreakOnDialog::DebugBreakOnDialog(int type, QWidget *parent )
 	char stmp[128];
 	QPushButton *btn;
 	
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	prevPauseState = FCEUI_EmulationPaused();
 
@@ -7467,7 +7849,7 @@ DebugBreakOnDialog::DebugBreakOnDialog(int type, QWidget *parent )
 	{
 		FCEUI_ToggleEmulationPause();
 	}
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	currLbl = new QLabel();
 

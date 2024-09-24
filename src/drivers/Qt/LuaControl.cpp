@@ -279,18 +279,19 @@ void LuaControlDialog_t::openLuaScriptFile(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[2048];
-	char exePath[2048];
-	const char *luaPath;
+	std::string dir;
+	const char *exePath = nullptr;
+	const char *luaPath = nullptr;
 	QFileDialog dialog(this, tr("Open LUA Script"));
 	QList<QUrl> urls;
 	QDir d;
 
-	fceuExecutablePath(exePath, sizeof(exePath));
+	exePath = fceuExecutablePath();
 
 	//urls = dialog.sidebarUrls();
 	urls << QUrl::fromLocalFile(QDir::rootPath());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 	urls << QUrl::fromLocalFile(QDir(FCEUI_GetBaseDirectory()).absolutePath());
 
@@ -380,7 +381,7 @@ void LuaControlDialog_t::openLuaScriptFile(void)
 
 	getDirFromFile(last.c_str(), dir);
 
-	dialog.setDirectory(tr(dir));
+	dialog.setDirectory(tr(dir.c_str()));
 
 	// Check config option to use native file dialog or not
 	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -418,23 +419,23 @@ void LuaControlDialog_t::startLuaScript(void)
 {
 #ifdef _S9XLUA_H
 	outBuf.clear();
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	if (0 == FCEU_LoadLuaCode(scriptPath->text().toStdString().c_str(), scriptArgs->text().toStdString().c_str()))
 	{
 		char error_msg[2048];
 		sprintf( error_msg, "Error: Could not open the selected lua script: '%s'\n", scriptPath->text().toStdString().c_str());
 		FCEUD_PrintError(error_msg);
 	}
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 #endif
 }
 //----------------------------------------------------
 void LuaControlDialog_t::stopLuaScript(void)
 {
 #ifdef _S9XLUA_H
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEU_LuaStop();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 #endif
 }
 //----------------------------------------------------
@@ -505,11 +506,7 @@ void PrintToWindowConsole(intptr_t hDlgAsInt, const char *str)
 	updateLuaDisplay = true;
 }
 //----------------------------------------------------
-#ifdef WIN32
-int LuaPrintfToWindowConsole(_In_z_ _Printf_format_string_ const char *format, ...)
-#else
-int LuaPrintfToWindowConsole(const char *__restrict format, ...) throw()
-#endif
+int LuaPrintfToWindowConsole( __FCEU_PRINTF_FORMAT const char * format, ...)
 {
 	int retval;
 	va_list args;

@@ -26,7 +26,11 @@
 static void GetString(char *s, int max)
 {
  int x;
- fgets(s,max,stdin);
+ if ( fgets(s,max,stdin) == nullptr )
+ {
+    s[0] = 0;
+    return;
+ }
 
  for(x=0;x<max;x++)
   if(s[x]=='\n')
@@ -41,7 +45,10 @@ static uint32 GetH16(unsigned int def)
 {
  char buf[32];
 
- fgets(buf,ARRAY_SIZE(buf),stdin);
+ if ( fgets(buf,ARRAY_SIZE(buf),stdin) == nullptr )
+ {
+    return def;
+ }
  if(buf[0]=='\n')
   return(def);
  if(buf[0]=='$')
@@ -56,7 +63,10 @@ static uint8 Get8(unsigned int def)
 {
  char buf[32];
 
- fgets(buf,ARRAY_SIZE(buf),stdin);
+ if ( fgets(buf,ARRAY_SIZE(buf),stdin) == nullptr )
+ {
+    return def;
+ }
  if(buf[0]=='\n')
   return(def);
  sscanf(buf,"%u",&def);
@@ -67,7 +77,10 @@ static int GetI(int def)
 {
  char buf[32];
 
- fgets(buf,ARRAY_SIZE(buf),stdin);
+ if ( fgets(buf,ARRAY_SIZE(buf),stdin) == nullptr )
+ {
+    return def;
+ }
  if(buf[0]=='\n')
   return(def);
  sscanf(buf,"%d",&def);
@@ -78,7 +91,10 @@ static int GetYN(int def)
 {
  char buf[32];
  printf("(Y/N)[%s]: ",def?"Y":"N");
- fgets(buf,ARRAY_SIZE(buf),stdin);
+ if ( fgets(buf,ARRAY_SIZE(buf),stdin) == nullptr )
+ {
+    return def;
+ }
  if(buf[0]=='y' || buf[0]=='Y')
   return(1);
  if(buf[0]=='n' || buf[0]=='N')
@@ -114,7 +130,10 @@ int ListChoice(int hmm)
 
    tryagain:
    printf(" <'Enter' to continue, (S)top, or enter a number.> ");
-   fgets(buf,ARRAY_SIZE(buf),stdin);
+   if ( fgets(buf,ARRAY_SIZE(buf),stdin) == nullptr )
+   {
+      return -1;
+   }
    if(buf[0]=='s' || buf[0]=='S') return(-1);
    if(buf[0]=='\n') return(0);
    if(!sscanf(buf,"%d",&num))
@@ -128,7 +147,10 @@ int ListChoice(int hmm)
 
    tryagain2:
    printf(" <'Enter' to make no selection or enter a number.> ");
-   fgets(buf,ARRAY_SIZE(buf),stdin);
+   if ( fgets(buf,ARRAY_SIZE(buf),stdin) == nullptr )
+   {
+      return -1;
+   }
    if(buf[0]=='\n') return(0);
    if(!sscanf(buf,"%d",&num))
     return(0);
@@ -199,7 +221,8 @@ static void ToggleCheat(int num)
 
 static void ModifyCheat(int num)
 {
- char *name;
+ std::string name;
+ std::string *pName;
  char buf[256];
  uint32 A;
  uint8 V;
@@ -211,7 +234,7 @@ static void ModifyCheat(int num)
 
  FCEUI_GetCheat(num, &name, &A, &V, &compare, &s, &type);
 
- printf("Name [%s]: ",name);
+ printf("Name [%s]: ",name.c_str());
  GetString(buf,256);
 
  /* This obviously doesn't allow for cheats with no names.  Bah.  Who wants
@@ -219,9 +242,9 @@ static void ModifyCheat(int num)
  */
 
  if(buf[0])
-  name=buf;	// Change name when FCEUI_SetCheat() is called.
+	 pName=&name;	// Change name when FCEUI_SetCheat() is called.
  else
-  name=0;	// Don't change name when FCEUI_SetCheat() is called.
+  pName=nullptr;	// Don't change name when FCEUI_SetCheat() is called.
 
  printf("Address [$%04x]: ",(unsigned int)A);
  A=GetH16(A);
@@ -240,7 +263,7 @@ static void ModifyCheat(int num)
  if(t=='Y' || t=='y') s=1;
  else if(t=='N' || t=='n') s=0;
 
- FCEUI_SetCheat(num,name,A,V,compare,s,type);
+ FCEUI_SetCheat(num,pName,A,V,compare,s,type);
 }
 
 
@@ -320,7 +343,7 @@ static void AddCheat(void)
 }
 
 static int lid;
-static int clistcallb(char *name, uint32 a, uint8 v, int compare, int s, int type, void *data)
+static int clistcallb(const char *name, uint32 a, uint8 v, int compare, int s, int type, void *data)
 {
  char tmp[512];
  int ret;
@@ -348,7 +371,10 @@ static void ListCheats(void)
  {
   char tmp[32];
   printf(" <(T)oggle status, (M)odify, or (D)elete this cheat.> ");
-  fgets(tmp,ARRAY_SIZE(tmp),stdin);
+  if ( fgets(tmp,ARRAY_SIZE(tmp),stdin) == nullptr )
+  {
+     tmp[0] = 0;
+  }
   switch(tolower(tmp[0]))
   {
    case 't':ToggleCheat(which);
@@ -405,7 +431,10 @@ static int ShowShortList(const char *moe[], int n, int def)
  clo:
 
  printf("\nSelection [%d]> ",def+1);
- fgets(tmp,ARRAY_SIZE(tmp),stdin);
+ if ( fgets(tmp,ARRAY_SIZE(tmp),stdin) == nullptr )
+ {
+    return def;
+ }
  if(tmp[0]=='\n')
   return def;
  c=tolower(tmp[0]);
@@ -504,7 +533,10 @@ static void DoMenu(MENU *men)
 
   recommand:
   printf("Command> ");
-  fgets(buf,ARRAY_SIZE(buf),stdin);
+  if ( fgets(buf,ARRAY_SIZE(buf),stdin) == nullptr )
+  {
+     return;
+  }
   c=tolower(buf[0]);
   if(c=='\n')
    goto recommand;

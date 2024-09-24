@@ -26,6 +26,7 @@
 #ifdef WIN32
 #include <windows.h>
 #else
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -39,6 +40,7 @@
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QShortcut>
 #include <QPainter>
 #include <QGuiApplication>
 
@@ -55,6 +57,7 @@
 
 #include "common/os_utils.h"
 
+#include "Qt/ConsoleDebugger.h"
 #include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleUtilities.h"
 #include "Qt/TraceLogger.h"
@@ -110,8 +113,11 @@ static int recBufHead = 0;
 static int recBufNum = 0;
 static traceRecord_t *logBuf = NULL;
 static int logBufMax = 3000000;
-static int logBufHead = 0;
-static int logBufTail = 0;
+// logBufHead and logBufTail are volatile because they are shared use by both the emulation and disk logger threads.
+// Ensure that the compiler doesn't do any thread caching optimizations on them so that changes to these
+// variables are immediately visible by the other thread.
+static volatile int logBufHead = 0;
+static volatile int logBufTail = 0;
 static bool overrunWarningArmed = true;
 static TraceLoggerDialog_t *traceLogWindow = NULL;
 static void pushMsgToLogBuffer(const char *msg);
@@ -152,6 +158,7 @@ TraceLoggerDialog_t::TraceLoggerDialog_t(QWidget *parent)
 	QAction *act;
 	QLabel *lbl;
 	int opt, useNativeMenuBar;
+	QShortcut *shortcut;
 
 	if (recBufMax == 0)
 	{
@@ -198,6 +205,12 @@ TraceLoggerDialog_t::TraceLoggerDialog_t(QWidget *parent)
 
 	connect(hbar, SIGNAL(valueChanged(int)), this, SLOT(hbarChanged(int)));
 	connect(vbar, SIGNAL(valueChanged(int)), this, SLOT(vbarChanged(int)));
+	connect(vbar, SIGNAL(actionTriggered(int)), this, SLOT(vbarActionTriggered(int)));
+
+	shortcut = new QShortcut( QKeySequence("Page Up"), this );
+	connect( shortcut, SIGNAL(activated(void)), this, SLOT(pageUpActivated(void)) );
+	shortcut = new QShortcut( QKeySequence("Page Down"), this );
+	connect( shortcut, SIGNAL(activated(void)), this, SLOT(pageDnActivated(void)) );
 
 	traceView->setScrollBars(hbar, vbar);
 	traceView->setMinimumHeight(256);
@@ -398,7 +411,7 @@ TraceLoggerDialog_t::~TraceLoggerDialog_t(void)
 
 	traceLogWindow = NULL;
 
-	printf("Trace Logger Window Deleted\n");
+	//printf("Trace Logger Window Deleted\n");
 }
 //----------------------------------------------------
 void TraceLoggerDialog_t::closeEvent(QCloseEvent *event)
@@ -550,7 +563,7 @@ void TraceLoggerDialog_t::openLogFile(void)
 	QString filename;
 	QFileDialog dialog(this, tr("Select Log File"));
 
-	printf("Log File Select\n");
+	//printf("Log File Select\n");
 
 	dialog.setFileMode(QFileDialog::AnyFile);
 
@@ -565,16 +578,16 @@ void TraceLoggerDialog_t::openLogFile(void)
 
 	if (romFile != NULL)
 	{
-		char dir[1024];
+		std::string dir;
 		getDirFromFile(romFile, dir);
-		dialog.setDirectory(tr(dir));
+		dialog.setDirectory(tr(dir.c_str()));
 	}
 
 	if ( logFilePath.size() != 0 )
 	{
-		char dir[1024];
+		std::string dir;
 		getDirFromFile(logFilePath.c_str(), dir);
-		dialog.setDirectory(tr(dir));
+		dialog.setDirectory(tr(dir.c_str()));
 	}
 
 	// Check config option to use native file dialog or not
@@ -617,6 +630,81 @@ void TraceLoggerDialog_t::vbarChanged(int val)
 {
 	//printf("VBAR: %i \n", val );
 	traceView->update();
+}
+//----------------------------------------------------
+void TraceLoggerDialog_t::vbarActionTriggered(int act)
+{
+	int val = vbar->value();
+	int max = vbar->maximum();
+
+	if ( act == QAbstractSlider::SliderSingleStepAdd )
+	{
+		val = val - vbar->singleStep();
+
+		if ( val < 0 )
+		{
+			val = 0;
+		}
+		vbar->setSliderPosition(val);
+	}
+	else if ( act == QAbstractSlider::SliderSingleStepSub )
+	{
+		val = val + vbar->singleStep();
+
+		if ( val > max )
+		{
+			val = max;
+		}
+		vbar->setSliderPosition(val);
+	}
+        else if ( act == QAbstractSlider::SliderPageStepAdd )
+        {
+               	val = val - vbar->pageStep();
+
+		if ( val < 0 )
+		{
+			val = 0;
+		}
+		vbar->setSliderPosition(val);
+        }
+        else if ( act == QAbstractSlider::SliderPageStepSub )
+        {
+                val = val + vbar->pageStep();
+
+		if ( val > max )
+		{
+			val = max;
+		}
+		vbar->setSliderPosition(val);
+        }
+	//printf("ACT:%i\n", act);
+}
+//----------------------------------------------------
+void TraceLoggerDialog_t::pageUpActivated(void)
+{
+	int val = vbar->value();
+	int max = vbar->maximum();
+
+	val = val + vbar->pageStep();
+
+	if ( val > max )
+	{
+		val = max;
+	}
+	vbar->setSliderPosition(val);
+}
+//----------------------------------------------------
+void TraceLoggerDialog_t::pageDnActivated(void)
+{
+	int val = vbar->value();
+
+	val = val - vbar->pageStep();
+
+	if ( val < 0 )
+	{
+		val = 0;
+	}
+	vbar->setSliderPosition(val);
 }
 //----------------------------------------------------
 void TraceLoggerDialog_t::logToFileStateChanged(int state)
@@ -1124,7 +1212,6 @@ void openTraceLoggerWindow(QWidget *parent)
 	{
 		traceLogWindow->activateWindow();
 		traceLogWindow->raise();
-		traceLogWindow->setFocus();
 		return;
 	}
 	//printf("Open Trace Logger Window\n");
@@ -1204,10 +1291,36 @@ int FCEUD_TraceLoggerStart(void)
 	return logging;
 }
 //----------------------------------------------------
+int FCEUD_TraceLoggerStop(void)
+{
+	if (!logging)
+	{
+		return 0;
+	}
+	if (traceLogWindow)
+	{
+		traceLogWindow->toggleLoggingOnOff();
+	}
+	else
+	{
+		logging = 0;
+		msleep(1);
+		pushMsgToLogBuffer("Logging Finished");
+	}
+	return logging;
+}
+//----------------------------------------------------
 int FCEUD_TraceLoggerRunning(void)
 {
 	return logging;
 }
+
+void FCEUD_FlushTrace()
+{
+	//not needed, since it's doing something in a thread, i guess.
+	//seems weird that there's no way to rendezvous with it
+}
+
 //----------------------------------------------------
 //todo: really speed this up
 void FCEUD_TraceInstruction(uint8 *opcode, int size)
@@ -1563,7 +1676,7 @@ void QTraceLogView::calcTextSel(int x, int y)
 	selAddrValue = -1;
 	selAddrText[0] = 0;
 
-	if (x < lineText[y].size())
+	if ( static_cast<size_t>(x) < lineText[y].size())
 	{
 		int ax = x;
 
@@ -1751,7 +1864,7 @@ void QTraceLogView::wheelEvent(QWheelEvent *event)
 
 	if (!numPixels.isNull())
 	{
-		wheelPixelCounter -= numPixels.y();
+		wheelPixelCounter += numPixels.y();
 		//printf("numPixels: (%i,%i) \n", numPixels.x(), numPixels.y() );
 	}
 	else if (!numDegrees.isNull())
@@ -1759,7 +1872,7 @@ void QTraceLogView::wheelEvent(QWheelEvent *event)
 		//QPoint numSteps = numDegrees / 15;
 		//printf("numSteps: (%i,%i) \n", numSteps.x(), numSteps.y() );
 		//printf("numDegrees: (%i,%i)  %i\n", numDegrees.x(), numDegrees.y(), pxLineSpacing );
-		wheelPixelCounter -= (pxLineSpacing * numDegrees.y()) / (15 * 8);
+		wheelPixelCounter += (pxLineSpacing * numDegrees.y()) / (15 * 8);
 	}
 	//printf("Wheel Event: %i\n", wheelPixelCounter);
 
@@ -2075,7 +2188,7 @@ void QTraceLogView::openBpEditWindow(int editIdx, watchpointinfo *wp, traceRecor
 					numWPs++;
 				}
 
-				updateAllDebuggerWindows();
+				updateAllDebuggerWindows(QAsmView::UPDATE_NO_SCROLL);
 			}
 		}
 	}
@@ -2120,7 +2233,7 @@ void QTraceLogView::openDebugSymbolEditWindow(int addr, int bank)
 
 	if (ret == QDialog::Accepted)
 	{
-		updateAllDebuggerWindows();
+		updateAllDebuggerWindows(QAsmView::UPDATE_NO_SCROLL);
 	}
 }
 //----------------------------------------------------------------------------
@@ -2220,7 +2333,9 @@ void QTraceLogView::paintEvent(QPaintEvent *event)
 	nrow = (viewHeight / pxLineSpacing);
 
 	if (nrow < 1)
+	{
 		nrow = 1;
+	}
 
 	viewLines = nrow;
 
@@ -2237,7 +2352,7 @@ void QTraceLogView::paintEvent(QPaintEvent *event)
 	else
 	{
 		vbar->setMaximum( recBufNum - viewLines );
-		vbar->setPageStep( viewLines );
+		vbar->setPageStep( (viewLines*7)/8 );
 		vbar->show();
 	}
 
@@ -2392,11 +2507,12 @@ void QTraceLogView::paintEvent(QPaintEvent *event)
 TraceLogDiskThread_t::TraceLogDiskThread_t( QObject *parent )
 	: QThread(parent)
 {
+	setObjectName( QString("TraceLogDiskThread") );
 }
 //----------------------------------------------------
 TraceLogDiskThread_t::~TraceLogDiskThread_t(void)
 {
-	printf("Disk Thread Cleanup\n");
+	//printf("Disk Thread Cleanup\n");
 #ifdef WIN32
 	if (logFile != INVALID_HANDLE_VALUE)
 	{
@@ -2423,8 +2539,10 @@ void TraceLogDiskThread_t::run(void)
 	char buf[8192];
 	int i,idx=0;
 	int blockSize = 4 * 1024;
+	bool dataNeedsFlush = true;
+	bool isPaused = false;
 
-	printf("Trace Log Disk Start\n");
+	//printf("Trace Log Disk Start\n");
 
 	setPriority( QThread::HighestPriority );
 
@@ -2465,6 +2583,8 @@ void TraceLogDiskThread_t::run(void)
 
 	while ( !isInterruptionRequested() )
 	{
+		isPaused = FCEUI_EmulationPaused() ? true : false;
+
 		while (logBufHead != logBufTail)
 		{
 			logBuf[logBufTail].convToText(line);
@@ -2490,6 +2610,41 @@ void TraceLogDiskThread_t::run(void)
 				}
 				idx = 0;
 				#endif
+				dataNeedsFlush = true;
+			}
+		}
+
+		if (isPaused)
+		{
+			// If paused, the user might be at a breakpoint or doing some
+			// debugging. So make sure all data is flushed to disk for viewing.
+			// Only flush data when paused, to keep write efficiency up.
+			if ( idx > 0 )
+			{
+				#ifdef WIN32
+				DWORD bytesWritten;
+				WriteFile( logFile, buf, idx, &bytesWritten, NULL ); idx = 0;
+				#else
+				if ( write( logFile, buf, idx ) < 0 )
+				{
+					// HANDLE ERROR TODO
+				}
+				idx = 0;
+				#endif
+				dataNeedsFlush = true;
+			}
+			if (dataNeedsFlush)
+			{
+				//printf("Flushing Trace Log Disk Buffers\n");
+				#ifdef WIN32
+				FlushFileBuffers( logFile );
+				#else
+				if ( fsync( logFile ) )
+				{
+					printf("Trace Log fsync error\n");
+				}
+				#endif
+				dataNeedsFlush = false;
 			}
 		}
 		SDL_Delay(1);
@@ -2521,7 +2676,7 @@ void TraceLogDiskThread_t::run(void)
 	}
 	#endif
 	
-	printf("Trace Log Disk Exit\n");
+	//printf("Trace Log Disk Exit\n");
 	emit finished();
 }
 //----------------------------------------------------

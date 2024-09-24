@@ -89,7 +89,7 @@ ConsoleViewSDL_t::ConsoleViewSDL_t(QWidget *parent)
 
 	if ( localBuf )
 	{
-		memset( localBuf, 0, localBufSize );
+		memset32( localBuf, alphaMask, localBufSize );
 	}
 
 	forceAspect  = true;
@@ -116,11 +116,14 @@ ConsoleViewSDL_t::ConsoleViewSDL_t(QWidget *parent)
 		{
 			fceuLoadConfigColor( "SDL.VideoBgColor", bgColor );
 		}
+		g_config->getOption ("SDL.VideoVsync", &vsyncEnabled);
 	}
 }
 
 ConsoleViewSDL_t::~ConsoleViewSDL_t(void)
 {
+	//printf("Destroying SDL Viewport\n");
+
 	if ( localBuf )
 	{
 		free( localBuf ); localBuf = NULL;
@@ -143,6 +146,16 @@ void ConsoleViewSDL_t::setBgColor( QColor &c )
 	if ( bgColor )
 	{
 		*bgColor = c;
+	}
+}
+
+void ConsoleViewSDL_t::setVsyncEnable( bool ena )
+{
+	if ( vsyncEnabled != ena )
+	{
+		vsyncEnabled = ena;
+
+		reset();
 	}
 }
 
@@ -195,16 +208,22 @@ double ConsoleViewSDL_t::getAspectRatio(void)
 
 void ConsoleViewSDL_t::transfer2LocalBuffer(void)
 {
-	int i=0, hq = 0;
+	int i=0, hq = 0, bufIdx;
 	int numPixels = nes_shm->video.ncol * nes_shm->video.nrow;
 	unsigned int cpSize = numPixels * 4;
  	uint8_t *src, *dest;
 
+	bufIdx = nes_shm->pixBufIdx-1;
+
+	if ( bufIdx < 0 )
+	{
+		bufIdx = NES_VIDEO_BUFLEN-1;
+	}
 	if ( cpSize > localBufSize )
 	{
 		cpSize = localBufSize;
 	}
-	src  = (uint8_t*)nes_shm->pixbuf;
+	src  = (uint8_t*)nes_shm->pixbuf[bufIdx];
 	dest = (uint8_t*)localBuf;
 
 	hq = (nes_shm->video.preScaler == 1) || (nes_shm->video.preScaler == 4); // hq2x and hq3x
@@ -223,7 +242,7 @@ void ConsoleViewSDL_t::transfer2LocalBuffer(void)
 	}
 	else
 	{
-		memcpy( localBuf, nes_shm->pixbuf, cpSize );
+		copyPixels32( dest, src, cpSize, alphaMask);
 	}
 }
 
@@ -278,6 +297,10 @@ int ConsoleViewSDL_t::init(void)
 
 	SDL_ShowWindow( sdlWindow );
 
+	//if ( vsyncEnabled )
+	//{
+	//	printf("Vsync Enabled\n");
+	//}
 	uint32_t baseFlags = vsyncEnabled ? SDL_RENDERER_PRESENTVSYNC : 0;
 
 	sdlRenderer = SDL_CreateRenderer(sdlWindow, -1, baseFlags | SDL_RENDERER_ACCELERATED);

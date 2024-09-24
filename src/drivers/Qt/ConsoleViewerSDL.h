@@ -10,7 +10,9 @@
 #include <QResizeEvent>
 #include <SDL.h>
 
-class ConsoleViewSDL_t : public QWidget
+#include "Qt/ConsoleViewerInterface.h"
+
+class ConsoleViewSDL_t : public QWidget, public ConsoleViewerBase
 {
     Q_OBJECT
 
@@ -22,9 +24,12 @@ class ConsoleViewSDL_t : public QWidget
 		void reset(void);
 		void cleanup(void);
 		void render(void);
+		void queueRedraw(void){ render(); };
+		int  driver(void){ return VIDEO_DRIVER_SDL; };
 
 		void transfer2LocalBuffer(void);
 
+		void setVsyncEnable( bool ena );
 		void setLinearFilterEnable( bool ena );
 
 		bool   getForceAspectOpt(void){ return forceAspect; };
@@ -43,6 +48,12 @@ class ConsoleViewSDL_t : public QWidget
 		void   setCursor(const QCursor &c);
 		void   setCursor( Qt::CursorShape s );
 		void   setBgColor( QColor &c );
+
+		QSize   size(void){ return QWidget::size(); };
+		QCursor cursor(void){ return QWidget::cursor(); };
+		void    setMinimumSize(const QSize &s){ return QWidget::setMinimumSize(s); };
+		void    setMaximumSize(const QSize &s){ return QWidget::setMaximumSize(s); };
+
 	protected:
 
 	//void paintEvent(QPaintEvent *event);

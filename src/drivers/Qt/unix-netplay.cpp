@@ -120,7 +120,7 @@ FCEUD_NetworkConnect(void)
 	if(TSocket < 0) {
 		const char* s = "Error creating stream socket.";
 		puts(s);
-		FCEU_DispMessage(s,0);
+		FCEU_DispMessage("%s",0,s);
 		FCEUD_NetworkClose();
 		return 0;
 	}
@@ -303,7 +303,7 @@ FCEUD_RecvData(void *data,
 			size = recv(s_Socket, data, len, MSG_WAITALL);
 #endif
 
-			if(size == len) {
+			if( static_cast<uint32>(size) == len) {
 				//unsigned long beefie;
 
 				FD_ZERO(&funfun);

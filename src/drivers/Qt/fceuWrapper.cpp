@@ -25,6 +25,7 @@
 #include <limits.h>
 #include <unzip.h>
 
+#include <QFileInfo>
 #include <QStyleFactory>
 #include "Qt/main.h"
 #include "Qt/throttle.h"
@@ -38,17 +39,21 @@
 #include "Qt/unix-netplay.h"
 #include "Qt/AviRecord.h"
 #include "Qt/HexEditor.h"
+#include "Qt/CheatsConf.h"
 #include "Qt/SymbolicDebug.h"
 #include "Qt/CodeDataLogger.h"
 #include "Qt/ConsoleDebugger.h"
 #include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleUtilities.h"
+#include "Qt/TasEditor/TasEditorWindow.h"
 #include "Qt/fceux_git_info.h"
 
 #include "common/cheat.h"
 #include "../../fceu.h"
 #include "../../cheat.h"
 #include "../../movie.h"
+#include "../../state.h"
+#include "../../profiler.h"
 #include "../../version.h"
 
 #ifdef _S9XLUA_H
@@ -57,6 +62,7 @@
 
 #include "common/os_utils.h"
 #include "common/configSys.h"
+#include "utils/timeStamp.h"
 #include "../../oldmovie.h"
 #include "../../types.h"
 
@@ -86,6 +92,7 @@ bool pauseAfterPlayback = false;
 bool suggestReadOnlyReplay = true;
 bool showStatusIconOpt = true;
 bool drawInputAidsEnable = true;
+bool usePaletteForVideoBg = false;
 unsigned int gui_draw_area_width   = 256;
 unsigned int gui_draw_area_height  = 256;
 
@@ -98,7 +105,7 @@ static int frameskip=0;
 static int periodic_saves = 0;
 static int   mutexLocks = 0;
 static int   mutexPending = 0;
-static bool  emulatorHasMutux = 0;
+static bool  emulatorHasMutex = 0;
 unsigned int emulatorCycleCount = 0;
 
 extern double g_fpsScale;
@@ -146,11 +153,31 @@ EMUFILE_FILE* FCEUD_UTF8_fstream(const char *fn, const char *m)
 	//return new std::fstream(fn,mode);
 }
 
-#ifdef _MSC_VER
-static const char *s_CompilerString = "MSVC";
+#if defined(MSVC)
+ #ifdef _M_X64
+   #define _MSVC_ARCH "x64"
+ #else
+   #define _MSVC_ARCH "x86"
+ #endif
+ #ifdef _DEBUG
+  #define _MSVC_BUILD "debug"
+ #else
+  #define _MSVC_BUILD "release"
+ #endif
+ #define __COMPILER__STRING__ "msvc " _Py_STRINGIZE(_MSC_VER) " " _MSVC_ARCH " " _MSVC_BUILD
+ #define _Py_STRINGIZE(X) _Py_STRINGIZE1((X))
+ #define _Py_STRINGIZE1(X) _Py_STRINGIZE2 ## X
+ #define _Py_STRINGIZE2(X) #X
+ //re: http://72.14.203.104/search?q=cache:HG-okth5NGkJ:mail.python.org/pipermail/python-checkins/2002-November/030704.html+_msc_ver+compiler+version+string&hl=en&gl=us&ct=clnk&cd=5
+#elif defined(__GNUC__)
+ #define __COMPILER__STRING__ "gcc " __VERSION__
+#elif defined(__clang__)
+ #define __COMPILER__STRING__ "clang " __VERSION__
 #else
-static const char *s_CompilerString = "g++ " __VERSION__;
+ #define __COMPILER__STRING__ "unknown"
 #endif
+
+static const char *s_CompilerString = __COMPILER__STRING__;
 /**
  * Returns the compiler string.
  */
@@ -165,7 +192,23 @@ const char *FCEUD_GetCompilerString(void)
 uint64
 FCEUD_GetTime(void)
 {
-	return SDL_GetTicks();
+	uint64 t;
+
+	if (FCEU::timeStampModuleInitialized())
+	{
+		FCEU::timeStampRecord ts;
+
+		ts.readNew();
+
+		t = ts.toCounts();
+	}
+	else
+	{
+		t = (double)SDL_GetTicks();
+
+		t = t * 1e-3;
+	}
+	return t;
 }
 
 /**
@@ -175,7 +218,13 @@ uint64
 FCEUD_GetTimeFreq(void)
 {
 	// SDL_GetTicks() is in milliseconds
-	return 1000;
+	uint64 f = 1000;
+
+	if (FCEU::timeStampModuleInitialized())
+	{
+		f = FCEU::timeStampRecord::countFreq();
+	}
+	return f;
 }
 
 /**
@@ -230,6 +279,17 @@ DriverKill()
 	inited=0;
 }
 
+int LoadGameFromLua( const char *path )
+{
+	//printf("Load From Lua: '%s'\n", path);
+	fceuWrapperUnLock();
+
+	consoleWindow->emulatorThread->signalRomLoad(path);
+
+	fceuWrapperLock();
+	return 0;
+}
+
 /**
  * Reloads last game
  */
@@ -248,23 +308,36 @@ int reloadLastGame(void)
  */
 int LoadGame(const char *path, bool silent)
 {
-	char fullpath[4096];
+	std::string fullpath;
 	int gg_enabled, autoLoadDebug, autoOpenDebugger, autoInputPreset;
 
 	if (isloaded){
 		CloseGame();
 	}
 
-#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+	QFileInfo fi( path );
 
 	// Resolve absolute path to file
-	if ( realpath( path, fullpath ) == NULL )
+	if ( fi.exists() )
 	{
-		strcpy( fullpath, path );
+		//printf("FI: '%s'\n", fi.absoluteFilePath().toStdString().c_str() );
+		//printf("FI: '%s'\n", fi.canonicalFilePath().toStdString().c_str() );
+		fullpath = fi.canonicalFilePath().toStdString();
 	}
-#else
-	strcpy( fullpath, path );
-#endif
+	else
+	{
+		fullpath.assign( path );
+	}
+//#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+//
+//	// Resolve absolute path to file
+//	if ( realpath( path, fullpath ) == NULL )
+//	{
+//		strcpy( fullpath, path );
+//	}
+//#else
+//	strcpy( fullpath, path );
+//#endif
 
 	//printf("Fullpath: %zi '%s'\n", sizeof(fullpath), fullpath );
 
@@ -279,13 +352,13 @@ int LoadGame(const char *path, bool silent)
 	g_config->getOption ("SDL.RamInitMethod", &RAMInitOption);
 
 	// Load the game
-	if(!FCEUI_LoadGame(fullpath, 1, silent)) {
+	if(!FCEUI_LoadGame(fullpath.c_str(), 1, silent)) {
 		return 0;
 	}
 
 	if ( consoleWindow )
 	{
-		consoleWindow->addRecentRom( fullpath );
+		consoleWindow->addRecentRom( fullpath.c_str() );
 	}
 
 	hexEditorLoadBookmarks();
@@ -305,6 +378,8 @@ int LoadGame(const char *path, bool silent)
 	}
 
 	debugSymbolTable.loadGameSymbols();
+
+	updateCheatDialog();
 
 	CDLoggerROMChanged();
 
@@ -458,6 +533,11 @@ CloseGame(void)
 		saveInputSettingsToFile();
 	}
 
+	if ( tasWin != NULL )
+	{
+		tasWin->requestWindowClose();
+	}
+
 	FCEUI_CloseGame();
 
 	DriverKill();
@@ -591,6 +671,7 @@ static const char *DriverUsage =
 static void ShowUsage(const char *prog)
 {
 	int i,j;
+	FCEUD_Message("Starting " FCEU_NAME_AND_VERSION "...\n");
 	printf("\nUsage is as follows:\n%s <options> filename\n\n",prog);
 	puts(DriverUsage);
 #ifdef _S9XLUA_H
@@ -630,11 +711,9 @@ static void ShowUsage(const char *prog)
 	
 }
 
-int  fceuWrapperInit( int argc, char *argv[] )
+// Pre-GUI initialization.
+int  fceuWrapperPreInit( int argc, char *argv[] )
 {
-	int opt, error;
-	std::string s;
-
 	for (int i=0; i<argc; i++)
 	{
 		if ( (strcmp(argv[i], "--help") == 0) || (strcmp(argv[i],"-h") == 0) )
@@ -642,7 +721,24 @@ int  fceuWrapperInit( int argc, char *argv[] )
 			ShowUsage(argv[0]);
 			exit(0);
 		}
+		else if ( strcmp(argv[i], "--no-gui") == 0)
+		{
+			printf("Error: Qt/SDL version does not support --no-gui option.\n");
+			exit(1);
+		}
+		else if ( strcmp(argv[i], "--version") == 0)
+		{
+			printf("%i.%i.%i\n", FCEU_VERSION_MAJOR, FCEU_VERSION_MINOR, FCEU_VERSION_PATCH);
+			exit(0);
+		}
 	}
+	return 0;
+}
+
+int  fceuWrapperInit( int argc, char *argv[] )
+{
+	int opt, error;
+	std::string s;
 
 	FCEUD_Message("Starting " FCEU_NAME_AND_VERSION "...\n");
 
@@ -817,9 +913,9 @@ int  fceuWrapperInit( int argc, char *argv[] )
 			extern std::vector<std::string> subtitleMessages;
 			float fps = (md.palFlag == 0 ? 60.0988 : 50.0069); // NTSC vs PAL
 			float subduration = 3; // seconds for the subtitles to be displayed
-			for (int i = 0; i < subtitleFrames.size(); i++)
+			for (size_t i = 0; i < subtitleFrames.size(); i++)
 			{
-				fprintf(srtfile, "%i\n", i+1); // starts with 1, not 0
+				fprintf(srtfile, "%zi\n", i+1); // starts with 1, not 0
 				double seconds, ms, endseconds, endms;
 				seconds = subtitleFrames[i]/fps;
 				if (i+1 < subtitleFrames.size()) // there's another subtitle coming after this one
@@ -901,18 +997,70 @@ int  fceuWrapperInit( int argc, char *argv[] )
 	// load the hotkeys from the config life
 	setHotKeys();
 
+	// Initialize the State Recorder
+	{
+		bool srEnable = false;
+		bool srUseTimeMode = false;
+		int srHistDurMin = 15;
+		int srFramesBtwSnaps = 60;
+		int srTimeBtwSnapsMin = 0;
+		int srTimeBtwSnapsSec = 3;
+		int srCompressionLevel = 0;
+		int pauseOnLoadTime = 3;
+		int pauseOnLoad = StateRecorderConfigData::TEMPORARY_PAUSE;
+
+		g_config->getOption("SDL.StateRecorderEnable", &srEnable);
+		g_config->getOption("SDL.StateRecorderTimingMode", &srUseTimeMode);
+		g_config->getOption("SDL.StateRecorderHistoryDurationMin", &srHistDurMin);
+		g_config->getOption("SDL.StateRecorderFramesBetweenSnaps", &srFramesBtwSnaps);
+		g_config->getOption("SDL.StateRecorderTimeBetweenSnapsMin", &srTimeBtwSnapsMin);
+		g_config->getOption("SDL.StateRecorderTimeBetweenSnapsSec", &srTimeBtwSnapsSec);
+		g_config->getOption("SDL.StateRecorderCompressionLevel", &srCompressionLevel);
+		g_config->getOption("SDL.StateRecorderPauseOnLoad", &pauseOnLoad);
+		g_config->getOption("SDL.StateRecorderPauseDuration", &pauseOnLoadTime);
+
+		StateRecorderConfigData srConfig;
+
+		srConfig.historyDurationMinutes = srHistDurMin;
+		srConfig.timingMode = srUseTimeMode ?
+					StateRecorderConfigData::TIME : StateRecorderConfigData::FRAMES;
+		srConfig.timeBetweenSnapsMinutes = static_cast<float>( srTimeBtwSnapsMin ) +
+			                          ( static_cast<float>( srTimeBtwSnapsSec ) / 60.0f );
+		srConfig.framesBetweenSnaps = srFramesBtwSnaps;
+		srConfig.compressionLevel = srCompressionLevel;
+		srConfig.loadPauseTimeSeconds = pauseOnLoadTime;
+		srConfig.pauseOnLoad = static_cast<StateRecorderConfigData::PauseType>(pauseOnLoad);
+
+		FCEU_StateRecorderSetEnabled( srEnable );
+		FCEU_StateRecorderSetConfigData( srConfig );
+	}
+
+	// Rom Load
 	if (romIndex >= 0)
 	{
-		// load the specified game
-		error = LoadGame(argv[romIndex]);
-		if (error != 1) 
+		QFileInfo fi( argv[romIndex] );
+
+		// Resolve absolute path to file
+		if ( fi.exists() )
 		{
-			DriverKill();
-			SDL_Quit();
+			std::string fullpath = fi.canonicalFilePath().toStdString().c_str();
+
+			error = LoadGame( fullpath.c_str() );
+
+			if (error != 1)
+			{
+				DriverKill();
+				SDL_Quit();
+				return -1;
+			}
+			g_config->setOption("SDL.LastOpenFile", fullpath.c_str() );
+			g_config->save();
+		}
+		else
+		{
+			// File was not found
 			return -1;
 		}
-		g_config->setOption("SDL.LastOpenFile", argv[romIndex]);
-		g_config->save();
 	}
 
 	aviRecordInit();
@@ -961,18 +1109,27 @@ int  fceuWrapperInit( int argc, char *argv[] )
 	// load lua script if option passed
 	g_config->getOption("SDL.LuaScript", &s);
 	g_config->setOption("SDL.LuaScript", "");
-	if (s != "")
+	if (s.size() > 0)
 	{
-#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+		QFileInfo fi( s.c_str() );
 
 		// Resolve absolute path to file
-		char fullpath[2048];
-		if ( realpath( s.c_str(), fullpath ) != NULL )
+		if ( fi.exists() )
 		{
-			//printf("Fullpath: '%s'\n", fullpath );
-			s.assign( fullpath );
+			//printf("FI: '%s'\n", fi.absoluteFilePath().toStdString().c_str() );
+			//printf("FI: '%s'\n", fi.canonicalFilePath().toStdString().c_str() );
+			s = fi.canonicalFilePath().toStdString();
 		}
-#endif
+//#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+//
+//		// Resolve absolute path to file
+//		char fullpath[2048];
+//		if ( realpath( s.c_str(), fullpath ) != NULL )
+//		{
+//			printf("Fullpath: '%s'\n", fullpath );
+//			s.assign( fullpath );
+//		}
+//#endif
 		FCEU_LoadLuaCode(s.c_str());
 	}
 #endif
@@ -1148,12 +1305,29 @@ FCEUD_Update(uint8 *XBuf,
 
 static void DoFun(int frameskip, int periodic_saves)
 {
-	uint8 *gfx;
-	int32 *sound;
-	int32 ssize;
+	uint8 *gfx = 0;
+	int32 *sound = 0;
+	int32 ssize = 0;
 	static int fskipc = 0;
 	//static int opause = 0;
 
+	// If TAS editor is engaged, check whether a seek frame is set.
+	// If a seek is in progress, don't emulate past target frame.
+	if ( tasWindowIsOpen() )
+	{
+		int runToFrameTarget;
+	
+		runToFrameTarget = PLAYBACK::getPauseFrame();
+
+		if ( runToFrameTarget >= 0)
+		{
+			if ( currFrameCounter >= runToFrameTarget )
+			{
+				FCEUI_SetEmulationPaused(EMULATIONPAUSED_PAUSED);
+				return;
+			}
+		}
+	}
     //TODO peroidic saves, working on it right now
     if (periodic_saves && FCEUD_GetTime() % PERIODIC_SAVE_INTERVAL < 30){
         FCEUI_SaveState(NULL, false);
@@ -1162,7 +1336,7 @@ static void DoFun(int frameskip, int periodic_saves)
 	fskipc = (fskipc + 1) % (frameskip + 1);
 #endif
 
-	if (NoWaiting) 
+	if (NoWaiting || turbo) 
 	{
 		gfx = 0;
 	}
@@ -1178,6 +1352,30 @@ static void DoFun(int frameskip, int periodic_saves)
 	emulatorCycleCount++;
 }
 
+static std::string lockFile;
+static bool debugMutexLock = false;
+
+void fceuWrapperLock(const char *filename, int line, const char *func)
+{
+	fceuWrapperLock();
+
+	if ( debugMutexLock )
+	{
+		char txt[32];
+
+		if ( mutexLocks > 1 )
+		{
+			printf("Recursive Lock:%i\n", mutexLocks );
+			printf("Already Locked By: %s\n", lockFile.c_str() );
+			printf("Requested By: %s:%i - %s\n", filename, line, func );
+		}
+		sprintf( txt, ":%i - ", line );
+		lockFile.assign(filename);
+		lockFile.append(txt);
+		lockFile.append(func);
+	}
+}
+
 void fceuWrapperLock(void)
 {
 	mutexPending++;
@@ -1187,6 +1385,23 @@ void fceuWrapperLock(void)
 	}
 	mutexPending--;
 	mutexLocks++;
+}
+
+bool fceuWrapperTryLock(const char *filename, int line, const char *func, int timeout)
+{
+	bool lockAcq = false;
+
+	lockAcq = fceuWrapperTryLock( timeout );
+
+	if ( lockAcq && debugMutexLock)
+	{
+		char txt[32];
+		sprintf( txt, ":%i - ", line );
+		lockFile.assign(filename);
+		lockFile.append(txt);
+		lockFile.append(func);
+	}
+	return lockAcq;
 }
 
 bool fceuWrapperTryLock(int timeout)
@@ -1211,15 +1426,16 @@ void fceuWrapperUnLock(void)
 {
 	if ( mutexLocks > 0 )
 	{
+		mutexLocks--;
 		if ( consoleWindow != NULL )
 		{
 			consoleWindow->mutex->unlock();
 		}
-		mutexLocks--;
 	}
 	else
 	{
 		printf("Error: Mutex is Already UnLocked\n");
+		//abort(); // Uncomment to catch a stack trace
 	}
 }
 
@@ -1231,27 +1447,33 @@ bool fceuWrapperIsLocked(void)
 int  fceuWrapperUpdate( void )
 {
 	bool lock_acq;
+	static bool mutexLockFail = false;
 
 	// If a request is pending, 
 	// sleep to allow request to be serviced.
 	if ( mutexPending > 0 )
 	{
-		msleep( 100 );
+		msleep( 16 );
 	}
 
-	lock_acq = fceuWrapperTryLock();
+	lock_acq = fceuWrapperTryLock( __FILE__, __LINE__, __func__ );
 
 	if ( !lock_acq )
 	{
 		if ( GameInfo )
 		{
-			printf("Error: Emulator Failed to Acquire Mutex\n");
+			if ( !mutexLockFail )
+			{
+				printf("Warning: Emulator Thread Failed to Acquire Mutex - GUI has Lock\n");
+			}
+			mutexLockFail = true;
 		}
-		msleep( 100 );
+		msleep( 16 );
 
 		return -1;
 	}
-	emulatorHasMutux = 1;
+	mutexLockFail = false;
+	emulatorHasMutex = 1;
  
 	if ( GameInfo )
 	{
@@ -1265,8 +1487,11 @@ int  fceuWrapperUpdate( void )
 		}
 		fceuWrapperUnLock();
 
-		emulatorHasMutux = 0;
+		emulatorHasMutex = 0;
 
+#ifdef __FCEU_PROFILER_ENABLE__
+		FCEU_profiler_log_thread_activity();
+#endif
 		while ( SpeedThrottle() )
 		{
 			// Input device processing is in main thread
@@ -1278,27 +1503,29 @@ int  fceuWrapperUpdate( void )
 	{
 		fceuWrapperUnLock();
 
-		emulatorHasMutux = 0;
+		emulatorHasMutex = 0;
 
+#ifdef __FCEU_PROFILER_ENABLE__
+		FCEU_profiler_log_thread_activity();
+#endif
 		msleep( 100 );
 	}
 	return 0;
 }
 
-ArchiveScanRecord FCEUD_ScanArchive(std::string fname)
+static int minizip_ScanArchive( const char *filepath, ArchiveScanRecord &rec)
 {
 	int idx=0, ret;
 	unzFile zf;
 	unz_file_info fi;
 	char filename[512];
-	ArchiveScanRecord rec;
-		
-	zf = unzOpen( fname.c_str() );
+
+	zf = unzOpen( filepath );
 
 	if ( zf == NULL )
 	{
 		//printf("Error: Failed to open Zip File: '%s'\n", fname.c_str() );
-		return rec;
+		return -1;
 	}
 	rec.type = 0;
 
@@ -1328,18 +1555,313 @@ ArchiveScanRecord FCEUD_ScanArchive(std::string fname)
 
 	unzClose( zf );
 
+	return 0;
+}
+
+#ifdef _USE_LIBARCHIVE
+#include <archive.h>
+#include <archive_entry.h>
+
+static int libarchive_ScanArchive( const char *filepath, ArchiveScanRecord &rec)
+{
+	int r, idx=0;
+	struct archive *a;
+	struct archive_entry *entry;
+
+	a = archive_read_new();
+
+	if (a == nullptr)
+	{
+		return -1;
+	}
+
+	// Initialize decoders
+	r = archive_read_support_filter_all(a);
+	if (r)
+	{
+		archive_read_free(a);
+		return -1;
+	}
+
+	// Initialize formats
+	r = archive_read_support_format_all(a);
+	if (r)
+	{
+		archive_read_free(a);
+		return -1;
+	}
+
+	r = archive_read_open_filename(a, filepath, 10240);
+
+	if (r)
+	{
+		archive_read_free(a);
+		return -1;
+	}
+	rec.type = 1;
+
+	while (1)
+	{
+		r = archive_read_next_header(a, &entry);
+		if (r == ARCHIVE_EOF)
+		{
+			break;
+		}
+		else if (r != ARCHIVE_OK)
+		{
+			printf("archive_read_next_header() %s\n", archive_error_string(a));
+			break;
+		}
+		const char *filename = archive_entry_pathname(entry);
+
+		FCEUARCHIVEFILEINFO_ITEM item;
+		item.name.assign( filename );
+		item.size  = archive_entry_size(entry);
+		item.index = idx; idx++;
+
+		rec.files.push_back( item );
+	}
+	rec.numFilesInArchive = idx;
+
+	archive_read_free(a);
+
+	return 0;
+}
+#endif
+
+ArchiveScanRecord FCEUD_ScanArchive(std::string fname)
+{
+	int ret = -1;
+	ArchiveScanRecord rec;
+		
+#ifdef _USE_LIBARCHIVE
+	ret = libarchive_ScanArchive( fname.c_str(), rec );
+#endif
+
+	if (ret == -1)
+	{
+		minizip_ScanArchive( fname.c_str(), rec );
+	}
 	return rec;
 }
 
-FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, std::string* innerFilename, int* userCancel)
+static FCEUFILE* minizip_OpenArchive(ArchiveScanRecord& asr, std::string &fname, std::string *searchFile, int innerIndex )
 {
-	int ret;
-	FCEUFILE* fp = 0;
+	int ret, idx=0;
+	FCEUFILE* fp = nullptr;
+	void *tmpMem = nullptr;
 	unzFile zf;
 	unz_file_info fi;
 	char filename[512];
-	char foundFile = 0;
-	void *tmpMem = NULL;
+	bool foundFile = false;
+
+	zf = unzOpen( fname.c_str() );
+
+	if ( zf == NULL )
+	{
+		//printf("Error: Failed to open Zip File: '%s'\n", fname.c_str() );
+		return fp;
+	}
+
+	//printf("Searching for %s in %s \n", searchFile.c_str(), fname.c_str() );
+
+	ret = unzGoToFirstFile( zf );
+
+	//printf("unzGoToFirstFile: %i \n", ret );
+
+	while ( ret == 0 )
+	{
+		unzGetCurrentFileInfo( zf, &fi, filename, sizeof(filename), NULL, 0, NULL, 0 );
+
+		//printf("Filename: %u '%s' \n", fi.uncompressed_size, filename );
+
+		if (searchFile)
+		{
+			if ( strcmp( searchFile->c_str(), filename ) == 0 )
+			{
+			   //printf("Found Filename: %u '%s' \n", fi.uncompressed_size, filename );
+				foundFile = true; break;
+			}
+		}
+		else if ((innerIndex != -1) && (idx == innerIndex))
+		{
+			foundFile = true; break;
+		}
+
+		ret = unzGoToNextFile( zf );
+
+		//printf("unzGoToNextFile: %i \n", ret );
+		idx++;
+	}
+
+	if ( !foundFile )
+	{
+		unzClose( zf );
+		return fp;
+	}
+
+	tmpMem = ::malloc( fi.uncompressed_size );
+
+	if ( tmpMem == NULL )
+	{
+		unzClose( zf );
+		return fp;
+	}
+	//printf("Loading via minizip\n");
+
+	EMUFILE_MEMORY* ms = new EMUFILE_MEMORY(fi.uncompressed_size);
+
+	unzOpenCurrentFile( zf );
+	unzReadCurrentFile( zf, tmpMem, fi.uncompressed_size );
+	unzCloseCurrentFile( zf );
+
+	ms->fwrite( tmpMem, fi.uncompressed_size );
+
+	free( tmpMem );
+
+	//if we extracted the file correctly
+	fp = new FCEUFILE();
+	fp->archiveFilename = fname;
+	fp->filename = filename;
+	fp->fullFilename = fp->archiveFilename + "|" + fp->filename;
+	fp->archiveIndex = idx;
+	fp->mode = FCEUFILE::READ;
+	fp->size = fi.uncompressed_size;
+	fp->stream = ms;
+	fp->archiveCount = (int)asr.numFilesInArchive;
+	ms->fseek(0,SEEK_SET); //rewind so that the rom analyzer sees a freshly opened file
+
+	unzClose( zf );
+
+	return fp;
+}
+
+#ifdef _USE_LIBARCHIVE
+static FCEUFILE* libarchive_OpenArchive( ArchiveScanRecord& asr, std::string& fname, std::string *searchFile, int innerIndex)
+{
+	int r, idx=0;
+	struct archive *a;
+	struct archive_entry *entry;
+	const char *filename = nullptr;
+	bool foundFile = false;
+	int fileSize = 0;
+	FCEUFILE* fp = nullptr;
+
+	a = archive_read_new();
+
+	if (a == nullptr)
+	{
+		archive_read_free(a);
+		return nullptr;
+	}
+
+	// Initialize decoders
+	r = archive_read_support_filter_all(a);
+	if (r)
+	{
+		archive_read_free(a);
+		return nullptr;
+	}
+
+	// Initialize formats
+	r = archive_read_support_format_all(a);
+	if (r)
+	{
+		archive_read_free(a);
+		return nullptr;
+	}
+
+	r = archive_read_open_filename(a, fname.c_str(), 10240);
+
+	if (r)
+	{
+		archive_read_free(a);
+		return nullptr;
+	}
+
+	while (1)
+	{
+		r = archive_read_next_header(a, &entry);
+		if (r == ARCHIVE_EOF)
+		{
+			break;
+		}
+		else if (r != ARCHIVE_OK)
+		{
+			printf("archive_read_next_header() %s\n", archive_error_string(a));
+			break;
+		}
+		filename = archive_entry_pathname(entry);
+		fileSize = archive_entry_size(entry);
+
+		if (searchFile)
+		{
+			if (strcmp( filename, searchFile->c_str() ) == 0)
+			{
+				foundFile = true; break;
+			}
+		}
+		else if ((innerIndex != -1) && (idx == innerIndex))
+		{
+			foundFile = true; break;
+		}
+		idx++;
+	}
+
+	if (foundFile && (fileSize > 0))
+	{
+		const void *buff;
+		size_t size, totalSize = 0;
+		#if ARCHIVE_VERSION_NUMBER >= 3000000
+			int64_t offset;
+		#else
+			off_t offset;
+		#endif
+
+		//printf("Loading via libarchive\n");
+
+		EMUFILE_MEMORY* ms = new EMUFILE_MEMORY(fileSize);
+
+		while (1)
+		{
+			r = archive_read_data_block(a, &buff, &size, &offset);
+
+			if (r == ARCHIVE_EOF)
+			{
+				break;
+			}
+			if (r != ARCHIVE_OK)
+			{
+				break;
+			}
+			//printf("Read: %p   Size:%zu   Offset:%llu\n", buff, size, (long long int)offset);
+			ms->fwrite( buff, size );
+			totalSize += size;
+		}
+
+		//if we extracted the file correctly
+		fp = new FCEUFILE();
+		fp->archiveFilename = fname;
+		fp->filename = filename;
+		fp->fullFilename = fp->archiveFilename + "|" + fp->filename;
+		fp->archiveIndex = idx;
+		fp->mode = FCEUFILE::READ;
+		fp->size = totalSize;
+		fp->stream = ms;
+		fp->archiveCount = (int)asr.numFilesInArchive;
+		ms->fseek(0,SEEK_SET); //rewind so that the rom analyzer sees a freshly opened file
+	}
+
+	archive_read_free(a);
+
+	return fp;
+}
+
+#endif
+
+FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, std::string* innerFilename, int* userCancel)
+{
+	FCEUFILE* fp = nullptr;
 	std::string searchFile;
 
 	if ( innerFilename != NULL )
@@ -1352,7 +1874,7 @@ FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, std::str
 
 		for (size_t i=0; i<asr.files.size(); i++)
 		{
-			char base[512], suffix[32];
+			char base[512], suffix[128];
 
 			getFileBaseName( asr.files[i].name.c_str(), base, suffix );
 
@@ -1389,75 +1911,14 @@ FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, std::str
 		}
 	}
 
-	zf = unzOpen( fname.c_str() );
+#ifdef _USE_LIBARCHIVE
+	fp = libarchive_OpenArchive(asr, fname, &searchFile, -1 );
+#endif
 
-	if ( zf == NULL )
+	if (fp == nullptr)
 	{
-		//printf("Error: Failed to open Zip File: '%s'\n", fname.c_str() );
-		return fp;
+		fp = minizip_OpenArchive(asr, fname, &searchFile, -1 );
 	}
-
-	//printf("Searching for %s in %s \n", searchFile.c_str(), fname.c_str() );
-
-	ret = unzGoToFirstFile( zf );
-
-	//printf("unzGoToFirstFile: %i \n", ret );
-
-	while ( ret == 0 )
-	{
-		unzGetCurrentFileInfo( zf, &fi, filename, sizeof(filename), NULL, 0, NULL, 0 );
-
-		//printf("Filename: %u '%s' \n", fi.uncompressed_size, filename );
-
-		if ( strcmp( searchFile.c_str(), filename ) == 0 )
-		{
-		   //printf("Found Filename: %u '%s' \n", fi.uncompressed_size, filename );
-			foundFile = 1; break;
-		}
-
-		ret = unzGoToNextFile( zf );
-
-		//printf("unzGoToNextFile: %i \n", ret );
-	}
-
-	if ( !foundFile )
-	{
-		unzClose( zf );
-		return fp;
-	}
-
-	tmpMem = ::malloc( fi.uncompressed_size );
-
-	if ( tmpMem == NULL )
-	{
-		unzClose( zf );
-		return fp;
-	}
-
-	EMUFILE_MEMORY* ms = new EMUFILE_MEMORY(fi.uncompressed_size);
-
-	unzOpenCurrentFile( zf );
-	unzReadCurrentFile( zf, tmpMem, fi.uncompressed_size );
-	unzCloseCurrentFile( zf );
-
-	ms->fwrite( tmpMem, fi.uncompressed_size );
-
-	free( tmpMem );
-
-	//if we extracted the file correctly
-	fp = new FCEUFILE();
-	fp->archiveFilename = fname;
-	fp->filename = searchFile;
-	fp->fullFilename = fp->archiveFilename + "|" + fp->filename;
-	fp->archiveIndex = ret;
-	fp->mode = FCEUFILE::READ;
-	fp->size = fi.uncompressed_size;
-	fp->stream = ms;
-	fp->archiveCount = (int)asr.numFilesInArchive;
-	ms->fseek(0,SEEK_SET); //rewind so that the rom analyzer sees a freshly opened file
-
-	unzClose( zf );
-
 	return fp;
 }
 
@@ -1470,81 +1931,15 @@ FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, std::str
 
 FCEUFILE* FCEUD_OpenArchiveIndex(ArchiveScanRecord& asr, std::string &fname, int innerIndex, int* userCancel)
 {
-	int ret, idx=0;
-	FCEUFILE* fp = 0;
-	unzFile zf;
-	unz_file_info fi;
-	char filename[512];
-	char foundFile = 0;
-	void *tmpMem = NULL;
+	FCEUFILE* fp = nullptr;
 
-	zf = unzOpen( fname.c_str() );
-
-	if ( zf == NULL )
+#ifdef _USE_LIBARCHIVE
+	fp = libarchive_OpenArchive( asr, fname, nullptr, innerIndex );
+#endif
+	if (fp == nullptr)
 	{
-		//printf("Error: Failed to open Zip File: '%s'\n", fname.c_str() );
-		return fp;
+		fp = minizip_OpenArchive(asr, fname, nullptr, innerIndex);
 	}
-
-	ret = unzGoToFirstFile( zf );
-
-	//printf("unzGoToFirstFile: %i \n", ret );
-
-	while ( ret == 0 )
-	{
-		unzGetCurrentFileInfo( zf, &fi, filename, sizeof(filename), NULL, 0, NULL, 0 );
-
-		//printf("Filename: %u '%s' \n", fi.uncompressed_size, filename );
-
-		if ( idx == innerIndex )
-		{
-		   //printf("Found Filename: %u '%s' \n", fi.uncompressed_size, filename );
-			foundFile = 1; break;
-		}
-		idx++;
-
-		ret = unzGoToNextFile( zf );
-
-		//printf("unzGoToNextFile: %i \n", ret );
-	}
-
-	if ( !foundFile )
-	{
-		unzClose( zf );
-		return fp;
-	}
-
-	tmpMem = ::malloc( fi.uncompressed_size );
-
-	if ( tmpMem == NULL )
-	{
-		unzClose( zf );
-		return fp;
-	}
-
-	EMUFILE_MEMORY* ms = new EMUFILE_MEMORY(fi.uncompressed_size);
-
-	unzOpenCurrentFile( zf );
-	unzReadCurrentFile( zf, tmpMem, fi.uncompressed_size );
-	unzCloseCurrentFile( zf );
-
-	ms->fwrite( tmpMem, fi.uncompressed_size );
-
-	free( tmpMem );
-
-	//if we extracted the file correctly
-	fp = new FCEUFILE();
-	fp->archiveFilename = fname;
-	fp->filename = filename;
-	fp->fullFilename = fp->archiveFilename + "|" + fp->filename;
-	fp->archiveIndex = ret;
-	fp->mode = FCEUFILE::READ;
-	fp->size = fi.uncompressed_size;
-	fp->stream = ms;
-	fp->archiveCount = (int)asr.numFilesInArchive;
-	ms->fseek(0,SEEK_SET); //rewind so that the rom analyzer sees a freshly opened file
-
-	unzClose( zf );
 
 	return fp;
 }
@@ -1586,7 +1981,7 @@ bool FCEUD_ShouldDrawInputAids(void)
 	return drawInputAidsEnable;
 }
 
-void FCEUD_TurboOn	 (void) { /* TODO */ };
-void FCEUD_TurboOff   (void) { /* TODO */ };
-void FCEUD_TurboToggle(void) { /* TODO */ };
+void FCEUD_TurboOn (void) { turbo = true; };
+void FCEUD_TurboOff   (void) { turbo = false; };
+void FCEUD_TurboToggle(void) { turbo = !turbo; };
 

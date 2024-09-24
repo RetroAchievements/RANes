@@ -65,6 +65,8 @@ MoviePlayDialog_t::MoviePlayDialog_t(QWidget *parent)
 	movSelBox = new QComboBox();
 	movBrowseBtn = new QPushButton(tr("Browse"));
 
+	movSelBox->setMaximumWidth(512);
+
 	hbox->addWidget(lbl, 1);
 	hbox->addWidget(movSelBox, 100);
 	hbox->addWidget(movBrowseBtn, 1);
@@ -416,8 +418,8 @@ void MoviePlayDialog_t::doScan(void)
 	std::string path, last;
 	const char *romFile;
 	const char *baseDir = FCEUI_GetBaseDirectory();
+	std::string lastDir;
 	char md5[256];
-	char dir[512], base[256];
 
 	md5[0] = 0;
 
@@ -434,18 +436,20 @@ void MoviePlayDialog_t::doScan(void)
 
 	if (romFile != NULL)
 	{
-		parseFilepath(romFile, dir, base);
+		std::string dir;
 
-		path = std::string(dir);
+		parseFilepath(romFile, &dir);
+
+		path = dir;
 
 		scanDirectory(path.c_str(), md5);
 	}
 
 	g_config->getOption("SDL.LastOpenMovie", &last);
 
-	getDirFromFile(last.c_str(), dir);
+	getDirFromFile(last.c_str(), lastDir);
 
-	scanDirectory(dir, md5);
+	scanDirectory(lastDir.c_str(), md5);
 }
 //----------------------------------------------------------------------------
 void MoviePlayDialog_t::playMovie(void)
@@ -470,13 +474,13 @@ void MoviePlayDialog_t::playMovie(void)
 		pauseframe = strtol(pauseAtFrameEntry->text().toStdString().c_str(), NULL, 0);
 	}
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	if (FCEUI_LoadMovie(path.c_str(),
 						replayReadOnlySetting, pauseframe ? pauseframe : false) == false)
 	{
 		movieLoadError = true;
 	}
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	if (movieLoadError)
 	{
@@ -495,7 +499,7 @@ void MoviePlayDialog_t::openMovie(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	char md5Match = 0;
 	QFileDialog dialog(this, tr("Open FM2 Movie"));
 
@@ -511,7 +515,7 @@ void MoviePlayDialog_t::openMovie(void)
 
 	getDirFromFile(last.c_str(), dir);
 
-	dialog.setDirectory(tr(dir));
+	dialog.setDirectory(tr(dir.c_str()));
 
 	// Check config option to use native file dialog or not
 	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);

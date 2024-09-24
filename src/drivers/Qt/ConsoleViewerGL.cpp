@@ -84,6 +84,7 @@ ConsoleViewGL_t::ConsoleViewGL_t(QWidget *parent)
 	setMinimumWidth( 256 );
 	setMinimumHeight( 224 );
 	setFocusPolicy(Qt::StrongFocus);
+	//setAttribute(Qt::WA_OpaquePaintEvent);
 
 	localBufSize = (4 * GL_NES_WIDTH) * (4 * GL_NES_HEIGHT) * sizeof(uint32_t);
 
@@ -91,9 +92,10 @@ ConsoleViewGL_t::ConsoleViewGL_t(QWidget *parent)
 
 	if ( localBuf )
 	{
-		memset( localBuf, 0, localBufSize );
+		memset32( localBuf, alphaMask, localBufSize );
 	}
 
+	vsyncEnabled = true;
 	linearFilter = false;
 
 	if ( g_config )
@@ -116,13 +118,26 @@ ConsoleViewGL_t::ConsoleViewGL_t(QWidget *parent)
 		{
 			fceuLoadConfigColor( "SDL.VideoBgColor", bgColor );
 		}
+		g_config->getOption ("SDL.VideoVsync", &vsyncEnabled);
 	}
 
+	QSurfaceFormat fmt = format();
+
+	fmt.setSwapInterval( vsyncEnabled ? 1 : 0 );
+
+	setFormat(fmt);
+
 	connect( this, SIGNAL(frameSwapped(void)), this, SLOT(renderFinished(void)) );
+
+	//fmt = format();
+
+	//printf("Format Swap Interval: %i\n", fmt.swapInterval() );
 }
 
 ConsoleViewGL_t::~ConsoleViewGL_t(void)
 {
+	//printf("Destroying GL Viewport\n");
+
 	if ( localBuf )
 	{
 		free( localBuf ); localBuf = NULL;
@@ -260,6 +275,9 @@ void ConsoleViewGL_t::buildTextures(void)
 						GL_BGRA, GL_UNSIGNED_BYTE, 0 );
 	}
 
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_ONE, GL_ONE);
+	//glBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	//printf("Texture Built: %ix%i\n", w, h);
 }
 
@@ -335,7 +353,7 @@ void ConsoleViewGL_t::initializeGL(void)
 	initializeOpenGLFunctions();
 	// Set up the rendering context, load shaders and other resources, etc.:
 	//QOpenGLFunctions *gl = QOpenGLContext::currentContext()->functions();
-	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
 	chkExtnsGL();
 	 //printf("GL Init!\n");
@@ -384,6 +402,22 @@ void ConsoleViewGL_t::setBgColor( QColor &c )
 	if ( bgColor )
 	{
 		*bgColor = c;
+	}
+}
+
+void ConsoleViewGL_t::setVsyncEnable( bool ena )
+{
+	if ( vsyncEnabled != ena )
+	{
+		QSurfaceFormat fmt = format();
+
+		vsyncEnabled = ena;
+
+		fmt.setSwapInterval( vsyncEnabled ? 1 : 0 );
+
+		setFormat(fmt);
+
+		buildTextures();
 	}
 }
 
@@ -436,16 +470,22 @@ double ConsoleViewGL_t::getAspectRatio(void)
 
 void ConsoleViewGL_t::transfer2LocalBuffer(void)
 {
-	int i=0, hq = 0;
+	int i=0, hq = 0, bufIdx;
 	int numPixels = nes_shm->video.ncol * nes_shm->video.nrow;
 	unsigned int cpSize = numPixels * 4;
  	uint8_t *src, *dest;
 
+	bufIdx = nes_shm->pixBufIdx-1;
+
+	if ( bufIdx < 0 )
+	{
+		bufIdx = NES_VIDEO_BUFLEN-1;
+	}
 	if ( cpSize > localBufSize )
 	{
 		cpSize = localBufSize;
 	}
-	src  = (uint8_t*)nes_shm->pixbuf;
+	src  = (uint8_t*)nes_shm->pixbuf[bufIdx];
 	dest = (uint8_t*)localBuf;
 
 	hq = (nes_shm->video.preScaler == 1) || (nes_shm->video.preScaler == 4); // hq2x and hq3x
@@ -464,7 +504,7 @@ void ConsoleViewGL_t::transfer2LocalBuffer(void)
 	}
 	else
 	{
-		memcpy( localBuf, nes_shm->pixbuf, cpSize );
+		copyPixels32( dest, src, cpSize, alphaMask);
 	}
 }
 
@@ -632,6 +672,9 @@ void ConsoleViewGL_t::paintGL(void)
 	}
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_ONE, GL_ZERO);
+	//glBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	if ( textureType == GL_TEXTURE_RECTANGLE )
 	{
