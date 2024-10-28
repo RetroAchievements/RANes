@@ -30,6 +30,8 @@
 #include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleUtilities.h"
 #include "Qt/CheatsConf.h"
+#include "Qt/FamilyKeyboard.h"
+#include "Qt/TasEditor/TasEditorWindow.h"
 
 #include "Qt/sdl.h"
 #include "Qt/sdl-video.h"
@@ -63,7 +65,7 @@ static int cspec = 0;
 static int buttonConfigInProgress = 0;
 
 extern int gametype;
-static int DTestButton(ButtConfig *bc);
+static int DTestButton(ButtConfig *bc, bool isFKB = false);
 
 //std::list<gamepad_function_key_t *> gpKeySeqList;
 
@@ -139,12 +141,12 @@ static void UpdateTopRider(void);
 static uint32 JSreturn = 0;
 
 #include "keyscan.h"
-static uint8 g_keyState[SDL_NUM_SCANCODES];
+static uint8_t g_keyState[SDL_NUM_SCANCODES];
 static int keyModifier = 0;
 //static int DIPS = 0;
 
-static uint8 keyonce[SDL_NUM_SCANCODES];
-#define KEY(__a) g_keyState[MKK(__a)]
+//static uint8 keyonce[SDL_NUM_SCANCODES];
+//#define KEY(__a) g_keyState[MKK(__a)]
 
 int getKeyState(int k)
 {
@@ -156,37 +158,52 @@ int getKeyState(int k)
 	return 0;
 }
 
-static int
-_keyonly(int a)
+const uint8_t *QtSDL_getKeyboardState( int *bufSize )
 {
-	int sc;
-
-	if (a < 0)
+	if (bufSize != nullptr)
 	{
-		return 0;
+		*bufSize = SDL_NUM_SCANCODES;
 	}
+	return g_keyState;
+}
 
-	sc = SDL_GetScancodeFromKey(a);
+//static int
+//_keyonly(int a)
+//{
+//	int sc;
+//
+//	if (a < 0)
+//	{
+//		return 0;
+//	}
+//
+//	sc = SDL_GetScancodeFromKey(a);
+//
+//	// check for valid key
+//	if (sc >= SDL_NUM_SCANCODES || sc < 0)
+//	{
+//		return 0;
+//	}
+//
+//	if (g_keyState[sc])
+//	{
+//		if (!keyonce[sc])
+//		{
+//			keyonce[sc] = 1;
+//			return 1;
+//		}
+//	}
+//	else
+//	{
+//		keyonce[sc] = 0;
+//	}
+//	return 0;
+//}
 
-	// check for valid key
-	if (sc >= SDL_NUM_SCANCODES || sc < 0)
-	{
-		return 0;
-	}
-
-	if (g_keyState[sc])
-	{
-		if (!keyonce[sc])
-		{
-			keyonce[sc] = 1;
-			return 1;
-		}
-	}
-	else
-	{
-		keyonce[sc] = 0;
-	}
-	return 0;
+uint32 GetGamepadPressedImmediate(void)
+{
+	//printf("JSreturn: 0x%08X\n", JSreturn);
+	return JSreturn;
 }
 
 #define keyonly(__a) _keyonly(MKK(__a))
@@ -258,11 +275,19 @@ void hotkey_t::conv2SDL(void)
 	if (shortcut == nullptr)
 		return;
 
+#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+	qkey.value    = shortcut->key()[0].key();
+	qkey.modifier = shortcut->key()[0].keyboardModifiers();
+
+	SDL_Keycode k = convQtKey2SDLKeyCode(shortcut->key()[0].key());
+	SDL_Keymod m = convQtKey2SDLModifier(shortcut->key()[0].keyboardModifiers());
+#else
 	qkey.value    = (Qt::Key)(shortcut->key()[0] & 0x01FFFFFF);
 	qkey.modifier = (Qt::KeyboardModifier)(shortcut->key()[0] & 0xFE000000);
 
 	SDL_Keycode k = convQtKey2SDLKeyCode((Qt::Key)(shortcut->key()[0] & 0x01FFFFFF));
 	SDL_Keymod m = convQtKey2SDLModifier((Qt::KeyboardModifier)(shortcut->key()[0] & 0xFE000000));
+#endif
 
 	//printf("Key: '%s'  0x%08x\n", shortcut->key().toString().toStdString().c_str(), shortcut->key()[0] );
 
@@ -449,6 +474,11 @@ void setHotKeys(void)
 	{
 		Hotkeys[i].readConfig();
 	}
+
+	if ( tasWin != NULL )
+	{
+		tasWin->initHotKeys();
+	}
 	return;
 }
 
@@ -592,6 +622,7 @@ static std::string GetFilename(const char *title, int mode, const char *filter)
 
 	urls << QUrl::fromLocalFile(QDir::rootPath());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 	urls << QUrl::fromLocalFile(QDir(FCEUI_GetBaseDirectory()).absolutePath());
 
@@ -1199,28 +1230,15 @@ void GetMouseData(uint32 (&d)[3])
 
 	b = 0; // map mouse buttons
 
-	if (consoleWindow->viewport_SDL)
+	if (consoleWindow->viewport_Interface)
 	{
-		consoleWindow->viewport_SDL->getNormalizedCursorPos(nx, ny);
+		consoleWindow->viewport_Interface->getNormalizedCursorPos(nx, ny);
 
-		if (consoleWindow->viewport_SDL->getMouseButtonState(Qt::LeftButton))
+		if (consoleWindow->viewport_Interface->getMouseButtonState(Qt::LeftButton))
 		{
 			b |= 0x01;
 		}
-		if (consoleWindow->viewport_SDL->getMouseButtonState(Qt::RightButton))
-		{
-			b |= 0x02;
-		}
-	}
-	else if (consoleWindow->viewport_GL)
-	{
-		consoleWindow->viewport_GL->getNormalizedCursorPos(nx, ny);
-
-		if (consoleWindow->viewport_GL->getMouseButtonState(Qt::LeftButton))
-		{
-			b |= 0x01;
-		}
-		if (consoleWindow->viewport_GL->getMouseButtonState(Qt::RightButton))
+		if (consoleWindow->viewport_Interface->getMouseButtonState(Qt::RightButton))
 		{
 			b |= 0x02;
 		}
@@ -1300,13 +1318,43 @@ UpdatePhysicalInput()
 			//printf("SDL_Event.type: %i  Keysym: %i  ScanCode: %i\n",
 			//		event.type, event.key.keysym.sym, event.key.keysym.scancode );
 
+			#ifdef WIN32
+			g_keyState[SDL_SCANCODE_LSHIFT] = win32GetKeyState( SDL_SCANCODE_LSHIFT );
+			g_keyState[SDL_SCANCODE_RSHIFT] = win32GetKeyState( SDL_SCANCODE_RSHIFT );
+			g_keyState[SDL_SCANCODE_LALT  ] = win32GetKeyState( SDL_SCANCODE_LALT   );
+			g_keyState[SDL_SCANCODE_RALT  ] = win32GetKeyState( SDL_SCANCODE_RALT   );
+			g_keyState[SDL_SCANCODE_LCTRL ] = win32GetKeyState( SDL_SCANCODE_LCTRL  );
+			g_keyState[SDL_SCANCODE_RCTRL ] = win32GetKeyState( SDL_SCANCODE_RCTRL  );
+			g_keyState[SDL_SCANCODE_LGUI  ] = win32GetKeyState( SDL_SCANCODE_LGUI   );
+			g_keyState[SDL_SCANCODE_RGUI  ] = win32GetKeyState( SDL_SCANCODE_RGUI   );
+			#endif
+
 			keyModifier = event.key.keysym.mod;
-			g_keyState[SDL_SCANCODE_LSHIFT] = (event.key.keysym.mod & KMOD_LSHIFT) ? 1 : 0;
-			g_keyState[SDL_SCANCODE_RSHIFT] = (event.key.keysym.mod & KMOD_RSHIFT) ? 1 : 0;
-			g_keyState[SDL_SCANCODE_LALT] = (event.key.keysym.mod & KMOD_LALT) ? 1 : 0;
-			g_keyState[SDL_SCANCODE_RALT] = (event.key.keysym.mod & KMOD_RALT) ? 1 : 0;
-			g_keyState[SDL_SCANCODE_LCTRL] = (event.key.keysym.mod & KMOD_LCTRL) ? 1 : 0;
-			g_keyState[SDL_SCANCODE_RCTRL] = (event.key.keysym.mod & KMOD_RCTRL) ? 1 : 0;
+
+			if ( (event.key.keysym.mod & KMOD_LSHIFT) == 0 )
+			{
+				g_keyState[SDL_SCANCODE_LSHIFT] = 0;
+			}
+			if ( (event.key.keysym.mod & KMOD_RSHIFT) == 0 )
+			{
+				g_keyState[SDL_SCANCODE_RSHIFT] = 0;
+			}
+			if ( (event.key.keysym.mod & KMOD_LALT) == 0 )
+			{
+				g_keyState[SDL_SCANCODE_LALT] = 0;
+			}
+			if ( (event.key.keysym.mod & KMOD_RALT) == 0 )
+			{
+				g_keyState[SDL_SCANCODE_RALT] = 0;
+			}
+			if ( (event.key.keysym.mod & KMOD_LCTRL) == 0 )
+			{
+				g_keyState[SDL_SCANCODE_LCTRL] = 0;
+			}
+			if ( (event.key.keysym.mod & KMOD_RCTRL) == 0 )
+			{
+				g_keyState[SDL_SCANCODE_RCTRL] = 0;
+			}
 
 			g_keyState[event.key.keysym.scancode] = (event.type == SDL_KEYDOWN) ? 1 : 0;
 
@@ -1355,12 +1403,18 @@ void ButtonConfigEnd()
  * Tests to see if a specified button is currently pressed.
  */
 static int
-DTestButton(ButtConfig *bc)
+DTestButton(ButtConfig *bc, bool isFKB)
 {
-
 	if (bc->ButtType == BUTTC_KEYBOARD)
 	{
-		if (g_keyState[SDL_GetScancodeFromKey(bc->ButtonNum)])
+		bool ignoreKB = false;
+		bool fkbActv  = g_fkbEnabled && (CurInputType[2] == SIFC_FKB);
+
+		if (fkbActv)
+		{
+			ignoreKB = !isFKB;	
+		}
+		if (!ignoreKB && g_keyState[SDL_GetScancodeFromKey(bc->ButtonNum)])
 		{
 			bc->state = 1;
 			return 1;
@@ -1692,6 +1746,10 @@ void FCEUD_SetInput(bool fourscore, bool microphone, ESI port0, ESI port1,
 		CurInputType[1] = port1;
 		CurInputType[2] = fcexp;
 	}
+	if (CurInputType[2] != SIFC_FKB)
+	{
+		g_fkbEnabled = false;
+	}
 
 	replaceP2StartWithMicrophone = microphone;
 
@@ -1790,40 +1848,76 @@ void InitInputInterface()
 	FCEUI_SetInputFourscore((eoptions & EO_FOURSCORE) != 0);
 }
 
-static ButtConfig fkbmap[0x48] = {
-	MK(SDLK_F1), MK(SDLK_F2), MK(SDLK_F3), MK(SDLK_F4), MK(SDLK_F5), MK(SDLK_F6), MK(SDLK_F7), MK(SDLK_F8),
-	MK(SDLK_1), MK(SDLK_2), MK(SDLK_3), MK(SDLK_4), MK(SDLK_5), MK(SDLK_6), MK(SDLK_7), MK(SDLK_8), MK(SDLK_9),
-	MK(SDLK_0),
-	MK(SDLK_MINUS), MK(SDLK_EQUAL), MK(SDLK_BACKSLASH), MK(SDLK_BACKSPACE),
-	MK(SDLK_ESCAPE), MK(SDLK_Q), MK(SDLK_W), MK(SDLK_E), MK(SDLK_R), MK(SDLK_T), MK(SDLK_Y), MK(SDLK_U), MK(SDLK_I),
-	MK(SDLK_O),
-	MK(SDLK_P), MK(SDLK_GRAVE), MK(SDLK_BRACKET_LEFT), MK(SDLK_ENTER),
-	MK(SDLK_LEFTCONTROL), MK(SDLK_A), MK(SDLK_S), MK(SDLK_D), MK(SDLK_F), MK(SDLK_G), MK(SDLK_H), MK(SDLK_J),
-	MK(SDLK_K),
-	MK(SDLK_L), MK(SDLK_SEMICOLON), MK(SDLK_APOSTROPHE), MK(SDLK_BRACKET_RIGHT), MK(SDLK_INSERT),
-	MK(SDLK_LEFTSHIFT), MK(SDLK_Z), MK(SDLK_X), MK(SDLK_C), MK(SDLK_V), MK(SDLK_B), MK(SDLK_N), MK(SDLK_M),
-	MK(SDLK_COMMA),
-	MK(SDLK_PERIOD), MK(SDLK_SLASH), MK(SDLK_RIGHTALT), MK(SDLK_RIGHTSHIFT), MK(SDLK_LEFTALT),
-	MK(SDLK_SPACE),
-	MK(SDLK_DELETE), MK(SDLK_END), MK(SDLK_PAGEDOWN),
-	MK(SDLK_CURSORUP), MK(SDLK_CURSORLEFT), MK(SDLK_CURSORRIGHT), MK(SDLK_CURSORDOWN)};
+ButtConfig fkbmap[FAMILYKEYBOARD_NUM_BUTTONS] = {
+	/*  0 */ MK(SDLK_F1), MK(SDLK_F2), MK(SDLK_F3), MK(SDLK_F4), MK(SDLK_F5), MK(SDLK_F6), MK(SDLK_F7), MK(SDLK_F8),
+	/*  8 */ MK(SDLK_1), MK(SDLK_2), MK(SDLK_3), MK(SDLK_4), MK(SDLK_5), MK(SDLK_6), MK(SDLK_7), MK(SDLK_8), MK(SDLK_9),
+	/* 17 */ MK(SDLK_0),
+	/* 18 */ MK(SDLK_MINUS), MK(SDLK_EQUAL), MK(SDLK_BACKSLASH), MK(SDLK_BACKSPACE),
+	/* 22 */ MK(SDLK_ESCAPE), MK(SDLK_Q), MK(SDLK_W), MK(SDLK_E), MK(SDLK_R), MK(SDLK_T), MK(SDLK_Y), MK(SDLK_U), MK(SDLK_I),
+	/* 31 */ MK(SDLK_O),
+	/* 32 */ MK(SDLK_P), MK(SDLK_GRAVE), MK(SDLK_BRACKET_LEFT), MK(SDLK_ENTER),
+	/* 36 */ MK(SDLK_LEFTCONTROL), MK(SDLK_A), MK(SDLK_S), MK(SDLK_D), MK(SDLK_F), MK(SDLK_G), MK(SDLK_H), MK(SDLK_J),
+	/* 44 */ MK(SDLK_K),
+	/* 45 */ MK(SDLK_L), MK(SDLK_SEMICOLON), MK(SDLK_APOSTROPHE), MK(SDLK_BRACKET_RIGHT), MK(SDLK_INSERT),
+	/* 50 */ MK(SDLK_LEFTSHIFT), MK(SDLK_Z), MK(SDLK_X), MK(SDLK_C), MK(SDLK_V), MK(SDLK_B), MK(SDLK_N), MK(SDLK_M),
+	/* 58 */ MK(SDLK_COMMA),
+	/* 59 */ MK(SDLK_PERIOD), MK(SDLK_SLASH), MK(SDLK_RIGHTALT), MK(SDLK_RIGHTSHIFT), MK(SDLK_LEFTALT),
+	/* 64 */ MK(SDLK_SPACE),
+	/* 65 */ MK(SDLK_DELETE), MK(SDLK_END), MK(SDLK_PAGEDOWN),
+	/* 68 */ MK(SDLK_CURSORUP), MK(SDLK_CURSORLEFT), MK(SDLK_CURSORRIGHT), MK(SDLK_CURSORDOWN)};
 
 /**
  * Update the status of the Family KeyBoard.
  */
-static void UpdateFKB()
+static void UpdateFKB(void)
 {
 	int x;
+	char leftShiftDown, vkeyDown;
+	//static char lp[0x48];
 
-	for (x = 0; x < 0x48; x++)
+	vkeyDown = getFamilyKeyboardVirtualKey(50);
+
+	leftShiftDown = DTestButton(&fkbmap[50], true) || vkeyDown;
+
+	for (x = 0; x < FAMILYKEYBOARD_NUM_BUTTONS; x++)
 	{
-		fkbkeys[x] = 0;
+		if ( leftShiftDown && (x == 62) )
+		{	// Family BASIC appears to not like when both shift keys are pressed at the
+			// same time. Since Qt key events do not differentiate between left and right
+			// shift this GUI sets both left and right shift scancodes when a shift modifier
+			// is detected. So to avoid having the FKB see both shift keys pressed at once,
+			// always skip the right shift key here if the left key is already detected down.
+			fkbkeys[x] = 0;
+			continue;
+		}
 
-		if (DTestButton(&fkbmap[x]))
+		vkeyDown = getFamilyKeyboardVirtualKey(x);
+
+		if (DTestButton(&fkbmap[x], true) || vkeyDown)
 		{
 			fkbkeys[x] = 1;
+
+			//if ( !lp[x] )
+			//{
+			//	printf("FKB Key %i Down\n", x );
+			//}
 		}
+		else
+		{
+			fkbkeys[x] = 0;
+
+			//if ( lp[x] )
+			//{
+			//	printf("FKB Key %i Up\n", x );
+			//}
+		}
+		//lp[x] = fkbkeys[x];
 	}
+}
+
+const uint8_t *getFamilyKeyboardState(void)
+{
+	return fkbkeys;
 }
 
 static ButtConfig HyperShotButtons[4] = {
@@ -2326,7 +2420,7 @@ int saveInputSettingsToFile(const char *filename)
 	QDir dir;
 	std::string path;
 	const char *baseDir = FCEUI_GetBaseDirectory();
-	char base[256];
+	char base[512];
 
 	path = std::string(baseDir) + "/input/presets/";
 
@@ -2374,7 +2468,7 @@ int loadInputSettingsFromFile(const char *filename)
 	QDir dir;
 	std::string path;
 	const char *baseDir = FCEUI_GetBaseDirectory();
-	char base[256], line[256];
+	char base[512], line[256];
 	char id[128], val[128];
 	int i, j;
 

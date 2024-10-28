@@ -7,7 +7,7 @@
 
   <meta charset="utf-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <meta name="generator" content="HelpNDoc Personal Edition 7.3.0.348">
+  <meta name="generator" content="HelpNDoc Personal Edition 7.9.1.631">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="favicon.ico"/>
 
@@ -51,6 +51,7 @@
   <link href="css/theme-light-blue.min.css" rel="stylesheet" />
   <link href="css/print.min.css" rel="stylesheet" media="print" />
   <style type="text/css">nav { width: 250px} @media screen and (min-width:769px) { body.md-nav-expanded div#main { margin-left: 250px} body.md-nav-expanded header { padding-left: 264px} }</style>
+  <style type="text/css">.navigation #inline-toc { width: auto !important}</style>
 
   <!-- Content style -->
   <link href="css/hnd.content.css" rel="stylesheet" />
@@ -195,7 +196,7 @@
 <p class="rvps2"><span class="rvts21">FDS BIOS ROM</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts6">In order to play any Famicom (.fds) game, you will need the FDS BIOS ROM image and it must be named disksys.rom.</span></p>
-<p class="rvps2"><span class="rvts6">It must be in the base FCEU directory unless you specified a path to disksys.rom in the </span><a class="rvts46" href="Directories.html">Directory Overrides List</a><span class="rvts6">. FCEUX will not load FDS games without this file.</span></p>
+<p class="rvps2"><span class="rvts6">It must be in the base FCEU directory unless you specified a path to disksys.rom in the </span><a class="rvts49" href="Directories.html">Directory Overrides List</a><span class="rvts6">. FCEUX will not load FDS games without this file.</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts21">File types</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
@@ -203,24 +204,24 @@
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts21">Writing to disk image</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
-<p class="rvps2"><span class="rvts6">If a loaded disk image is written to during emulation, FCEUX will store the modified disk image in the save games directory, which is "sav" under the base directory by default (unless changed under the </span><a class="rvts46" href="Directories.html">Directory Overrides List</a><span class="rvts6">).</span></p>
+<p class="rvps2"><span class="rvts6">If a loaded disk image is written to during emulation, FCEUX will store the modified disk image in the save games directory, which is "sav" under the base directory by default (unless changed under the </span><a class="rvts49" href="Directories.html">Directory Overrides List</a><span class="rvts6">).</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts21">Eject/Insert Disk</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts6">Emulates the ejecting of the current disk or the inserting of a new disk. &nbsp;If a disk image is loaded, this command will eject it. &nbsp;If a disk is ejected, this will insert a new disk.</span></p>
-<p class="rvps2"><span class="rvts6">This command can be mapped to a keyboard/joypad button in the </span><a class="rvts46" href="MapHotkeys.html">Map Hotkeys Menu</a><span class="rvts6">.</span></p>
+<p class="rvps2"><span class="rvts6">This command can be mapped to a keyboard/joypad button in the </span><a class="rvts49" href="MapHotkeys.html">Map Hotkeys Menu</a><span class="rvts6">.</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts21">Switch Disk Side</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts6">When prompted by the game, you can emulate the Switching sides of the FDS disk with the NES -&gt; Switch Disk Side command.</span></p>
-<p class="rvps2"><span class="rvts6">This command can be mapped to a keyboard/joypad button in the </span><a class="rvts46" href="MapHotkeys.html">Map Hotkeys Menu</a><span class="rvts6">.</span></p>
+<p class="rvps2"><span class="rvts6">This command can be mapped to a keyboard/joypad button in the </span><a class="rvts49" href="MapHotkeys.html">Map Hotkeys Menu</a><span class="rvts6">.</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts6">To switch disk side you first have to eject the disk, and after switching sides you have to insert the disk back.</span></p>
 <p class="rvps2"><span class="rvts6">Many FDS games ask you to switch disk side before you can proceed from the title screen. So you have to do the following:</span></p>
-<p class="rvps2"><span class="rvts6">1) choose </span><span class="rvts47">NES -&gt; Eject/Insert Disk</span><span class="rvts6">, the message "Disk 0 Side A Ejected" will appear</span></p>
-<p class="rvps2"><span class="rvts6">2) choose </span><span class="rvts47">NES -&gt; Switch Disk Side</span><span class="rvts6">, the message "Disk 0 Side B Selected" will appear</span></p>
-<p class="rvps2"><span class="rvts6">3) choose </span><span class="rvts47">NES -&gt; Eject/Insert Disk</span><span class="rvts6"> again, the message "Disk 0 Side B Inserted" will appear, and the game will change from title screen to player select screen.</span></p>
+<p class="rvps2"><span class="rvts6">1) choose </span><span class="rvts50">NES -&gt; Eject/Insert Disk</span><span class="rvts6">, the message "Disk 0 Side A Ejected" will appear</span></p>
+<p class="rvps2"><span class="rvts6">2) choose </span><span class="rvts50">NES -&gt; Switch Disk Side</span><span class="rvts6">, the message "Disk 0 Side B Selected" will appear</span></p>
+<p class="rvps2"><span class="rvts6">3) choose </span><span class="rvts50">NES -&gt; Eject/Insert Disk</span><span class="rvts6"> again, the message "Disk 0 Side B Inserted" will appear, and the game will change from title screen to player select screen.</span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts6"><br/></span></p>
 <p class="rvps2"><span class="rvts6"></span><span class="rvts6"></span></p>
@@ -280,7 +281,9 @@
   <script>
     $(function() {
       // Create the app
-      var app = new Hnd.App();
+      var app = new Hnd.App({
+        searchEngineMinChars: 3
+      });
       // Update translations
       hnd_ut(app);
 	  // Instanciate imageMapResizer

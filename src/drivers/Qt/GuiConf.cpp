@@ -63,6 +63,7 @@ GuiConfDialog_t::GuiConfDialog_t(QWidget *parent)
 	QGroupBox   *frame, *qssFrame;
 	QFrame      *hline;
 	std::string  qssFile, qpalFile;
+	QSettings    settings;
 
 	//resize( 512, 600 );
 	//printf("Style: %s \n", style()->objectName().toStdString().c_str() );
@@ -128,16 +129,19 @@ GuiConfDialog_t::GuiConfDialog_t(QWidget *parent)
 	useNativeMenuBar    = new QCheckBox(tr("Use Native OS Menu Bar"));
 	pauseOnMenuAccess   = new QCheckBox(tr("Pause On Main Menu Access"));
 	ctxMenuEnable       = new QCheckBox(tr("Context Menu Enable"));
+	showSplashScreen    = new QCheckBox(tr("Show Splash Screen at Startup"));
 
 	useNativeFileDialog->setChecked(useNativeFileDialogVal);
 	useNativeMenuBar->setChecked(useNativeMenuBarVal);
 	pauseOnMenuAccess->setChecked(pauseOnMenuAccessVal);
 	ctxMenuEnable->setChecked(contextMenuEnable);
+	showSplashScreen->setChecked( settings.value("mainWindow/showSplashScreen", false).toBool() );
 
 	connect(useNativeFileDialog, SIGNAL(stateChanged(int)), this, SLOT(useNativeFileDialogChanged(int)));
 	connect(useNativeMenuBar   , SIGNAL(stateChanged(int)), this, SLOT(useNativeMenuBarChanged(int)));
 	connect(pauseOnMenuAccess  , SIGNAL(stateChanged(int)), this, SLOT(pauseOnMenuAccessChanged(int)));
 	connect(ctxMenuEnable      , SIGNAL(stateChanged(int)), this, SLOT(contextMenuEnableChanged(int)));
+	connect(showSplashScreen   , SIGNAL(stateChanged(int)), this, SLOT(showSplashScreenChanged(int)));
 
 	styleComboBox = new QComboBox();
 
@@ -239,6 +243,7 @@ GuiConfDialog_t::GuiConfDialog_t(QWidget *parent)
 	vbox1->addWidget(useNativeMenuBar, 1);
 	vbox1->addWidget(pauseOnMenuAccess, 1);
 	vbox1->addWidget(ctxMenuEnable, 1);
+	vbox1->addWidget(showSplashScreen, 1);
 	vbox1->addStretch(10);
 
 	closeButton = new QPushButton( tr("Close") );
@@ -258,12 +263,12 @@ GuiConfDialog_t::GuiConfDialog_t(QWidget *parent)
 //----------------------------------------------------
 GuiConfDialog_t::~GuiConfDialog_t(void)
 {
-	printf("Destroy GUI Config Close Window\n");
+	//printf("Destroy GUI Config Close Window\n");
 }
 //----------------------------------------------------------------------------
 void GuiConfDialog_t::closeEvent(QCloseEvent *event)
 {
-	printf("GUI Config Close Window Event\n");
+	//printf("GUI Config Close Window Event\n");
 	done(0);
 	deleteLater();
 	event->accept();
@@ -308,6 +313,15 @@ void GuiConfDialog_t::contextMenuEnableChanged(int state)
 	g_config->setOption("SDL.ContextMenuEnable", value);
 
 	consoleWindow->setContextMenuEnable( value );
+}
+//----------------------------------------------------
+void GuiConfDialog_t::showSplashScreenChanged(int state)
+{
+	QSettings settings;
+	bool value = (state == Qt::Unchecked) ? 0 : 1;
+
+	settings.setValue("mainWindow/showSplashScreen", value );
+	settings.sync();
 }
 //----------------------------------------------------
 void GuiConfDialog_t::useCustomStyleChanged(int state)
@@ -355,13 +369,13 @@ void GuiConfDialog_t::openQss(void)
 	int ret, useNativeFileDialogVal; //, useCustom;
 	QString filename;
 	std::string last, iniPath;
-	char dir[512];
-	char exePath[512];
+	std::string dir;
+	const char *exePath = nullptr;
 	QFileDialog dialog(this, tr("Open Qt Stylesheet (QSS)"));
 	QList<QUrl> urls;
 	QDir d;
 
-	fceuExecutablePath(exePath, sizeof(exePath));
+	exePath = fceuExecutablePath();
 
 	//urls = dialog.sidebarUrls();
 	urls << QUrl::fromLocalFile(QDir::rootPath());
@@ -407,7 +421,7 @@ void GuiConfDialog_t::openQss(void)
 
 	getDirFromFile(last.c_str(), dir);
 
-	dialog.setDirectory(tr(dir));
+	dialog.setDirectory(tr(dir.c_str()));
 
 	// Check config option to use native file dialog or not
 	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -459,13 +473,13 @@ void GuiConfDialog_t::openQPal(void)
 	int ret, useNativeFileDialogVal; //, useCustom;
 	QString filename;
 	std::string last, iniPath;
-	char dir[512];
-	char exePath[512];
+	std::string dir;
+	const char *exePath = nullptr;
 	QFileDialog dialog(this, tr("Open Qt QPalette File (QPAL)"));
 	QList<QUrl> urls;
 	QDir d;
 
-	fceuExecutablePath(exePath, sizeof(exePath));
+	exePath = fceuExecutablePath();
 
 	//urls = dialog.sidebarUrls();
 	urls << QUrl::fromLocalFile(QDir::rootPath());
@@ -511,7 +525,7 @@ void GuiConfDialog_t::openQPal(void)
 
 	getDirFromFile(last.c_str(), dir);
 
-	dialog.setDirectory(tr(dir));
+	dialog.setDirectory(tr(dir.c_str()));
 
 	// Check config option to use native file dialog or not
 	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -739,15 +753,17 @@ void fceuStyle::polish(QApplication *app)
 
 		if ( rccFilePath.size() == 0 )
 		{
-			char dir[1024], rccBase[256], tmpFile[2048];
+			std::string dir, rccBase, tmpFile;
 
-			parseFilepath( s.c_str(), dir, rccBase, NULL );
+			parseFilepath( s.c_str(), &dir, &rccBase, nullptr );
 
-			sprintf( tmpFile, "%s%s.rcc", dir, rccBase );
+			tmpFile.assign(dir);
+			tmpFile.append(rccBase);
+			tmpFile.append(".rcc");
 
-			//printf("RCC: '%s%s'\n", dir, rccBase );
+			//printf("RCC: '%s%s'\n", dir.c_str(), rccBase.c_str() );
 
-			if ( QResource::registerResource( tmpFile ) )
+			if ( QResource::registerResource( tmpFile.c_str() ) )
 			{
 				//printf("Loaded RCC File: '%s'\n", tmpFile );
 				rccFilePath.assign( tmpFile );
@@ -973,6 +989,8 @@ static int readQPaletteFromFile( const char *path, QPalette *pal )
 
 		rTxtMatch = NULL;
 
+		r = QPalette::WindowText;
+
 		for (k=0; k<30; k++)
 		{
 
@@ -1162,14 +1180,14 @@ void GuiPaletteEditDialog_t::paletteSaveAs(void)
 	int ret, useNativeFileDialogVal; //, useCustom;
 	QString filename;
 	std::string last, iniPath;
-	char dir[512];
-	char exePath[512];
+	std::string dir;
+	const char *exePath = nullptr;
 	QFileDialog dialog(this, tr("Save QPalette (qpal)"));
 	QList<QUrl> urls;
 	QDir d;
 	QPalette pal = this->palette();
 
-	fceuExecutablePath(exePath, sizeof(exePath));
+	exePath = fceuExecutablePath();
 
 	//urls = dialog.sidebarUrls();
 	urls << QUrl::fromLocalFile(QDir::rootPath());
@@ -1216,7 +1234,7 @@ void GuiPaletteEditDialog_t::paletteSaveAs(void)
 
 	getDirFromFile(last.c_str(), dir);
 
-	dialog.setDirectory(tr(dir));
+	dialog.setDirectory(tr(dir.c_str()));
 
 	// Check config option to use native file dialog or not
 	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -1597,7 +1615,7 @@ guiStyleTestDialog::guiStyleTestDialog(QWidget *parent)
 	grid->addWidget( lbl, 2, 0 );
 
 	lbl = new QLabel();
-	lbl->setText("<a href=\"http://fceux.com\">Website Link</a>");
+	lbl->setText("<a href=\"https://fceux.com\">Website Link</a>");
 	lbl->setTextInteractionFlags(Qt::TextBrowserInteraction);
 	lbl->setOpenExternalLinks(false);
 	grid->addWidget( lbl, 2, 1 );

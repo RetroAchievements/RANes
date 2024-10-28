@@ -544,15 +544,15 @@ void RamWatchDialog_t::openListCB(void)
 
 	if ( romFile != NULL )
 	{
-		char dir[512], base[256];
+		std::string dir, base;
 
-		parseFilepath( romFile, dir, base );
+		parseFilepath( romFile, &dir, &base );
 
-		strcat( base, ".wch");
+		base.append(".wch");
 
-		dialog.setDirectory( tr(dir) );
+		dialog.setDirectory( tr(dir.c_str()) );
 
-		dialog.selectFile( tr(base) );
+		dialog.selectFile( tr(base.c_str()) );
 	}
 
 	// Check config option to use native file dialog or not
@@ -604,15 +604,15 @@ void RamWatchDialog_t::appendListCB(void)
 
 	if ( romFile != NULL )
 	{
-		char dir[512], base[256];
+		std::string dir, base;
 
-		parseFilepath( romFile, dir, base );
+		parseFilepath( romFile, &dir, &base );
 
-		strcat( base, ".wch");
+		base.append(".wch");
 
-		dialog.setDirectory( tr(dir) );
+		dialog.setDirectory( tr(dir.c_str()) );
 
-		dialog.selectFile( tr(base) );
+		dialog.selectFile( tr(base.c_str()) );
 	}
 
 	// Check config option to use native file dialog or not
@@ -651,11 +651,7 @@ void RamWatchDialog_t::saveListCB(void)
 
 	if ( saveFileName.size() > 0 )
 	{
-		char file[512];
-
-		strcpy( file, saveFileName.c_str() );
-
-		saveWatchFile( file );
+		saveWatchFile( saveFileName.c_str() );
 	}
 	else
 	{
@@ -687,15 +683,15 @@ void RamWatchDialog_t::saveListAs(void)
 
 	if ( romFile != NULL )
 	{
-		char dir[512], base[256];
+		std::string dir, base;
 
-		parseFilepath( romFile, dir, base );
+		parseFilepath( romFile, &dir, &base );
 
-		strcat( base, ".wch");
+		base.append(".wch");
 
-		dialog.setDirectory( tr(dir) );
+		dialog.setDirectory( tr(dir.c_str()) );
 
-		dialog.selectFile( tr(base) );
+		dialog.selectFile( tr(base.c_str()) );
 	}
 
 	// Check config option to use native file dialog or not
@@ -845,7 +841,7 @@ void RamWatchDialog_t::openWatchEditWindow( ramWatch_t *rw, int mode)
 	okButton->setDefault(true);
 
 	connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
-   connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
+	connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
 
 	if ( rw != NULL )
 	{
@@ -875,8 +871,8 @@ void RamWatchDialog_t::openWatchEditWindow( ramWatch_t *rw, int mode)
 		}
 		else
 		{
-	   	signedTypeBtn->setChecked( rw->type == 's' );
-	   	unsignedTypeBtn->setChecked( rw->type != 's' );
+			signedTypeBtn->setChecked( rw->type == 's' );
+			unsignedTypeBtn->setChecked( rw->type != 's' );
 			dataSize1Btn->setChecked( rw->size == 1 );
 			dataSize2Btn->setChecked( rw->size == 2 );
 			dataSize4Btn->setChecked( rw->size == 4 );
@@ -884,8 +880,8 @@ void RamWatchDialog_t::openWatchEditWindow( ramWatch_t *rw, int mode)
 	}
 	else
 	{
-	   signedTypeBtn->setChecked( true );
-	   unsignedTypeBtn->setChecked( false );
+		signedTypeBtn->setChecked( true );
+		unsignedTypeBtn->setChecked( false );
 		dataSize1Btn->setChecked( true );
 		dataSize2Btn->setChecked( false );
 		dataSize4Btn->setChecked( false );
@@ -915,7 +911,7 @@ void RamWatchDialog_t::openWatchEditWindow( ramWatch_t *rw, int mode)
 		if ( (rw == NULL) || mode )
 		{
 			ramWatchList.add_entry( notesEntry->text().toStdString().c_str(), 
-				addr, unsignedTypeBtn->isChecked(), size, isSep);
+				addr, unsignedTypeBtn->isChecked() ? 'u' : 's', size, isSep);
 		}
 		else 
 		{

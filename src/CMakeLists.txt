@@ -1,8 +1,13 @@
+include(GNUInstallDirs)
 
 set( APP_NAME fceux)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+
+if (${PUBLIC_RELEASE})
+	add_definitions( -DPUBLIC_RELEASE=1 )
+endif()
 
 if ( ${QT6} )
 	message( STATUS "GUI Frontend: Qt6")
@@ -17,6 +22,12 @@ if ( ${QHELP} )
 	add_definitions( -D_USE_QHELP )
 endif()
 
+if ( ${FCEU_PROFILER_ENABLE} )
+	message( STATUS "FCEU Profiler Enabled")
+	add_definitions( -D__FCEU_PROFILER_ENABLE__ )
+endif()
+	
+
 if ( ${QT6} )
 	find_package( Qt6 REQUIRED COMPONENTS Widgets OpenGL OpenGLWidgets ${QtHelpModule})
   	add_definitions( ${Qt6Widgets_DEFINITIONS} ${Qt6Help_DEFINITIONS} ${Qt6OpenGLWidgets_DEFINITIONS} )
@@ -27,6 +38,7 @@ else()
 	include_directories( ${Qt5Widgets_INCLUDE_DIRS} ${Qt5Help_INCLUDE_DIRS} )
 endif()
 
+
 if(WIN32)
      find_package(OpenGL REQUIRED)
      #find_package(Qt5 COMPONENTS Widgets OpenGL REQUIRED)
@@ -35,10 +47,15 @@ if(WIN32)
      add_definitions( -DMSVC -D_CRT_SECURE_NO_WARNINGS )
      add_definitions( -D__SDL__  -D__QT_DRIVER__  -DQT_DEPRECATED_WARNINGS )
      add_definitions( -DFCEUDEF_DEBUGGER )
+     add_definitions( -D_USE_LIBARCHIVE )
+     add_definitions( /wd4267 /wd4244 )
+     #add_definitions( /wd4018 ) # Integer comparison sign mismatch warnings
      include_directories( ${SDL_INSTALL_PREFIX}/SDL2/include )
+     include_directories( ${LIBARCHIVE_INSTALL_PREFIX}/libarchive/include )
      include_directories( ${CMAKE_CURRENT_SOURCE_DIR}/drivers/win/zlib )
      set( OPENGL_LDFLAGS  OpenGL::GL )
      set( SDL2_LDFLAGS  ${SDL_INSTALL_PREFIX}/SDL2/lib/x64/SDL2.lib )
+     set( LIBARCHIVE_LDFLAGS  ${LIBARCHIVE_INSTALL_PREFIX}/libarchive/lib/archive.lib )
      set( SYS_LIBS  wsock32 ws2_32 vfw32 Htmlhelp )
      set(APP_ICON_RESOURCES_WINDOWS  ${CMAKE_SOURCE_DIR}/icons/fceux.rc )
 
@@ -70,7 +87,8 @@ else(WIN32)
   find_package(OpenGL REQUIRED)
   find_package(ZLIB REQUIRED)
 
-  add_definitions( -Wall  -Wno-write-strings  -Wno-sign-compare  -Wno-parentheses  -Wno-unused-local-typedefs  -fPIC )
+  add_definitions( -Wall  -Wno-write-strings  -Wno-parentheses  -Wno-unused-local-typedefs  -fPIC )
+  #add_definitions( -Wno-sign-compare )  # Integer comparison sign mismatch warnings
   add_definitions( -DFCEUDEF_DEBUGGER )
 
   #if ( ${QT6} )
@@ -84,12 +102,34 @@ else(WIN32)
   #endif()
   add_definitions( -D__QT_DRIVER__  -DQT_DEPRECATED_WARNINGS )
 
+  if ( ${GPROF_ENABLE} )
+	add_definitions( -pg )
+	set( GPROF_LDFLAGS  -pg )
+	message( STATUS "GNU Profiling Enabled" )
+  endif()
+
+  if ( ${ASAN_ENABLE} )
+	add_definitions( -fsanitize=address -fsanitize=bounds-strict )
+	add_definitions( -fsanitize=undefined -fno-sanitize=vptr )
+	set( ASAN_LDFLAGS  -lasan -lubsan)
+	message( STATUS "Address Sanitizer Enabled" )
+  else()
+	message( STATUS "Address Sanitizer Disabled" )
+  endif()
+
   # Check for libminizip
   pkg_check_modules( MINIZIP REQUIRED minizip)
 
   if ( ${MINIZIP_FOUND} )
 	  message( STATUS "Using System minizip ${MINIZIP_VERSION}" )
 	  add_definitions( -D_SYSTEM_MINIZIP ${MINIZIP_CFLAGS} )
+  endif()
+
+  pkg_check_modules( LIBARCHIVE libarchive)
+
+  if ( ${LIBARCHIVE_FOUND} )
+	  message( STATUS "Using System Libarchive Library ${LIBARCHIVE_VERSION}" )
+	  add_definitions( -D_USE_LIBARCHIVE ${LIBARCHIVE_CFLAGS} )
   endif()
 
   pkg_check_modules( X264 x264)
@@ -111,6 +151,22 @@ else(WIN32)
   if ( ${LIBAV_FOUND} )
 	  message( STATUS "Using System Libav Library ${LIBAV_VERSION}" )
 	  add_definitions( -D_USE_LIBAV ${LIBAV_CFLAGS} )
+  endif()
+
+  #find_package(X11)
+  pkg_check_modules( X11 x11)
+
+  if ( ${X11_FOUND} )
+	message( STATUS "Has X11 Library ${X11_VERSION}" )
+	add_definitions( -D_HAS_X11 )
+	include_directories( ${X11_INCLUDE_DIR} )
+  endif()
+
+  pkg_check_modules( XKB xkbcommon)
+
+  if ( ${XKB_FOUND} )
+	message( STATUS "Has XKB Library ${XKB_VERSION}" )
+        add_definitions( -D_HAS_XKB ${XKB_CFLAGS} )
   endif()
 
   #pkg_check_modules( GL gl) # Use built in find package instead for OpenGL
@@ -244,6 +300,7 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/conddebug.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/config.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/debug.cpp
+  	${CMAKE_CURRENT_SOURCE_DIR}/debugsymboltable.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/drawing.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/fceu.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/fds.cpp
@@ -252,11 +309,13 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/filter.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/ines.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/input.cpp
+  	${CMAKE_CURRENT_SOURCE_DIR}/ld65dbg.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/movie.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/netplay.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/nsf.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/oldmovie.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/palette.cpp
+  	${CMAKE_CURRENT_SOURCE_DIR}/profiler.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/ppu.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/sound.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/state.cpp
@@ -315,6 +374,7 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/32.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/33.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/34.cpp
+  	${CMAKE_CURRENT_SOURCE_DIR}/boards/354.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/36.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/3d-block.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/40.cpp
@@ -365,6 +425,7 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/cheapocabra.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/cityfighter.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/coolboy.cpp
+  	${CMAKE_CURRENT_SOURCE_DIR}/boards/coolgirl.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/dance2000.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/datalatch.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/dream.cpp
@@ -436,6 +497,7 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/vrc7.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/vrc7p.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/yoko.cpp
+  	${CMAKE_CURRENT_SOURCE_DIR}/boards/inx007t.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/input/arkanoid.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/input/bworld.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/input/cursor.cpp
@@ -464,13 +526,14 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/utils/guid.cpp    
   	${CMAKE_CURRENT_SOURCE_DIR}/utils/md5.cpp  
   	${CMAKE_CURRENT_SOURCE_DIR}/utils/memory.cpp
+  	${CMAKE_CURRENT_SOURCE_DIR}/utils/mutex.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/utils/timeStamp.cpp
 )
 
 
 set(SRC_DRIVERS_COMMON
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/args.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cheat.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/config.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/configSys.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/hq2x.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/hq3x.cpp
@@ -487,8 +550,11 @@ set(SRC_DRIVERS_SDL
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleWindow.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleViewerGL.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleViewerSDL.cpp  
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleViewerQWidget.cpp  
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleViewerInterface.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/InputConf.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/GamePadConf.cpp  
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/FamilyKeyboard.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/HotKeyConf.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TimingConf.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/FrameTimingStats.cpp  
@@ -511,7 +577,9 @@ set(SRC_DRIVERS_SDL
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleUtilities.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleVideoConf.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleSoundConf.cpp  
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/StateRecorderConf.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/iNesHeaderEditor.cpp  
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/SplashScreen.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TraceLogger.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/AboutWindow.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/fceuWrapper.cpp  
@@ -533,9 +601,34 @@ set(SRC_DRIVERS_SDL
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/avi/avi-utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/avi/fileio.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/avi/gwavi.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/TasEditorWindow.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/taseditor_project.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/taseditor_config.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/taseditor_lua.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/markers_manager.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/greenzone.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/selection.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/playback.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/recorder.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/history.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/splicer.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/inputlog.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/laglog.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/branches.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/bookmarks.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/bookmark.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/snapshot.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TasEditor/markers.cpp
 )
 
 set(SOURCES ${SRC_CORE} ${SRC_DRIVERS_COMMON} ${SRC_DRIVERS_SDL})
+
+# Put build timestamp into BUILD_TS environment variable and from there into
+# the FCEUX_BUILD_TIMESTAMP preprocessor definition.
+# Note: with CMake >= 3.8.0, this will respect SOURCE_DATE_EPOCH. For more info,
+#       see <https://reproducible-builds.org/docs/source-date-epoch/>.
+string(TIMESTAMP BUILD_TS "%H:%M:%S  %b %d %Y" UTC)
+add_definitions( -DFCEUX_BUILD_TIMESTAMP=\"${BUILD_TS}\" )
 
 if (WIN32)
 add_custom_command( 
@@ -569,14 +662,15 @@ add_executable(  ${APP_NAME}  ${SOURCES} ../resources.qrc
 	${CMAKE_CURRENT_BINARY_DIR}/fceux_git_info.cpp)
 endif()
 
-target_link_libraries( ${APP_NAME}  
+target_link_libraries( ${APP_NAME}
+   ${ASAN_LDFLAGS}  ${GPROF_LDFLAGS}
    ${${Qt}Widgets_LIBRARIES}
    ${${Qt}Help_LIBRARIES}
    ${${Qt}OpenGL_LIBRARIES}
    ${${Qt}OpenGLWidgets_LIBRARIES}
    ${OPENGL_LDFLAGS}  
  	${SDL2_LDFLAGS}
-	${MINIZIP_LDFLAGS} ${ZLIB_LIBRARIES}
+	${MINIZIP_LDFLAGS} ${ZLIB_LIBRARIES} ${LIBARCHIVE_LDFLAGS}
 	${LUA_LDFLAGS} ${X264_LDFLAGS} ${X265_LDFLAGS} ${LIBAV_LDFLAGS}
  	${SYS_LIBS}
 )
@@ -631,7 +725,7 @@ install( FILES     ${CMAKE_CURRENT_SOURCE_DIR}/auxlib.lua                DESTINA
 install( DIRECTORY ${CMAKE_SOURCE_DIR}/output/.                          DESTINATION share/fceux  )
 install( FILES     ${CMAKE_SOURCE_DIR}/fceux1.png                        DESTINATION share/pixmaps  )
 install( FILES     ${CMAKE_SOURCE_DIR}/fceux.desktop                     DESTINATION share/applications  )
-install( FILES     ${CMAKE_SOURCE_DIR}/documentation/fceux.6             DESTINATION share/man/man6  )
-install( FILES     ${CMAKE_SOURCE_DIR}/documentation/fceux-net-server.6  DESTINATION share/man/man6  )
+install( FILES     ${CMAKE_SOURCE_DIR}/documentation/fceux.6             DESTINATION ${CMAKE_INSTALL_MANDIR}/man6  )
+install( FILES     ${CMAKE_SOURCE_DIR}/documentation/fceux-net-server.6  DESTINATION ${CMAKE_INSTALL_MANDIR}/man6  )
 
 endif(APPLE)

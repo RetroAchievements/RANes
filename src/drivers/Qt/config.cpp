@@ -25,6 +25,7 @@
 
 #include "fceu.h"
 #include "ppu.h"
+#include "video.h"
 #include "../common/cheat.h"
 
 #include "Qt/input.h"
@@ -34,6 +35,7 @@
 #include "Qt/sdl-video.h"
 #include "Qt/AviRecord.h"
 #include "Qt/unix-netplay.h"
+#include "Qt/TasEditor/taseditor_config.h"
 
 #ifdef WIN32
 #include <windows.h>
@@ -80,6 +82,9 @@ int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const 
 		break;
 		case HK_CHEAT_MENU:
 			name = "CheatMenu"; keySeq = ""; title = "Open Cheat Window"; group = "Tools";
+		break;
+		case HK_TOGGLE_ALL_CHEATS:
+			name = "ToggleCheats"; keySeq = ""; title = "Toggle Global Cheat Enable"; group = "Tools";
 		break;
 		case HK_BIND_STATE:
 			name = "BindState"; keySeq = ""; title = "Bind Save State to Movie"; group = "Movie";
@@ -182,8 +187,11 @@ int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const 
 		case HK_POWER:
 			name = "Power"; keySeq = ""; title = "Power"; group = "Emulation";
 		break;
-		case HK_RESET:
-			name = "Reset"; keySeq = "Ctrl+R"; title = "Reset"; group = "Emulation";
+		case HK_SOFT_RESET:
+			name = "SoftReset"; keySeq = "Ctrl+R"; title = "Soft Reset"; group = "Emulation";
+		break;
+		case HK_HARD_RESET:
+			name = "HardReset"; keySeq = "Ctrl+Shift+R"; title = "Hard Reset"; group = "Emulation";
 		break;
 		case HK_PAUSE:
 			name = "Pause"; keySeq = "Pause"; title = "Pause"; group = "Emulation";
@@ -287,11 +295,20 @@ int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const 
 		case HK_SELECT_STATE_PREV:
 			name = "SelectStatePrev"; keySeq = ""; title = "Select Previous State Slot"; group = "State";
 		break;
+		case HK_LOAD_PREV_STATE:
+			name = "LoadPrevState"; keySeq = ""; title = "Load Previous Recorded State"; group = "State";
+		break;
+		case HK_LOAD_NEXT_STATE:
+			name = "LoadNextState"; keySeq = ""; title = "Load Next Recorded State"; group = "State";
+		break;
+		case HK_VOLUME_MUTE:
+			name = "VolumeMute"; keySeq = ""; title = "Sound Volume Mute"; group = "Sound";
+		break;
 		case HK_VOLUME_DOWN:
-			name = "VolumeDown"; keySeq = "";
+			name = "VolumeDown"; keySeq = ""; title = "Sound Volume Down"; group = "Sound";
 		break;
 		case HK_VOLUME_UP:
-			name = "VolumeUp"; keySeq = "";
+			name = "VolumeUp"; keySeq = ""; title = "Sound Volume Up"; group = "Sound";
 		break;
 		case HK_FKB_ENABLE:
 			name = "FKB_Enable"; keySeq = "ScrollLock"; title = "Toggle Family Keyboard Enable";
@@ -421,7 +438,8 @@ CreateDirs(const std::string &dir)
 static void
 GetBaseDirectory(std::string &dir)
 {
-	char *home = getenv("FCEUX_HOME");
+	const char *home = getenv("FCEUX_HOME");
+	const char *conf = getenv("FCEUX_CONFIG_DIR");
 
 #ifdef WIN32
 	// Windows users want base directory to be where executable resides.
@@ -442,21 +460,27 @@ GetBaseDirectory(std::string &dir)
 	}
 #endif
 
-	if (home) 
+	if (conf)
+	{
+		dir = std::string(conf);
+	}
+	else if (home) 
 	{
 		dir = std::string(home) + "/.fceux";
-	} else {
+	}
+	else
+	{
 #ifdef WIN32
-		home = new char[MAX_PATH + 1];
-		GetModuleFileNameA(NULL, home, MAX_PATH + 1);
+		char *exePath = new char[MAX_PATH + 1];
+		GetModuleFileNameA(NULL, exePath, MAX_PATH + 1);
 
-		char *lastBS = strrchr(home,'\\');
+		char *lastBS = strrchr(exePath,'\\');
 		if(lastBS) {
 			*lastBS = 0;
 		}
 
-		dir = std::string(home);
-		delete[] home;
+		dir = std::string(exePath);
+		delete[] exePath;
 #else
 		dir = "";
 #endif
@@ -468,6 +492,7 @@ GetBaseDirectory(std::string &dir)
 Config *
 InitConfig()
 {
+	TASEDITOR_CONFIG  tasCfg;
 	std::string dir, prefix, savPath, movPath;
 	Config *config;
 
@@ -480,6 +505,7 @@ InitConfig()
 
 	// sound options
 	config->addOption('s', "sound", "SDL.Sound", 1);
+	config->addOption("soundMute", "SDL.Sound.Mute", 0);
 	config->addOption("volume", "SDL.Sound.Volume", 255);
 	config->addOption("trianglevol", "SDL.Sound.TriangleVolume", 255);
 	config->addOption("square1vol", "SDL.Sound.Square1Volume", 255);
@@ -499,9 +525,10 @@ InitConfig()
 	config->addOption("frameskip", "SDL.Frameskip", 0);
 	config->addOption("intFrameRate", "SDL.IntFrameRate", 0);
 	config->addOption("clipsides", "SDL.ClipSides", 0);
-	config->addOption("nospritelim", "SDL.DisableSpriteLimit", 1);
+	config->addOption("nospritelim", "SDL.DisableSpriteLimit", 0);
 	config->addOption("swapduty", "SDL.SwapDuty", 0);
 	config->addOption("ramInit", "SDL.RamInitMethod", 0);
+	config->addOption("SDL.FrameAdvanceDelay", 40);
 
 	// color control
 	config->addOption('p', "palette", "SDL.Palette", "");
@@ -526,6 +553,8 @@ InitConfig()
 	config->addOption('f', "fullscreen", "SDL.Fullscreen", 0);
 	config->addOption("videoDriver", "SDL.VideoDriver", 0);
 	config->addOption("SDL.VideoBgColor", "#000000");
+	config->addOption("SDL.UseBgPaletteForVideo", false);
+	config->addOption("SDL.VideoVsync", 1);
 
 	// set x/y res to 0 for automatic fullscreen resolution detection (no change)
 	config->addOption('x', "xres", "SDL.XResolution", 0);
@@ -556,6 +585,7 @@ InitConfig()
 	config->addOption("SDL.ShowFrameCount", 0);
 	config->addOption("SDL.ShowLagCount", 0);
 	config->addOption("SDL.ShowRerecordCount", 0);
+	config->addOption("SDL.ShowGuiMessages", 1);
 
 	// OpenGL options
 	config->addOption("opengl", "SDL.OpenGL", 1);
@@ -662,6 +692,7 @@ InitConfig()
 	config->addOption("SDL.DebuggerBreakOnBadOpcodes", 0);
 	config->addOption("SDL.DebuggerBreakOnUnloggedCode", 0);
 	config->addOption("SDL.DebuggerBreakOnUnloggedData", 0);
+	config->addOption("SDL.DebugAutoStartTraceLogger", 0);
 
 	// Code Data Logger Options
 	config->addOption("autoSaveCDL"  , "SDL.AutoSaveCDL", 1);
@@ -690,6 +721,7 @@ InitConfig()
 	config->addOption("no-config", "SDL.NoConfig", 0);
 
 	config->addOption("autoresume", "SDL.AutoResume", 0);
+	config->addOption("SDL.FamilyKeyboardFont"  , "");
     
 	// video playback
 	config->addOption("playmov", "SDL.Movie", "");
@@ -722,6 +754,16 @@ InitConfig()
 	config->addOption("loadstate", "SDL.AutoLoadState", INVALID_STATE);
 	config->addOption("savestate", "SDL.AutoSaveState", INVALID_STATE);
 
+	config->addOption("SDL.StateRecorderEnable", false);
+	config->addOption("SDL.StateRecorderHistoryDurationMin", 15);
+	config->addOption("SDL.StateRecorderTimingMode", 0);
+	config->addOption("SDL.StateRecorderFramesBetweenSnaps", 60);
+	config->addOption("SDL.StateRecorderTimeBetweenSnapsMin", 0);
+	config->addOption("SDL.StateRecorderTimeBetweenSnapsSec", 3);
+	config->addOption("SDL.StateRecorderCompressionLevel", 0);
+	config->addOption("SDL.StateRecorderPauseOnLoad", 1);
+	config->addOption("SDL.StateRecorderPauseDuration", 3);
+
 	//TODO implement this
 	config->addOption("periodicsaves", "SDL.PeriodicSaves", 0);
 
@@ -747,9 +789,72 @@ InitConfig()
 		config->addOption( buf, "");
 	}
 
+	for (unsigned int i=0; i<10; i++)
+	{
+		char buf[128];
+		sprintf(buf, "SDL.RecentTasProject%02u", i);
+
+		config->addOption( buf, "");
+	}
+	config->addOption("SDL.TasPianoRollFont", "");
+	config->addOption("SDL.TasBookmarksFont", "");
+	config->addOption("SDL.TasBranchesFont" , "");
+	config->addOption("SDL.TasPianoRollGridColor", "#808080");
+
+	config->addOption("SDL.TasAutoSaveEnabled"                         , tasCfg.autosaveEnabled );
+	config->addOption("SDL.TasAutoSavePeriod"                          , tasCfg.autosavePeriod  );
+	config->addOption("SDL.TasAutoSaveSilent"                          , tasCfg.autosaveSilent  );
+	config->addOption("SDL.TasTooltipsEnabled"                         , tasCfg.tooltipsEnabled );
+	config->addOption("SDL.TasCurrentPattern"                          , tasCfg.currentPattern  );
+	config->addOption("SDL.TasFollowPlaybackCursor"                    , tasCfg.followPlaybackCursor  );
+	config->addOption("SDL.TasTurboSeek"                               , tasCfg.turboSeek  );
+	config->addOption("SDL.TasAutoRestoreLastPlaybackPosition"         , tasCfg.autoRestoreLastPlaybackPosition  );
+	config->addOption("SDL.TasSuperImpose"                             , tasCfg.superimpose  );
+	config->addOption("SDL.TasRecordingUsePattern"                     , tasCfg.recordingUsePattern  );
+	config->addOption("SDL.TasEnableLuaAutoFunction"                   , tasCfg.enableLuaAutoFunction  );
+	config->addOption("SDL.TasDisplayBranchesTree"                     , tasCfg.displayBranchesTree  );
+	config->addOption("SDL.TasDisplayBranchScreenshots"                , tasCfg.displayBranchScreenshots  );
+	config->addOption("SDL.TasDisplayBranchDescriptions"               , tasCfg.displayBranchDescriptions  );
+	config->addOption("SDL.TasEnableHotChanges"                        , tasCfg.enableHotChanges  );
+	config->addOption("SDL.TasFollowUndoContext"                       , tasCfg.followUndoContext  );
+	config->addOption("SDL.TasFollowMarkerNoteContext"                 , tasCfg.followMarkerNoteContext  );
+	config->addOption("SDL.TasGreenzoneCapacity"                       , tasCfg.greenzoneCapacity  );
+	config->addOption("SDL.TasMaxUndoLevels"                           , tasCfg.maxUndoLevels  );
+	config->addOption("SDL.TasEnableGreenzoning"                       , tasCfg.enableGreenzoning  );
+	config->addOption("SDL.TasAutofirePatternSkipsLag"                 , tasCfg.autofirePatternSkipsLag  );
+	config->addOption("SDL.TasAutoAdjustInputAccordingToLag"           , tasCfg.autoAdjustInputAccordingToLag  );
+	config->addOption("SDL.TasDrawInputByDragging"                     , tasCfg.drawInputByDragging  );
+	config->addOption("SDL.TasCombineConsecutiveRecordingsAndDraws"    , tasCfg.combineConsecutiveRecordingsAndDraws  );
+	config->addOption("SDL.TasUse1PKeysForAllSingleRecordings"         , tasCfg.use1PKeysForAllSingleRecordings  );
+	config->addOption("SDL.TasUseInputKeysForColumnSet"                , tasCfg.useInputKeysForColumnSet  );
+	config->addOption("SDL.TasBindMarkersToInput"                      , tasCfg.bindMarkersToInput  );
+	config->addOption("SDL.TasEmptyNewMarkerNotes"                     , tasCfg.emptyNewMarkerNotes  );
+	config->addOption("SDL.TasOldControlSchemeForBranching"            , tasCfg.oldControlSchemeForBranching  );
+	config->addOption("SDL.TasBranchesRestoreEntireMovie"              , tasCfg.branchesRestoreEntireMovie  );
+	config->addOption("SDL.TasHUDInBranchScreenshots"                  , tasCfg.HUDInBranchScreenshots  );
+	config->addOption("SDL.TasAutopauseAtTheEndOfMovie"                , tasCfg.autopauseAtTheEndOfMovie  );
+	config->addOption("SDL.TasLastExportedInputType"                   , tasCfg.lastExportedInputType  );
+	config->addOption("SDL.TasLastExportedSubtitlesStatus"             , tasCfg.lastExportedSubtitlesStatus  );
+	config->addOption("SDL.TasProjectSavingOptions_SaveInBinary"       , tasCfg.projectSavingOptions_SaveInBinary  );
+	config->addOption("SDL.TasProjectSavingOptions_SaveMarkers"        , tasCfg.projectSavingOptions_SaveMarkers  );
+	config->addOption("SDL.TasProjectSavingOptions_SaveBookmarks"      , tasCfg.projectSavingOptions_SaveBookmarks  );
+	config->addOption("SDL.TasProjectSavingOptions_SaveHistory"        , tasCfg.projectSavingOptions_SaveHistory  );
+	config->addOption("SDL.TasProjectSavingOptions_SavePianoRoll"      , tasCfg.projectSavingOptions_SavePianoRoll  );
+	config->addOption("SDL.TasProjectSavingOptions_SaveSelection"      , tasCfg.projectSavingOptions_SaveSelection  );
+	config->addOption("SDL.TasProjectSavingOptions_GreenzoneSavingMode", tasCfg.projectSavingOptions_GreenzoneSavingMode  );
+	config->addOption("SDL.TasSaveCompact_SaveInBinary"                , tasCfg.saveCompact_SaveInBinary  );
+	config->addOption("SDL.TasSaveCompact_SaveMarkers"                 , tasCfg.saveCompact_SaveMarkers  );
+	config->addOption("SDL.TasSaveCompact_SaveBookmarks"               , tasCfg.saveCompact_SaveBookmarks  );
+	config->addOption("SDL.TasSaveCompact_SaveHistory"                 , tasCfg.saveCompact_SaveHistory  );
+	config->addOption("SDL.TasSaveCompact_SavePianoRoll"               , tasCfg.saveCompact_SavePianoRoll  );
+	config->addOption("SDL.TasSaveCompact_SaveSelection"               , tasCfg.saveCompact_SaveSelection  );
+	config->addOption("SDL.TasSaveCompact_GreenzoneSavingMode"         , tasCfg.saveCompact_GreenzoneSavingMode  );
+	config->addOption("SDL.TasLastAuthorName" , "");
+
 	config->addOption("_useNativeFileDialog", "SDL.UseNativeFileDialog", false);
 	config->addOption("_useNativeMenuBar"   , "SDL.UseNativeMenuBar", false);
 	config->addOption("SDL.PauseOnMainMenuAccess", false);
+	config->addOption("SDL.AutoHideMenuFullsreen", false);
 	config->addOption("SDL.ContextMenuEnable", true);
 	config->addOption("SDL.GuiStyle", "");
 	config->addOption("SDL.QtStyleSheet", "");
@@ -1006,6 +1111,8 @@ UpdateEMUCore(Config *config)
 	config->getOption("SDL.PostRenderScanlines" , &postrenderscanlines    );
 	config->getOption("SDL.VBlankScanlines"     , &vblankscanlines        );
 	config->getOption("SDL.Skip7bitOverClocking", &skip_7bit_overclocking );
+	config->getOption("SDL.ShowGuiMessages"     , &vidGuiMsgEna           );
+	config->getOption("SDL.FrameAdvanceDelay"   , &frameAdvance_Delay     );
 
 	config->getOption("SDL.PAL", &region);
 	FCEUI_SetRegion(region);

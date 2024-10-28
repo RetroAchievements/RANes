@@ -326,13 +326,13 @@ PaletteConfDialog_t::PaletteConfDialog_t(QWidget *parent)
 //----------------------------------------------------
 PaletteConfDialog_t::~PaletteConfDialog_t(void)
 {
-	printf("Destroy Palette Config Window\n");
+	//printf("Destroy Palette Config Window\n");
 	updateTimer->stop();
 }
 //----------------------------------------------------------------------------
 void PaletteConfDialog_t::closeEvent(QCloseEvent *event)
 {
-	printf("Palette Config Close Window Event\n");
+	//printf("Palette Config Close Window Event\n");
 	done(0);
 	deleteLater();
 	event->accept();
@@ -417,6 +417,7 @@ void PaletteConfDialog_t::use_Custom_Changed(int state)
 		{
 			FCEUI_SetUserPalette(NULL, 0);
 		}
+		palupdate = 1;
 		fceuWrapperUnLock();
 	}
 }
@@ -433,6 +434,7 @@ void PaletteConfDialog_t::force_GrayScale_Changed(int state)
 		g_config->getOption("SDL.Tint", &t);
 		force_grayscale = value ? true : false;
 		FCEUI_SetNTSCTH(e, t, h);
+		palupdate = 1;
 		fceuWrapperUnLock();
 
 		g_config->setOption("SDL.ForceGrayScale", force_grayscale);
@@ -494,13 +496,13 @@ void PaletteConfDialog_t::openPaletteFile(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last, iniPath;
-	char dir[512];
-	char exePath[512];
+	std::string dir;
+	const char *exePath = nullptr;
 	QFileDialog dialog(this, tr("Open NES Palette"));
 	QList<QUrl> urls;
 	QDir d;
 
-	fceuExecutablePath(exePath, sizeof(exePath));
+	exePath = fceuExecutablePath();
 
 	//urls = dialog.sidebarUrls();
 	urls << QUrl::fromLocalFile(QDir::rootPath());
@@ -577,7 +579,7 @@ void PaletteConfDialog_t::openPaletteFile(void)
 
 	getDirFromFile(last.c_str(), dir);
 
-	dialog.setDirectory(tr(dir));
+	dialog.setDirectory(tr(dir.c_str()));
 
 	// Check config option to use native file dialog or not
 	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -615,6 +617,7 @@ void PaletteConfDialog_t::openPaletteFile(void)
 		{
 			printf("Error: Failed to Load Palette File: %s \n", filename.toStdString().c_str());
 		}
+		palupdate = 1;
 		fceuWrapperUnLock();
 
 		useCustom->setChecked(FCEUI_GetUserPaletteAvail());

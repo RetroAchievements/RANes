@@ -35,7 +35,9 @@
 #include <QPixmap>
 #include <QWindow>
 #include <QScreen>
+#include <QSettings>
 #include <QHeaderView>
+#include <QFileInfo>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QInputDialog>
@@ -52,8 +54,11 @@
 #include "../../input.h"
 #include "../../movie.h"
 #include "../../wave.h"
+#include "../../state.h"
+#include "../../profiler.h"
 #include "../../version.h"
 #include "common/os_utils.h"
+#include "utils/timeStamp.h"
 
 #ifdef _S9XLUA_H
 #include "../../fceulua.h"
@@ -66,6 +71,7 @@
 #include "Qt/ConsoleWindow.h"
 #include "Qt/InputConf.h"
 #include "Qt/GamePadConf.h"
+#include "Qt/FamilyKeyboard.h"
 #include "Qt/HotKeyConf.h"
 #include "Qt/PaletteConf.h"
 #include "Qt/PaletteEditor.h"
@@ -76,6 +82,7 @@
 #include "Qt/MoviePlay.h"
 #include "Qt/MovieRecord.h"
 #include "Qt/MovieOptions.h"
+#include "Qt/StateRecorderConf.h"
 #include "Qt/TimingConf.h"
 #include "Qt/FrameTimingStats.h"
 #include "Qt/LuaControl.h"
@@ -98,51 +105,63 @@
 #include "Qt/RamSearch.h"
 #include "Qt/keyscan.h"
 #include "Qt/nes_shm.h"
+#include "Qt/TasEditor/TasEditorWindow.h"
+
+#ifdef __APPLE__
+void qt_set_sequence_auto_mnemonic(bool enable);
+#endif
 
 consoleWin_t::consoleWin_t(QWidget *parent)
 	: QMainWindow( parent )
 {
 	int opt, xWinPos = -1, yWinPos = -1, xWinSize = 256, yWinSize = 240;
-	int use_SDL_video = false;
+	int videoDriver = 0;
 	int setFullScreen = false;
 
 	//QString libpath = QLibraryInfo::location(QLibraryInfo::PluginsPath);
 	//printf("LibPath: '%s'\n", libpath.toStdString().c_str() );
 
+#ifdef __APPLE__
+	qt_set_sequence_auto_mnemonic(true);
+#endif
+
+	printf("Running on Platform: %s\n", QGuiApplication::platformName().toStdString().c_str() );
+
+	QThread *thread = QThread::currentThread();
+
+	if (thread)
+	{
+		thread->setObjectName( QString("MainThread") );
+	}
+
 	QApplication::setStyle( new fceuStyle() );
 
 	initHotKeys();
 
-	createMainMenu();
-
 	firstResize    = true;
 	closeRequested = false;
 	errorMsgValid  = false;
-	viewport_GL    = NULL;
-	viewport_SDL   = NULL;
+	viewport_GL      = NULL;
+	viewport_SDL     = NULL;
+	viewport_QWidget = NULL;
+	viewport_Interface = NULL;
 
-	mainMenuEmuPauseSet   = false;
-	mainMenuEmuWasPaused  = false;
-	mainMenuPauseWhenActv = false;
+	contextMenuEnable      = false;
+	soundUseGlobalFocus    = false;
+	mainMenuEmuPauseSet    = false;
+	mainMenuEmuWasPaused   = false;
+	mainMenuPauseWhenActv  = false;
+	autoHideMenuFullscreen = false;
+
+	createMainMenu();
 
 	g_config->getOption( "SDL.PauseOnMainMenuAccess", &mainMenuPauseWhenActv );
+	g_config->getOption( "SDL.AutoHideMenuFullsreen", &autoHideMenuFullscreen );
 	g_config->getOption( "SDL.ContextMenuEnable", &contextMenuEnable );
 	g_config->getOption( "SDL.Sound.UseGlobalFocus", &soundUseGlobalFocus );
-	g_config->getOption ("SDL.VideoDriver", &use_SDL_video);
+	g_config->getOption ("SDL.VideoDriver", &videoDriver);
 
-	if ( use_SDL_video )
-	{
-		viewport_SDL = new ConsoleViewSDL_t(this);
-
-		setCentralWidget(viewport_SDL);
-	}
-	else
-	{
-		viewport_GL = new ConsoleViewGL_t(this);
-
-		setCentralWidget(viewport_GL);
-	}
-	setViewportAspect();
+	loadVideoDriver( videoDriver );
 
 	setWindowTitle( tr(FCEU_NAME_AND_VERSION) );
 	setWindowIcon(QIcon(":fceux1.png"));
@@ -158,6 +177,7 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 
 	connect(emulatorThread, &QThread::finished, emulatorThread, &QObject::deleteLater);
 	connect(emulatorThread, SIGNAL(frameFinished(void)), this, SLOT(emuFrameFinish(void)) );
+	connect(emulatorThread, SIGNAL(loadRomRequest(QString)), this, SLOT(loadRomRequestCB(QString)) );
 
 	connect( gameTimer, &QTimer::timeout, this, &consoleWin_t::updatePeriodic );
 
@@ -184,10 +204,23 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	}
 
 
-	g_config->getOption( "SDL.WinPosX" , &xWinPos );
-	g_config->getOption( "SDL.WinPosY" , &yWinPos );
-	g_config->getOption( "SDL.WinSizeX", &xWinSize );
-	g_config->getOption( "SDL.WinSizeY", &yWinSize );
+	SDL_DisplayMode mode;
+	int sdl_err = SDL_GetCurrentDisplayMode(0,&mode);
+	g_config->getOption( "SDL.Fullscreen", &setFullScreen );
+	if( (sdl_err == 0) && setFullScreen )
+	{
+	        xWinPos = 0;
+	        yWinPos = 0;
+	        xWinSize = mode.w;
+	        yWinSize = mode.h;
+	}
+	else
+	{
+	        g_config->getOption( "SDL.WinPosX" , &xWinPos );
+	        g_config->getOption( "SDL.WinPosY" , &yWinPos );
+	        g_config->getOption( "SDL.WinSizeX", &xWinSize );
+	        g_config->getOption( "SDL.WinSizeY", &yWinSize );
+	}
 
 	if ( (xWinSize >= 256) && (yWinSize >= 224) )
 	{
@@ -207,13 +240,9 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 		// the window is resized appropriately. On the first resize event,
 		// we will set the minimum viewport size back to 1x values that the
 		// window can be shrunk by dragging lower corner.
-		if ( viewport_GL != NULL )
+		if ( viewport_Interface != NULL )
 		{
-			viewport_GL->setMinimumSize( reqSize );
-		}
-		else if ( viewport_SDL != NULL )
-		{
-			viewport_SDL->setMinimumSize( reqSize );
+			viewport_Interface->setMinimumSize( reqSize );
 		}
 		//this->resize( reqSize );
 	}
@@ -223,6 +252,10 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 
 	if ( setFullScreen )
 	{
+		if ( autoHideMenuFullscreen )
+		{
+			menubar->setVisible(false);
+		}
 		this->showFullScreen();
 	}
 
@@ -252,17 +285,6 @@ consoleWin_t::~consoleWin_t(void)
 	if ( !isFullScreen() && !isMaximized() )
 	{
 		// Scaling is only saved when applying video settings
-		//if ( viewport_GL != NULL )
-		//{
-		//	g_config->setOption( "SDL.XScale", viewport_GL->getScaleX() );
-		//	g_config->setOption( "SDL.YScale", viewport_GL->getScaleY() );
-		//}
-		//else if ( viewport_SDL != NULL )
-		//{
-		//	g_config->setOption( "SDL.XScale", viewport_SDL->getScaleX() );
-		//	g_config->setOption( "SDL.YScale", viewport_SDL->getScaleY() );
-		//}
-
 		g_config->setOption( "SDL.WinPosX" , pos().x() );
 		g_config->setOption( "SDL.WinPosY" , pos().y() );
 		g_config->setOption( "SDL.WinSizeX", w.width() );
@@ -289,32 +311,28 @@ consoleWin_t::~consoleWin_t(void)
 
 	closeGamePadConfWindow();
 
-	//printf("Thread Finished: %i \n", gameThread->isFinished() );
-	emulatorThread->quit();
-	emulatorThread->wait( 1000 );
+	// The closeApp function call stops all threads.
+	// Calling quit on threads should not happen here. 
+	//printf("Thread Finished: %i \n", emulatorThread->isFinished() );
+	//emulatorThread->quit();
+	//emulatorThread->wait( 1000 );
 
-	aviDiskThread->requestInterruption();
-	aviDiskThread->quit();
-	aviDiskThread->wait( 10000 );
+	//aviDiskThread->requestInterruption();
+	//aviDiskThread->quit();
+	//aviDiskThread->wait( 10000 );
 
-	fceuWrapperLock();
-	fceuWrapperClose();
-	fceuWrapperUnLock();
+	//FCEU_WRAPPER_LOCK();
+	//fceuWrapperClose();
+	//FCEU_WRAPPER_UNLOCK();
 
-	if ( viewport_GL != NULL )
-	{
-		delete viewport_GL; viewport_GL = NULL;
-	}
-	if ( viewport_SDL != NULL )
-	{
-		delete viewport_SDL; viewport_SDL = NULL;
-	}
+	unloadVideoDriver();
+
 	delete mutex;
 
 	// LoadGame() checks for an IP and if it finds one begins a network session
 	// clear the NetworkIP field so this doesn't happen unintentionally
-	g_config->setOption ("SDL.NetworkIP", "");
-	g_config->save ();
+	//g_config->setOption ("SDL.NetworkIP", "");
+	//g_config->save ();
 
 	// Clear Clipboard Contents on Program Exit
 	clipboard = QGuiApplication::clipboard();
@@ -341,26 +359,18 @@ int consoleWin_t::videoInit(void)
 {
 	int ret = 0;
 
-	if ( viewport_SDL )
+	if (viewport_Interface)
 	{
-		ret = viewport_SDL->init();
-	}
-	else if ( viewport_GL )
-	{
-		ret = viewport_GL->init();
+		ret = viewport_Interface->init();
 	}
 	return ret;
 }
 
 void consoleWin_t::videoReset(void)
 {
-	if ( viewport_SDL )
+	if (viewport_Interface)
 	{
-		viewport_SDL->reset();
-	}
-	else if ( viewport_GL )
-	{
-		viewport_GL->reset();
+		viewport_Interface->reset();
 	}
 	return;
 }
@@ -412,6 +422,7 @@ void consoleWin_t::winScreenChanged(QScreen *scr)
 void consoleWin_t::winActiveChanged(void)
 {
 	QWidget *w;
+	bool muteWindow = false;
 
 	w = this->window();
 
@@ -427,15 +438,16 @@ void consoleWin_t::winActiveChanged(void)
 			{
 				if ( hdl->isActive() )
 				{
-					FCEUD_MuteSoundOutput(false);
+					muteWindow = false;
 				}
 				else
 				{
-					FCEUD_MuteSoundOutput(true);
+					muteWindow = true;
 				}
 			}
 		}
 	}
+	FCEUD_MuteSoundWindow(muteWindow);
 }
 
 QSize consoleWin_t::calcRequiredSize(void)
@@ -461,21 +473,13 @@ QSize consoleWin_t::calcRequiredSize(void)
 
 	w = size();
 
-	if ( viewport_GL )
+	if ( viewport_Interface )
 	{
-		v = viewport_GL->size();
-		forceAspect = viewport_GL->getForceAspectOpt();
-		aspectRatio = viewport_GL->getAspectRatio();
-		xscale = viewport_GL->getScaleX();
-		yscale = viewport_GL->getScaleY();
-	}
-	else if ( viewport_SDL )
-	{
-		v = viewport_SDL->size();
-		forceAspect = viewport_SDL->getForceAspectOpt();
-		aspectRatio = viewport_SDL->getAspectRatio();
-		xscale = viewport_SDL->getScaleX();
-		yscale = viewport_SDL->getScaleY();
+		v = viewport_Interface->size();
+		forceAspect = viewport_Interface->getForceAspectOpt();
+		aspectRatio = viewport_Interface->getAspectRatio();
+		xscale = viewport_Interface->getScaleX();
+		yscale = viewport_Interface->getScaleY();
 	}
 
 	dw = 0;
@@ -546,13 +550,9 @@ void consoleWin_t::setViewportAspect(void)
 		break;
 	}
 
-	if ( viewport_GL )
+	if (viewport_Interface)
 	{
-		viewport_GL->setAspectXY( x, y );
-	}
-	else if ( viewport_SDL )
-	{
-		viewport_SDL->setAspectXY( x, y );
+		viewport_Interface->setAspectXY( x, y );
 	}
 }
 
@@ -622,25 +622,17 @@ void consoleWin_t::loadCursor(void)
 
 void consoleWin_t::setViewerCursor( QCursor s )
 {
-	if ( viewport_GL )
+	if (viewport_Interface)
 	{
-		viewport_GL->setCursor(s);
-	}
-	else if ( viewport_SDL )
-	{
-		viewport_SDL->setCursor(s);
+		viewport_Interface->setCursor(s);
 	}
 }
 
 void consoleWin_t::setViewerCursor( Qt::CursorShape s )
 {
-	if ( viewport_GL )
+	if (viewport_Interface)
 	{
-		viewport_GL->setCursor(s);
-	}
-	else if ( viewport_SDL )
-	{
-		viewport_SDL->setCursor(s);
+		viewport_Interface->setCursor(s);
 	}
 }
 
@@ -648,13 +640,9 @@ Qt::CursorShape consoleWin_t::getViewerCursor(void)
 {
 	Qt::CursorShape s = Qt::ArrowCursor;
 
-	if ( viewport_GL )
+	if (viewport_Interface)
 	{
-		s = viewport_GL->cursor().shape();
-	}
-	else if ( viewport_SDL )
-	{
-		s = viewport_SDL->cursor().shape();
+		s = viewport_Interface->cursor().shape();
 	}
 	return s;
 }
@@ -666,14 +654,11 @@ void consoleWin_t::resizeEvent(QResizeEvent *event)
 		// We are assuming that window has been exposed and all sizing of menu is finished
 		// Restore minimum sizes to 1x values after first resize event so that
 		// window is still able to be shrunk by dragging lower corners.
-		if ( viewport_GL != NULL )
+		if (viewport_Interface)
 		{
-			viewport_GL->setMinimumSize( QSize( 256, 224 ) );
+			viewport_Interface->setMinimumSize( QSize( 256, 224 ) );
 		}
-		else if ( viewport_SDL != NULL )
-		{
-			viewport_SDL->setMinimumSize( QSize( 256, 224 ) );
-		}
+
 		firstResize = false;
 	}
 	//printf("%i x %i \n", event->size().width(), event->size().height() );
@@ -691,12 +676,12 @@ void consoleWin_t::showErrorMsgWindow()
 {
 	QMessageBox msgBox(this);
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	msgBox.resize( this->size() );
 	msgBox.setIcon( QMessageBox::Critical );
 	msgBox.setText( tr(errorMsg.c_str()) );
 	errorMsg.clear();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 	//msgBox.show();
 	msgBox.exec();
 }
@@ -753,10 +738,53 @@ void consoleWin_t::dropEvent(QDropEvent *event)
 	{
 		QList<QUrl> urls = event->mimeData()->urls();
 
-		fceuWrapperLock();
-		LoadGame( urls[0].toString( QUrl::PreferLocalFile ).toStdString().c_str() );
-		fceuWrapperUnLock();
-		event->accept();
+		QString filename = urls[0].toString( QUrl::PreferLocalFile );
+
+		QFileInfo fi( filename );
+		QString suffix = fi.suffix();
+
+		bool isStateSaveFile = (suffix.size() == 3) && 
+						(suffix[0] == 'f') && (suffix[1] == 'c') &&
+							( (suffix[2] == 's') || suffix[2].isDigit() );
+
+		//printf("DragNDrop Suffix: %s\n", suffix.toStdString().c_str() );
+
+		if (isStateSaveFile)
+		{
+			FCEU_WRAPPER_LOCK();
+			FCEUI_LoadState( filename.toStdString().c_str() );
+			FCEU_WRAPPER_UNLOCK();
+
+			event->accept();
+		}
+		else if ( suffix.compare("lua", Qt::CaseInsensitive) == 0 )
+		{
+			int luaLoadSuccess;
+
+			FCEU_WRAPPER_LOCK();
+			luaLoadSuccess = FCEU_LoadLuaCode( filename.toStdString().c_str() );
+			FCEU_WRAPPER_UNLOCK();
+
+			if (luaLoadSuccess)
+			{
+				g_config->setOption("SDL.LastLoadLua", filename.toStdString().c_str());
+			}
+			event->accept();
+		}
+		else
+		{
+			int romLoadSuccess;
+
+			FCEU_WRAPPER_LOCK();
+			romLoadSuccess = LoadGame( filename.toStdString().c_str() );
+			FCEU_WRAPPER_UNLOCK();
+
+			if (!romLoadSuccess)
+			{
+				printf("DragNDrop ROM Load Failed for %s\n", filename.toStdString().c_str() );
+			}
+			event->accept();
+		}
 	}
 }
 
@@ -827,6 +855,7 @@ void consoleWin_t::initHotKeys(void)
 	Hotkeys[HK_FRAME_ADVANCE].getShortcut()->setEnabled(false);
 	Hotkeys[HK_TURBO        ].getShortcut()->setEnabled(false);
 
+	connect( Hotkeys[ HK_VOLUME_MUTE ].getShortcut(), SIGNAL(activated()), this, SLOT(muteSoundVolume(void)) );
 	connect( Hotkeys[ HK_VOLUME_DOWN ].getShortcut(), SIGNAL(activated()), this, SLOT(decrSoundVolume(void)) );
 	connect( Hotkeys[ HK_VOLUME_UP   ].getShortcut(), SIGNAL(activated()), this, SLOT(incrSoundVolume(void)) );
 
@@ -839,6 +868,7 @@ void consoleWin_t::initHotKeys(void)
 	connect( Hotkeys[ HK_TOGGLE_BG            ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleBackground(void))        );
 	connect( Hotkeys[ HK_TOGGLE_FG            ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleForeground(void))        );
 	connect( Hotkeys[ HK_FKB_ENABLE           ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleFamKeyBrdEnable(void))   );
+	connect( Hotkeys[ HK_TOGGLE_ALL_CHEATS    ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleGlobalCheatEnable(void)) );
 
 	connect( Hotkeys[ HK_SAVE_STATE_0         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState0(void))        );
 	connect( Hotkeys[ HK_SAVE_STATE_1         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState1(void))        );
@@ -861,6 +891,9 @@ void consoleWin_t::initHotKeys(void)
 	connect( Hotkeys[ HK_LOAD_STATE_7         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState7(void))        );
 	connect( Hotkeys[ HK_LOAD_STATE_8         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState8(void))        );
 	connect( Hotkeys[ HK_LOAD_STATE_9         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState9(void))        );
+
+	connect( Hotkeys[ HK_LOAD_PREV_STATE      ].getShortcut(), SIGNAL(activated()), this, SLOT(loadPrevState(void))     );
+	connect( Hotkeys[ HK_LOAD_NEXT_STATE      ].getShortcut(), SIGNAL(activated()), this, SLOT(loadNextState(void))     );
 }
 //---------------------------------------------------------------------------
 void consoleWin_t::createMainMenu(void)
@@ -870,7 +903,6 @@ void consoleWin_t::createMainMenu(void)
 	QActionGroup *group;
 	int useNativeMenuBar;
 	int customAutofireOnFrames, customAutofireOffFrames;
-	ColorMenuItem *bgColorItem;
 	//QShortcut *shortcut;
 
 	menubar = new consoleMenuBar(this);
@@ -1156,6 +1188,15 @@ void consoleWin_t::createMainMenu(void)
 	
 	optMenu->addAction(timingConfig);
 
+	// Options -> State Recorder Config
+	stateRecordConfig = new QAction(tr("&State Recorder Config"), this);
+	//stateRecordConfig->setShortcut( QKeySequence(tr("Ctrl+C")));
+	stateRecordConfig->setStatusTip(tr("State Recorder Configure"));
+	stateRecordConfig->setIcon( QIcon(":icons/media-record.png") );
+	connect(stateRecordConfig, SIGNAL(triggered()), this, SLOT(openStateRecorderConfWin(void)) );
+	
+	optMenu->addAction(stateRecordConfig);
+
 	// Options -> Movie Options
 	movieConfig = new QAction(tr("&Movie Options"), this);
 	//movieConfig->setShortcut( QKeySequence(tr("Ctrl+C")));
@@ -1217,15 +1258,45 @@ void consoleWin_t::createMainMenu(void)
 	Hotkeys[ HK_MAIN_MENU_HIDE ].setAction( act );
 	connect( Hotkeys[ HK_MAIN_MENU_HIDE ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleMenuVis(void)) );
 
+	// Options -> Auto Hide Menu on Fullscreen
+	g_config->getOption( "SDL.AutoHideMenuFullsreen", &autoHideMenuFullscreen );
+
+	act = new QAction(tr("&Auto Hide Menu on Fullscreen"), this);
+	//act->setShortcut( QKeySequence(tr("Alt+/")));
+	act->setCheckable(true);
+	act->setChecked( autoHideMenuFullscreen );
+	act->setStatusTip(tr("Auto Hide Menu on Fullscreen"));
+	//act->setIcon( style()->standardIcon( QStyle::SP_TitleBarMaxButton ) );
+	connect(act, SIGNAL(triggered(bool)), this, SLOT(toggleMenuAutoHide(bool)) );
+
+	optMenu->addAction(act);
+
+	optMenu->addSeparator();
+
 	// Options -> Video BG Color
 	fceuLoadConfigColor( "SDL.VideoBgColor", &videoBgColor );
 
-	bgColorItem = new ColorMenuItem( tr("BG Side Panel Color"), "SDL.VideoBgColor", this );
-	bgColorItem->connectColor( &videoBgColor );
+	bgColorMenuItem = new ColorMenuItem( tr("BG Side Panel Color"), "SDL.VideoBgColor", this );
+	bgColorMenuItem->connectColor( &videoBgColor );
 
-	optMenu->addAction(bgColorItem);
+	optMenu->addAction(bgColorMenuItem);
 
-	connect( bgColorItem, SIGNAL(colorChanged(QColor&)), this, SLOT(videoBgColorChanged(QColor&)) );
+	connect( bgColorMenuItem, SIGNAL(colorChanged(QColor&)), this, SLOT(videoBgColorChanged(QColor&)) );
+
+	// Options -> Use BG Palette for Video BG Color
+	g_config->getOption( "SDL.UseBgPaletteForVideo", &usePaletteForVideoBg );
+
+	act = new QAction(tr("Use BG Palette for Video BG Color"), this);
+	//act->setShortcut( QKeySequence(tr("Alt+/")));
+	act->setCheckable(true);
+	act->setChecked( usePaletteForVideoBg );
+	act->setStatusTip(tr("Use BG Palette for Video BG Color"));
+	//act->setIcon( style()->standardIcon( QStyle::SP_TitleBarMaxButton ) );
+	connect(act, SIGNAL(triggered(bool)), this, SLOT(toggleUseBgPaletteForVideo(bool)) );
+
+	optMenu->addAction(act);
+
+	bgColorMenuItem->setEnabled( !usePaletteForVideoBg );
 	//-----------------------------------------------------------------------
 	// Emulation
 
@@ -1245,16 +1316,16 @@ void consoleWin_t::createMainMenu(void)
 	connect( Hotkeys[ HK_POWER ].getShortcut(), SIGNAL(activated()), this, SLOT(powerConsoleCB(void)) );
 
 	// Emulation -> Reset
-	resetAct = new QAction(tr("&Reset"), this);
+	resetAct = new QAction(tr("Hard &Reset"), this);
 	//resetAct->setShortcut( QKeySequence(tr("Ctrl+R")));
-	resetAct->setStatusTip(tr("Reset Console"));
+	resetAct->setStatusTip(tr("Hard Reset of Console"));
 	resetAct->setIcon( style()->standardIcon( QStyle::SP_DialogResetButton ) );
 	connect(resetAct, SIGNAL(triggered()), this, SLOT(consoleHardReset(void)) );
 	
 	emuMenu->addAction(resetAct);
 
-	Hotkeys[ HK_RESET ].setAction( resetAct );
-	connect( Hotkeys[ HK_RESET ].getShortcut(), SIGNAL(activated()), this, SLOT(consoleHardReset(void)) );
+	Hotkeys[ HK_HARD_RESET ].setAction( resetAct );
+	connect( Hotkeys[ HK_HARD_RESET ].getShortcut(), SIGNAL(activated()), this, SLOT(consoleHardReset(void)) );
 
 	// Emulation -> Soft Reset
 	sresetAct = new QAction(tr("&Soft Reset"), this);
@@ -1264,6 +1335,9 @@ void consoleWin_t::createMainMenu(void)
 	connect(sresetAct, SIGNAL(triggered()), this, SLOT(consoleSoftReset(void)) );
 	
 	emuMenu->addAction(sresetAct);
+
+	Hotkeys[ HK_SOFT_RESET ].setAction( sresetAct );
+	connect( Hotkeys[ HK_SOFT_RESET ].getShortcut(), SIGNAL(activated()), this, SLOT(consoleSoftReset(void)) );
 
 	// Emulation -> Pause
 	pauseAct = new QAction(tr("&Pause"), this);
@@ -1378,6 +1452,16 @@ void consoleWin_t::createMainMenu(void)
 	
 	emuMenu->addAction(loadGgROMAct);
 	
+	emuMenu->addSeparator();
+
+	// Emulation -> Virtual Family Keyboard
+	act = new QAction(tr("Virtual Family Keyboard"), this);
+	//act->setShortcut( QKeySequence(tr("Ctrl+G")));
+	act->setStatusTip(tr("Virtual Family Keyboard"));
+	connect(act, SIGNAL(triggered()), this, SLOT(openFamilyKeyboard(void)) );
+
+	emuMenu->addAction(act);
+
 	emuMenu->addSeparator();
 
 	// Emulation -> Insert Coin
@@ -1606,6 +1690,14 @@ void consoleWin_t::createMainMenu(void)
 
 	toolsMenu->addAction(act);
 
+	// Tools -> TAS Editor
+	tasEditorAct = act = new QAction(tr("&TAS Editor ..."), this);
+	//act->setShortcut( QKeySequence(tr("Shift+F7")));
+	act->setStatusTip(tr("Open TAS Editor Window"));
+	connect(act, SIGNAL(triggered()), this, SLOT(openTasEditor(void)) );
+
+	toolsMenu->addAction(act);
+
 	 //-----------------------------------------------------------------------
 	 // Debug
 
@@ -1676,10 +1768,10 @@ void consoleWin_t::createMainMenu(void)
 	
 	debugMenu->addAction(ggEncodeAct);
 
-	// Debug -> iNES Header Editor
-	iNesEditAct = new QAction(tr("&iNES Header Editor..."), this);
+	// Debug -> NES Header Editor
+	iNesEditAct = new QAction(tr("NES Header Edito&r..."), this);
 	//iNesEditAct->setShortcut( QKeySequence(tr("Shift+F7")));
-	iNesEditAct->setStatusTip(tr("Open iNES Header Editor"));
+	iNesEditAct->setStatusTip(tr("Open NES Header Editor"));
 	connect(iNesEditAct, SIGNAL(triggered()), this, SLOT(openNesHeaderEditor(void)) );
 	
 	debugMenu->addAction(iNesEditAct);
@@ -1873,59 +1965,164 @@ void consoleWin_t::createMainMenu(void)
 #endif
 };
 //---------------------------------------------------------------------------
-int consoleWin_t::loadVideoDriver( int driverId )
+//---------------------------------------------------------------------------
+int consoleWin_t::unloadVideoDriver(void)
 {
-	if ( driverId )
-	{  // SDL Driver
-		if ( viewport_SDL != NULL )
-		{  // Already Loaded
-			return 0;
-		}
+	viewport_Interface = NULL;
 
-		if ( viewport_GL != NULL )
+	if (viewport_GL != NULL)
+	{
+		if ( viewport_GL == centralWidget() )
 		{
-			if ( viewport_GL == centralWidget() )
-			{
-				takeCentralWidget();
-			}
-			delete viewport_GL;
-
-			viewport_GL = NULL;
+			takeCentralWidget();
 		}
-		
-		viewport_SDL = new ConsoleViewSDL_t(this);
+		else
+		{
+			printf("Error: Central Widget Failed!\n");
+		}
+		viewport_GL->deleteLater();
 
-		setCentralWidget(viewport_SDL);
-
-		setViewportAspect();
-
-		viewport_SDL->init();
-
+		viewport_GL = NULL;
 	}
-	else
-	{  // OpenGL Driver
-		if ( viewport_GL != NULL )
-		{  // Already Loaded
-			return 0;
-		}
 
-		if ( viewport_SDL != NULL )
+	if (viewport_SDL != NULL)
+	{
+		if ( viewport_SDL == centralWidget() )
 		{
-			if ( viewport_SDL == centralWidget() )
-			{
-				takeCentralWidget();
-			}
-			delete viewport_SDL;
-
-			viewport_SDL = NULL;
+			takeCentralWidget();
 		}
-		viewport_GL = new ConsoleViewGL_t(this);
+		else
+		{
+			printf("Error: Central Widget Failed!\n");
+		}
+		viewport_SDL->deleteLater();
 
-		setCentralWidget(viewport_GL);
+		viewport_SDL = NULL;
+	}
 
-		setViewportAspect();
+	if (viewport_QWidget != NULL)
+	{
+		if ( viewport_QWidget == centralWidget() )
+		{
+			takeCentralWidget();
+		}
+		else
+		{
+			printf("Error: Central Widget Failed!\n");
+		}
+		viewport_QWidget->deleteLater();
 
-		viewport_GL->init();
+		viewport_QWidget = NULL;
+	}
+	return 0;
+}
+//---------------------------------------------------------------------------
+void consoleWin_t::videoDriverDestroyed(QObject* obj)
+{
+	if (viewport_GL == obj)
+	{
+		//printf("GL Video Driver Destroyed\n");
+
+		if (viewport_Interface == static_cast<ConsoleViewerBase*>(viewport_GL))
+		{
+			viewport_Interface = NULL;
+		}
+		viewport_GL = NULL;
+	}
+
+	if (viewport_SDL == obj)
+	{
+		//printf("SDL Video Driver Destroyedi\n");
+
+		if (viewport_Interface == static_cast<ConsoleViewerBase*>(viewport_SDL))
+		{
+			viewport_Interface = NULL;
+		}
+		viewport_SDL = NULL;
+	}
+
+	if (viewport_QWidget == obj)
+	{
+		//printf("QPainter Video Driver Destroyed\n");
+
+		if (viewport_Interface == static_cast<ConsoleViewerBase*>(viewport_QWidget))
+		{
+			viewport_Interface = NULL;
+		}
+		viewport_QWidget = NULL;
+	}
+	printf("Video Driver Destroyed: %p\n", obj);
+	//printf("viewport_GL: %p\n", viewport_GL);
+	//printf("viewport_SDL: %p\n", viewport_SDL);
+	//printf("viewport_Qt: %p\n", viewport_QWidget);
+	//printf("viewport_Interface: %p\n", viewport_Interface);
+}
+//---------------------------------------------------------------------------
+int consoleWin_t::loadVideoDriver( int driverId, bool force )
+{
+	if (viewport_Interface)
+	{
+		if (viewport_Interface->driver() == driverId)
+		{  // Already Loaded
+			if (force)
+			{
+				unloadVideoDriver();
+			}
+			else
+			{
+				return 0;
+			}
+		}
+	}
+
+	switch ( driverId )
+	{  
+		case ConsoleViewerBase::VIDEO_DRIVER_SDL:
+		{
+			viewport_SDL = new ConsoleViewSDL_t(this);
+
+			viewport_Interface = static_cast<ConsoleViewerBase*>(viewport_SDL);
+
+			setCentralWidget(viewport_SDL);
+
+			setViewportAspect();
+
+			viewport_SDL->init();
+
+			connect( viewport_SDL, SIGNAL(destroyed(QObject*)), this, SLOT(videoDriverDestroyed(QObject*)) );
+		}
+		break;
+		case ConsoleViewerBase::VIDEO_DRIVER_OPENGL:
+		{
+			viewport_GL = new ConsoleViewGL_t(this);
+
+			viewport_Interface = static_cast<ConsoleViewerBase*>(viewport_GL);
+
+			setCentralWidget(viewport_GL);
+
+			setViewportAspect();
+
+			viewport_GL->init();
+
+			connect( viewport_GL, SIGNAL(destroyed(QObject*)), this, SLOT(videoDriverDestroyed(QObject*)) );
+		}
+		break;
+		default:
+		case ConsoleViewerBase::VIDEO_DRIVER_QPAINTER:
+		{
+			viewport_QWidget = new ConsoleViewQWidget_t(this);
+
+			viewport_Interface = static_cast<ConsoleViewerBase*>(viewport_QWidget);
+
+			setCentralWidget(viewport_QWidget);
+
+			setViewportAspect();
+
+			viewport_QWidget->init();
+
+			connect( viewport_QWidget, SIGNAL(destroyed(QObject*)), this, SLOT(videoDriverDestroyed(QObject*)) );
+		}
+		break;
 	}
 
 	// Reload Viewport Cursor Type and Visibility
@@ -2060,39 +2257,71 @@ void consoleWin_t::toggleMenuVis(void)
 	}
 }
 //---------------------------------------------------------------------------
+void consoleWin_t::toggleMenuAutoHide(bool checked)
+{
+	autoHideMenuFullscreen = checked;
+
+	g_config->setOption( "SDL.AutoHideMenuFullsreen", autoHideMenuFullscreen );
+	g_config->save();
+}
+//---------------------------------------------------------------------------
+void consoleWin_t::toggleUseBgPaletteForVideo(bool checked)
+{
+	usePaletteForVideoBg = checked;
+
+	g_config->setOption( "SDL.UseBgPaletteForVideo", usePaletteForVideoBg );
+	g_config->save();
+
+	if ( !usePaletteForVideoBg )
+	{
+		fceuLoadConfigColor( "SDL.VideoBgColor", &videoBgColor );
+	}
+	bgColorMenuItem->setEnabled( !usePaletteForVideoBg );
+}
+//---------------------------------------------------------------------------
 void consoleWin_t::closeApp(void)
 {
 	nes_shm->runEmulator = 0;
 
+	gameTimer->stop();
+
+	closeGamePadConfWindow();
+
 	emulatorThread->quit();
 	emulatorThread->wait( 1000 );
 
-	fceuWrapperLock();
+	aviDiskThread->requestInterruption();
+	aviDiskThread->quit();
+	aviDiskThread->wait( 10000 );
+
+	if ( tasWin != NULL )
+	{
+		tasWin->requestWindowClose();
+	}
+
+	FCEU_WRAPPER_LOCK();
 	fceuWrapperClose();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	// LoadGame() checks for an IP and if it finds one begins a network session
 	// clear the NetworkIP field so this doesn't happen unintentionally
 	g_config->setOption ("SDL.NetworkIP", "");
 	g_config->save ();
 
-	//qApp::quit();
-	qApp->quit();
+	QApplication::closeAllWindows();
+
+	// Delay Application Quit to allow event processing to complete
+	QTimer::singleShot( 250, qApp, SLOT(quit(void)) );
 }
 //---------------------------------------------------------------------------
 void consoleWin_t::videoBgColorChanged( QColor &c )
 {
 	//printf("Color Changed\n");
 
-	if ( viewport_GL )
+	if ( viewport_Interface )
 	{
-		viewport_GL->setBgColor(c);
-		viewport_GL->update();
-	}
-	else if ( viewport_SDL )
-	{
-		viewport_SDL->setBgColor(c);
-		viewport_SDL->render();
+		viewport_Interface->setBgColor(c);
+		viewport_Interface->queueRedraw();
 	}
 }
 //---------------------------------------------------------------------------
@@ -2110,6 +2339,7 @@ int  consoleWin_t::showListSelectDialog( const char *title, std::vector <std::st
 	QPushButton *okButton, *cancelButton;
 	QTreeWidget *tree;
 	QTreeWidgetItem *item;
+	QSettings  settings;
 
 	dialog.setWindowTitle( tr(title) );
 
@@ -2150,9 +2380,21 @@ int  consoleWin_t::showListSelectDialog( const char *title, std::vector <std::st
 	connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
 	connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
 
+	    okButton->setIcon( style()->standardIcon( QStyle::SP_DialogOkButton ) );
+	cancelButton->setIcon( style()->standardIcon( QStyle::SP_DialogCancelButton ) );
+
+	okButton->setDefault(true);
+
 	dialog.setLayout( mainLayout );
 
+	// Restore Window Geometry
+	dialog.restoreGeometry(settings.value("ArchiveViewer/geometry").toByteArray());
+
+	// Run Dialog Execution Loop
 	ret = dialog.exec();
+
+	// Save Window Geometry
+	settings.setValue("ArchiveViewer/geometry", dialog.saveGeometry());
 
 	if ( ret == QDialog::Accepted )
 	{
@@ -2160,8 +2402,8 @@ int  consoleWin_t::showListSelectDialog( const char *title, std::vector <std::st
 
 		item = tree->currentItem();
 
-	   if ( item != NULL )
-	   {
+		if ( item != NULL )
+		{
 			idx = tree->indexOfTopLevelItem(item);
 		}
 	}
@@ -2178,14 +2420,14 @@ void consoleWin_t::openROMFile(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
-	char *romDir;
+	std::string dir;
+	const char *romDir;
 	QFileDialog  dialog(this, tr("Open ROM File") );
 	QList<QUrl> urls;
 	QDir d;
 
 	const QStringList filters(
-			{ "All Useable files (*.nes *.NES *.nsf *.NSF *.fds *.FDS *.unf *.UNF *.unif *.UNIF *.zip *.ZIP)",
+			{ "All Useable files (*.nes *.NES *.nsf *.NSF *.fds *.FDS *.unf *.UNF *.unif *.UNIF *.zip *.ZIP, *.7z *.7zip)",
            "NES files (*.nes *.NES)",
            "NSF files (*.nsf *.NSF)",
            "UNF files (*.unf *.UNF *.unif *.UNIF)",
@@ -2195,6 +2437,7 @@ void consoleWin_t::openROMFile(void)
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 	urls << QUrl::fromLocalFile( QDir( FCEUI_GetBaseDirectory() ).absolutePath() );
 
@@ -2220,9 +2463,9 @@ void consoleWin_t::openROMFile(void)
 
 	g_config->getOption ("SDL.LastOpenFile", &last );
 
-	getDirFromFile( last.c_str(), dir );
+	getDirFromFile( last.c_str(), dir);
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -2251,19 +2494,28 @@ void consoleWin_t::openROMFile(void)
 
 	g_config->setOption ("SDL.LastOpenFile", filename.toStdString().c_str() );
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	CloseGame ();
 	LoadGame ( filename.toStdString().c_str() );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
    return;
 }
 
+void consoleWin_t::loadRomRequestCB( QString s )
+{
+	printf("Load ROM Req: '%s'\n", s.toStdString().c_str() );
+	FCEU_WRAPPER_LOCK();
+	CloseGame ();
+	LoadGame ( s.toStdString().c_str() );
+	FCEU_WRAPPER_UNLOCK();
+}
+
 void consoleWin_t::closeROMCB(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	CloseGame();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::loadNSF(void)
@@ -2271,14 +2523,15 @@ void consoleWin_t::loadNSF(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
-	char *romDir;
+	std::string dir;
+	const char *romDir;
 	QFileDialog  dialog(this, tr("Load NSF File") );
 	QList<QUrl> urls;
 	QDir d;
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 	urls << QUrl::fromLocalFile( QDir( FCEUI_GetBaseDirectory() ).absolutePath() );
 
@@ -2305,7 +2558,7 @@ void consoleWin_t::loadNSF(void)
 
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -2334,9 +2587,9 @@ void consoleWin_t::loadNSF(void)
 
 	g_config->setOption ("SDL.LastOpenNSF", filename.toStdString().c_str() );
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	LoadGame( filename.toStdString().c_str() );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::loadStateFrom(void)
@@ -2344,7 +2597,7 @@ void consoleWin_t::loadStateFrom(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	const char *base;
 	QFileDialog  dialog(this, tr("Load State From File") );
 	QList<QUrl> urls;
@@ -2354,6 +2607,7 @@ void consoleWin_t::loadStateFrom(void)
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 
 	if ( base )
@@ -2388,7 +2642,7 @@ void consoleWin_t::loadStateFrom(void)
 
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -2417,9 +2671,9 @@ void consoleWin_t::loadStateFrom(void)
 
 	g_config->setOption ("SDL.LastLoadStateFrom", filename.toStdString().c_str() );
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_LoadState( filename.toStdString().c_str() );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::saveStateAs(void)
@@ -2427,7 +2681,7 @@ void consoleWin_t::saveStateAs(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	const char *base;
 	QFileDialog  dialog(this, tr("Save State To File") );
 	QList<QUrl> urls;
@@ -2437,6 +2691,7 @@ void consoleWin_t::saveStateAs(void)
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 
 	if ( base )
@@ -2478,7 +2733,7 @@ void consoleWin_t::saveStateAs(void)
 	}
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -2507,26 +2762,26 @@ void consoleWin_t::saveStateAs(void)
 
 	g_config->setOption ("SDL.LastSaveStateAs", filename.toStdString().c_str() );
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_SaveState( filename.toStdString().c_str() );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::quickLoad(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_LoadState( NULL );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::loadState(int slot)
 {
 	int prevState;
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	prevState = FCEUI_SelectState( slot, false );
 	FCEUI_LoadState( NULL, true );
 	FCEUI_SelectState( prevState, false );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 void consoleWin_t::loadState0(void){ loadState(0); }
 void consoleWin_t::loadState1(void){ loadState(1); }
@@ -2539,21 +2794,35 @@ void consoleWin_t::loadState7(void){ loadState(7); }
 void consoleWin_t::loadState8(void){ loadState(8); }
 void consoleWin_t::loadState9(void){ loadState(9); }
 
+void consoleWin_t::loadPrevState(void)
+{
+	FCEU_WRAPPER_LOCK();
+	FCEU_StateRecorderLoadPrevState();
+	FCEU_WRAPPER_UNLOCK();
+}
+
+void consoleWin_t::loadNextState(void)
+{
+	FCEU_WRAPPER_LOCK();
+	FCEU_StateRecorderLoadNextState();
+	FCEU_WRAPPER_UNLOCK();
+}
+
 void consoleWin_t::quickSave(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_SaveState( NULL );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::saveState(int slot)
 {
 	int prevState;
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	prevState = FCEUI_SelectState( slot, false );
 	FCEUI_SaveState( NULL, true );
 	FCEUI_SelectState( prevState, false );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 void consoleWin_t::saveState0(void){ saveState(0); }
 void consoleWin_t::saveState1(void){ saveState(1); }
@@ -2568,9 +2837,9 @@ void consoleWin_t::saveState9(void){ saveState(9); }
 
 void consoleWin_t::changeState(int slot)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_SelectState( slot, true );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 	state[slot]->setChecked(true);
 }
 void consoleWin_t::changeState0(void){ changeState(0); }
@@ -2586,16 +2855,16 @@ void consoleWin_t::changeState9(void){ changeState(9); }
 
 void consoleWin_t::incrementState(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_SelectStateNext(1);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::decrementState(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_SelectStateNext(-1);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::mainMenuOpen(void)
@@ -2636,9 +2905,9 @@ void consoleWin_t::prepareScreenShot(void)
 
 //void consoleWin_t::takeScreenShot(void)
 //{
-//	fceuWrapperLock();
+//	FCEU_WRAPPER_LOCK();
 //	FCEUI_SaveSnapshot();
-//	fceuWrapperUnLock();
+//	FCEU_WRAPPER_UNLOCK();
 //}
 
 void consoleWin_t::takeScreenShot(void)
@@ -2654,10 +2923,11 @@ void consoleWin_t::takeScreenShot(void)
 
 	if (screen == NULL)
 	{
+		FCEU_DispMessage("Error saving screen snapshot.",0);
 		return;
 	}
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	if ( viewport_GL )
 	{
@@ -2666,6 +2936,10 @@ void consoleWin_t::takeScreenShot(void)
 	else if ( viewport_SDL )
 	{
 		image = screen->grabWindow( viewport_SDL->winId() );
+	}
+	else if ( viewport_QWidget )
+	{
+		image = screen->grabWindow( viewport_QWidget->winId() );
 	}
 
 	for (u = 0; u < 99999; ++u)
@@ -2681,7 +2955,9 @@ void consoleWin_t::takeScreenShot(void)
 
 	image.save( tr( FCEU_MakeFName(FCEUMKF_SNAP,u,"png").c_str() ), "png" );
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
+
+	FCEU_DispMessage("Screen snapshot %d saved.",0,u);
 }
 
 void consoleWin_t::loadLua(void)
@@ -2810,6 +3086,27 @@ void consoleWin_t::openAviRiffViewer(void)
 	win->show();
 }
 
+void consoleWin_t::openTasEditor(void)
+{
+	FCEU_WRAPPER_LOCK();
+
+	if ( tasWindowIsOpen() )
+	{
+		tasWindowSetFocus(true);
+	}
+	else if (FCEU_IsValidUI(FCEUI_TASEDITOR))
+	{
+		TasEditorWindow *win;
+
+		win = new TasEditorWindow(this);
+		
+		win->show();
+
+		connect(emulatorThread, SIGNAL(frameFinished(void)), win, SLOT(frameUpdate(void)) );
+	}
+	FCEU_WRAPPER_UNLOCK();
+}
+
 void consoleWin_t::openMovieOptWin(void)
 {
 	MovieOptionsDialog_t *win;
@@ -2915,7 +3212,7 @@ void consoleWin_t::openNesHeaderEditor(void)
 {
 	iNesHeaderEditor_t *win;
 
-	//printf("Open iNES Header Editor Window\n");
+	//printf("Open NES Header Editor Window\n");
 	
 	win = new iNesHeaderEditor_t(this);
 	
@@ -2959,17 +3256,11 @@ void consoleWin_t::winResizeIx(int iscale)
 
 	w = size();
 
-	if ( viewport_GL )
+	if ( viewport_Interface )
 	{
-		v = viewport_GL->size();
-		aspectRatio = viewport_GL->getAspectRatio();
-		forceAspect = viewport_GL->getForceAspectOpt();
-	}
-	else if ( viewport_SDL )
-	{
-		v = viewport_SDL->size();
-		aspectRatio = viewport_SDL->getAspectRatio();
-		forceAspect = viewport_SDL->getForceAspectOpt();
+		v = viewport_Interface->size();
+		aspectRatio = viewport_Interface->getAspectRatio();
+		forceAspect = viewport_Interface->getForceAspectOpt();
 	}
 
 	dw = w.width()  - v.width();
@@ -3012,9 +3303,18 @@ void consoleWin_t::toggleFullscreen(void)
 	if ( isFullScreen() )
 	{
 		showNormal();
+
+		if ( autoHideMenuFullscreen )
+		{
+			menubar->setVisible(true);
+		}
 	}
 	else
 	{
+		if ( autoHideMenuFullscreen )
+		{
+			menubar->setVisible(false);
+		}
 		showFullScreen();
 	}
 }
@@ -3022,6 +3322,20 @@ void consoleWin_t::toggleFullscreen(void)
 void consoleWin_t::toggleFamKeyBrdEnable(void)
 {
 	toggleFamilyKeyboardFunc();
+}
+
+extern int globalCheatDisabled;
+
+void consoleWin_t::toggleGlobalCheatEnable(void)
+{
+	FCEU_WRAPPER_LOCK();
+	FCEUI_GlobalToggleCheat(globalCheatDisabled);
+	FCEU_WRAPPER_UNLOCK();
+
+	g_config->setOption("SDL.CheatsDisabled", globalCheatDisabled);
+	g_config->save();
+
+	updateCheatDialog();
 }
 
 void consoleWin_t::warnAmbiguousShortcut( QShortcut *shortcut)
@@ -3061,33 +3375,33 @@ void consoleWin_t::warnAmbiguousShortcut( QShortcut *shortcut)
 
 void consoleWin_t::powerConsoleCB(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_PowerNES();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
    return;
 }
 
 void consoleWin_t::consoleHardReset(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	fceuWrapperHardReset();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
    return;
 }
 
 void consoleWin_t::consoleSoftReset(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	fceuWrapperSoftReset();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
    return;
 }
 
 void consoleWin_t::consolePause(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	fceuWrapperTogglePause();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	mainMenuEmuPauseSet = false;
    return;
@@ -3104,9 +3418,9 @@ void consoleWin_t::setRegion(int region)
 
 	if ( currentRegion != region )
 	{
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		FCEUI_SetRegion (region, true);
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 	return;
 }
@@ -3165,12 +3479,12 @@ void consoleWin_t::toggleGameGenie(bool checked)
 {
 	int gg_enabled;
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	g_config->getOption ("SDL.GameGenie", &gg_enabled);
 	g_config->setOption ("SDL.GameGenie", !gg_enabled);
 	g_config->save ();
 	FCEUI_SetGameGenie (gg_enabled);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
    return;
 }
 
@@ -3179,12 +3493,13 @@ void consoleWin_t::loadGameGenieROM(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	QFileDialog  dialog(this, tr("Open Game Genie ROM") );
 	QList<QUrl> urls;
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 
 	dialog.setFileMode(QFileDialog::ExistingFile);
@@ -3199,7 +3514,7 @@ void consoleWin_t::loadGameGenieROM(void)
 
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -3238,27 +3553,33 @@ void consoleWin_t::loadGameGenieROM(void)
    return;
 }
 
+void consoleWin_t::openFamilyKeyboard(void)
+{
+	openFamilyKeyboardDialog(this);
+	return;
+}
+
 void consoleWin_t::insertCoin(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_VSUniCoin();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
    return;
 }
 
 void consoleWin_t::fdsSwitchDisk(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEU_FDSSelect();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
    return;
 }
 
 void consoleWin_t::fdsEjectDisk(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEU_FDSInsert();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
    return;
 }
 
@@ -3267,12 +3588,13 @@ void consoleWin_t::fdsLoadBiosFile(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	QFileDialog  dialog(this, tr("Load FDS BIOS (disksys.rom)") );
 	QList<QUrl> urls;
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 
 	dialog.setFileMode(QFileDialog::ExistingFile);
@@ -3285,9 +3607,9 @@ void consoleWin_t::fdsLoadBiosFile(void)
 
 	g_config->getOption ("SDL.LastOpenFile", &last );
 
-	getDirFromFile( last.c_str(), dir );
+	getDirFromFile( last.c_str(), dir);
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -3400,6 +3722,9 @@ void consoleWin_t::emuSetFrameAdvDelay(void)
 	if ( QDialog::Accepted == ret )
 	{
 	   frameAdvance_Delay = dialog.intValue();
+
+	   g_config->setOption("SDL.FrameAdvanceDelay", frameAdvance_Delay );
+	   g_config->save();
 	}
 }
 
@@ -3499,90 +3824,112 @@ void consoleWin_t::setCustomAutoFire(void)
 	}
 }
 
+void consoleWin_t::muteSoundVolume(void)
+{
+	FCEU_WRAPPER_LOCK();
+	FCEUD_SoundToggle();
+	FCEU_WRAPPER_UNLOCK();
+}
+
 void consoleWin_t::incrSoundVolume(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUD_SoundVolumeAdjust( 1);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::decrSoundVolume(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUD_SoundVolumeAdjust(-1);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::toggleLagCounterDisplay(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	lagCounterDisplay = !lagCounterDisplay;
 	g_config->setOption("SDL.ShowLagCount", lagCounterDisplay);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::toggleFrameAdvLagSkip(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	frameAdvanceLagSkip = !frameAdvanceLagSkip;
 	FCEUI_DispMessage ("Skipping lag in Frame Advance %sabled.", 0, frameAdvanceLagSkip ? "en" : "dis");
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::toggleMovieBindSaveState(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	bindSavestate = !bindSavestate;
 	g_config->setOption("SDL.MovieBindSavestate", bindSavestate);
 	FCEUI_DispMessage ("Savestate binding to movie %sabled.", 0, bindSavestate ? "en" : "dis");
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::toggleMovieFrameDisplay(void)
 {
 	extern int frame_display;
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_MovieToggleFrameDisplay();
 	g_config->setOption("SDL.ShowFrameCount", frame_display );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::toggleMovieReadWrite(void)
 {
-	fceuWrapperLock();
-	FCEUI_SetMovieToggleReadOnly (!FCEUI_GetMovieToggleReadOnly ());
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_LOCK();
+	//FCEUI_SetMovieToggleReadOnly (!FCEUI_GetMovieToggleReadOnly ());
+	FCEUI_MovieToggleReadOnly();
+
+	if ( tasWin != NULL )
+	{
+		tasWin->updateRecordStatus();
+	}
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::toggleInputDisplay(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_ToggleInputDisplay();
 	g_config->setOption ("SDL.InputDisplay", input_display);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::toggleBackground(void)
 {
 	bool fgOn, bgOn;
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_GetRenderPlanes( fgOn,  bgOn );
 	FCEUI_SetRenderPlanes( fgOn, !bgOn );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::toggleForeground(void)
 {
 	bool fgOn, bgOn;
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_GetRenderPlanes(  fgOn, bgOn );
 	FCEUI_SetRenderPlanes( !fgOn, bgOn );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::toggleTurboMode(void)
 {
 	NoWaiting ^= 1;
+}
+
+void consoleWin_t::openStateRecorderConfWin(void)
+{
+	StateRecorderDialog_t *win;
+
+	win = new StateRecorderDialog_t(this);
+
+	win->show();
 }
 
 void consoleWin_t::openMovie(void)
@@ -3596,28 +3943,28 @@ void consoleWin_t::openMovie(void)
 
 void consoleWin_t::playMovieFromBeginning(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_MoviePlayFromBeginning();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::stopMovie(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_StopMovie();
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
    return;
 }
 
 void consoleWin_t::recordMovie(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	if (fceuWrapperGameLoaded())
 	{
 		MovieRecordDialog_t dialog(this);
 		dialog.exec();
 	}
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 	return;
 }
 
@@ -3625,12 +3972,12 @@ void consoleWin_t::aviRecordStart(void)
 {
 	if ( !aviRecordRunning() )
 	{
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		if ( aviRecordOpenFile(NULL) == 0 )
 		{
 			aviDiskThread->start();
 		}
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 
@@ -3662,6 +4009,7 @@ void consoleWin_t::aviRecordAsStart(void)
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 
 	if ( base )
@@ -3732,23 +4080,25 @@ void consoleWin_t::aviRecordAsStart(void)
 		g_config->setOption ("SDL.AviFilePath", lastPath);
 	}
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	if ( aviRecordOpenFile( filename.toStdString().c_str() ) == 0 )
 	{
 		aviDiskThread->start();
 	}
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::aviRecordStop(void)
 {
 	if ( aviRecordRunning() )
 	{
-		fceuWrapperLock();
+		QGuiApplication::setOverrideCursor( QCursor(Qt::BusyCursor) );
+		FCEU_WRAPPER_LOCK();
 		aviDiskThread->requestInterruption();
 		aviDiskThread->quit();
 		aviDiskThread->wait(10000);
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
+		QGuiApplication::restoreOverrideCursor();
 	}
 }
 
@@ -3783,7 +4133,7 @@ void consoleWin_t::wavRecordStart(void)
 	if ( !FCEUI_WaveRecordRunning() )
 	{
 		const char *romFile;
-		char fileName[1024];
+		std::string fileName;
 
 		romFile = getRomFile();
 
@@ -3799,29 +4149,29 @@ void consoleWin_t::wavRecordStart(void)
 
 			if ( lastPath.size() > 0 )
 			{
-				strcpy( fileName, lastPath.c_str() );
-				strcat( fileName, "/" );
+				fileName.assign( lastPath );
+				fileName.append( "/" );
 			}
 			else if ( baseDir )
 			{
-				strcpy( fileName, baseDir );
-				strcat( fileName, "/wav/" );
+				fileName.assign( baseDir );
+				fileName.append( "/wav/" );
 			}
 			else
 			{
-				fileName[0] = 0;
+				fileName.clear();
 			}
-			strcat( fileName, base );
-			strcat( fileName, ".wav");
+			fileName.append( base );
+			fileName.append(".wav");
 			//printf("WAV Filepath:'%s'\n", fileName );
 		}
 		else
 		{
 			return;
 		}
-		fceuWrapperLock();
-		FCEUI_BeginWaveRecord( fileName );
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_LOCK();
+		FCEUI_BeginWaveRecord( fileName.c_str() );
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 
@@ -3834,7 +4184,6 @@ void consoleWin_t::wavRecordAsStart(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string lastPath;
-	//char dir[512];
 	const char *base, *rom;
 	QFileDialog  dialog(this, tr("Save WAV Movie for Recording") );
 	QList<QUrl> urls;
@@ -3852,6 +4201,7 @@ void consoleWin_t::wavRecordAsStart(void)
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 
 	if ( base )
@@ -3922,18 +4272,18 @@ void consoleWin_t::wavRecordAsStart(void)
 		g_config->setOption ("SDL.WavFilePath", lastPath);
 	}
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_BeginWaveRecord( filename.toStdString().c_str() );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::wavRecordStop(void)
 {
 	if ( FCEUI_WaveRecordRunning() )
 	{
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		FCEUI_EndWaveRecord();
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 }
 
@@ -3973,9 +4323,9 @@ void consoleWin_t::openMsgLogWin(void)
 
 void consoleWin_t::openOnlineDocs(void)
 {
-	if ( QDesktopServices::openUrl( QUrl("http://fceux.com/web/help/fceux.html") ) == false )
+	if ( QDesktopServices::openUrl( QUrl("https://fceux.com/web/help/fceux.html") ) == false )
 	{
-		QueueErrorMsgWindow("Error: Failed to open link to: http://fceux.com/web/help/fceux.html");
+		QueueErrorMsgWindow("Error: Failed to open link to: https://fceux.com/web/help/fceux.html");
 	}
 	return;
 }
@@ -4158,10 +4508,10 @@ void consoleWin_t::loadMostRecentROM(void)
 	{
 		return;
 	}
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	CloseGame ();
 	LoadGame ( (romList.back())->c_str() );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 
 int consoleWin_t::getPeriodicInterval(void)
@@ -4171,25 +4521,36 @@ int consoleWin_t::getPeriodicInterval(void)
 
 void consoleWin_t::transferVideoBuffer(void)
 {
+	FCEU_PROFILE_FUNC(prof, "VideoXfer");
 	if ( nes_shm->blitUpdated )
 	{
 		nes_shm->blitUpdated = 0;
 
-		if ( viewport_SDL )
+		if (viewport_Interface)
 		{
-			viewport_SDL->transfer2LocalBuffer();
-			viewport_SDL->render();
-		}
-		else if ( viewport_GL )
-		{
-			viewport_GL->transfer2LocalBuffer();
-			viewport_GL->update();
+			viewport_Interface->transfer2LocalBuffer();
+			viewport_Interface->queueRedraw();
 		}
 	}
 }
 
 void consoleWin_t::emuFrameFinish(void)
 {
+	static bool eventProcessingInProg = false;
+
+	if ( eventProcessingInProg )
+	{   // Prevent recursion as processEvents function can double back on us
+		return;
+	}
+	eventProcessingInProg = true;
+	// Process all events before attempting to render viewport
+	QCoreApplication::processEvents();
+
+	eventProcessingInProg = false;
+
+	// Update Input Devices
+	FCEUD_UpdateInput();
+	
 	//printf("EMU Frame Finish\n");
 
 	transferVideoBuffer();
@@ -4197,8 +4558,18 @@ void consoleWin_t::emuFrameFinish(void)
 
 void consoleWin_t::updatePeriodic(void)
 {
+	FCEU_PROFILE_FUNC(prof, "updatePeriodic");
+	static bool eventProcessingInProg = false;
+
+	if ( eventProcessingInProg )
+	{   // Prevent recursion as processEvents function can double back on us
+		return;
+	}
+	eventProcessingInProg = true;
 	// Process all events before attempting to render viewport
 	QCoreApplication::processEvents();
+
+	eventProcessingInProg = false;
 
 	// Update Input Devices
 	FCEUD_UpdateInput();
@@ -4238,6 +4609,7 @@ void consoleWin_t::updatePeriodic(void)
 		recWavAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) && !FCEUI_WaveRecordRunning() );
 		recAsWavAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) && !FCEUI_WaveRecordRunning() );
 		stopWavAct->setEnabled( FCEUI_WaveRecordRunning() );
+		tasEditorAct->setEnabled( FCEU_IsValidUI(FCEUI_TASEDITOR) );
 	}
 
 	if ( errorMsgValid )
@@ -4248,10 +4620,10 @@ void consoleWin_t::updatePeriodic(void)
 
 	if ( recentRomMenuReset )
 	{
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		buildRecentRomMenu();
 		recentRomMenuReset = false;
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 	}
 
 	if ( closeRequested )
@@ -4262,6 +4634,9 @@ void consoleWin_t::updatePeriodic(void)
 
 	updateCounter++;
 
+#ifdef __FCEU_PROFILER_ENABLE__
+		FCEU_profiler_log_thread_activity();
+#endif
    return;
 }
 
@@ -4272,6 +4647,7 @@ emulatorThread_t::emulatorThread_t( QObject *parent )
 	pself = 0;
 	#endif
 
+	setObjectName( QString("EmulationThread") );
 }
 
 #if defined(__linux__) 
@@ -4482,6 +4858,11 @@ void emulatorThread_t::signalFrameFinished(void)
 	emit frameFinished();
 }
 
+void emulatorThread_t::signalRomLoad( const char *path )
+{
+	emit loadRomRequest( QString(path) );
+}
+
 //-----------------------------------------------------------------------------
 // Custom QMenuBar for Console
 //-----------------------------------------------------------------------------
@@ -4499,6 +4880,8 @@ void consoleMenuBar::keyPressEvent(QKeyEvent *event)
 {
 	QMenuBar::keyPressEvent(event);
 
+	pushKeyEvent( event, 1 );
+
 	// Force de-focus of menu bar when escape key is pressed.
 	// This prevents the menubar from hi-jacking keyboard input focus
 	// when using menu accelerators
@@ -4513,6 +4896,8 @@ void consoleMenuBar::keyReleaseEvent(QKeyEvent *event)
 {
 	QMenuBar::keyReleaseEvent(event);
 
+	pushKeyEvent( event, 0 );
+
 	event->accept();
 }
 //-----------------------------------------------------------------------------
@@ -4520,7 +4905,16 @@ void consoleMenuBar::keyReleaseEvent(QKeyEvent *event)
 consoleRecentRomAction::consoleRecentRomAction(QString desc, QWidget *parent)
 	: QAction( desc, parent )
 {
+	QString txt;
+	QFileInfo fi(desc);
+
 	path = desc.toStdString();
+
+	txt  = fi.fileName();
+	txt += QString("\t");
+	txt += desc;
+
+	setText( txt );
 }
 //----------------------------------------------------------------------------
 consoleRecentRomAction::~consoleRecentRomAction(void)
@@ -4532,10 +4926,10 @@ void consoleRecentRomAction::activateCB(void)
 {
 	printf("Activate Recent ROM: %s \n", path.c_str() );
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	CloseGame ();
 	LoadGame ( path.c_str() );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //-----------------------------------------------------------------------------
 autoFireMenuAction::autoFireMenuAction(int on, int off, QString name, QWidget *parent)

@@ -29,6 +29,7 @@
 #include "state.h"
 #include "file.h"
 #include "cart.h"
+#include "ines.h"
 #include "netplay.h"
 #include "driver.h"
 #include "movie.h"
@@ -106,9 +107,15 @@ static uint8  mapperFDS_diskaccess;	// disk needs to be accessed at least once b
 #define DC_INC    1
 
 void FDSGI(GI h) {
-	switch (h) {
-	case GI_CLOSE: FDSClose(); break;
-	case GI_POWER: FDSInit(); break;
+	switch (h)
+	{
+		case GI_CLOSE: FDSClose(); break;
+		case GI_POWER: FDSInit(); break;
+
+		// Unhandled Cases
+		case GI_RESETM2:
+		case GI_RESETSAVE:
+			break;
 	}
 }
 
@@ -221,16 +228,27 @@ void FCEU_FDSSelect(void)
 	FCEU_DispMessage("Disk %d Side %c Selected", 0, SelectDisk >> 1, (SelectDisk & 1) ? 'B' : 'A');
 }
 
+#define IRQ_Repeat  0x01
+#define IRQ_Enabled 0x02
+
 static void FDSFix(int a) {
-	if ((IRQa & 2) && IRQCount) {
+	if (IRQa & IRQ_Enabled) {
 		IRQCount -= a;
 		if (IRQCount <= 0) {
-			if (!(IRQa & 1)) {
-				IRQa &= ~2;
-				IRQCount = IRQLatch = 0;
-			} else
-				IRQCount = IRQLatch;
+			IRQCount = IRQLatch;
+			/* Puff Puff Golf notes:
+			Game freezes while music playing ingame after inserting Disk Side B.
+			IRQ is usually fired at scanline 169 and 183 for music to work.
+			
+			At some point after inserting disk B, an IRQ is fired at scanline 174 which
+			will just freeze game while music plays.
+			
+			If you ignore triggering IRQ altogether, game plays but no music
+			*/
 			X6502_IRQBegin(FCEU_IQEXT);
+			if (!(IRQa & IRQ_Repeat)) {
+				IRQa &= ~IRQ_Enabled;
+			}
 		}
 	}
 	if (DiskSeekIRQ > 0) {
@@ -570,21 +588,30 @@ void FDSSoundReset(void) {
 static DECLFW(FDSWrite) {
 	switch (A) {
 	case 0x4020:
-		X6502_IRQEnd(FCEU_IQEXT);
 		IRQLatch &= 0xFF00;
 		IRQLatch |= V;
 		break;
 	case 0x4021:
-		X6502_IRQEnd(FCEU_IQEXT);
 		IRQLatch &= 0xFF;
 		IRQLatch |= V << 8;
 		break;
 	case 0x4022:
-		X6502_IRQEnd(FCEU_IQEXT);
-		IRQCount = IRQLatch;
-		IRQa = V & 3;
+		if (FDSRegs[3] & 1) {
+			IRQa = V & 0x03;
+			if (IRQa & IRQ_Enabled) {
+				IRQCount = IRQLatch;
+			} else {
+				X6502_IRQEnd(FCEU_IQEXT);
+			}
+		}
 		break;
-	case 0x4023: break;
+	case 0x4023:
+		if (!(V & 0x01)) {
+			IRQa &= ~IRQ_Enabled;
+			X6502_IRQEnd(FCEU_IQEXT);
+			X6502_IRQEnd(FCEU_IQEXT2);
+		}
+		break;
 	case 0x4024:
 		if (mapperFDS_diskinsert && ~mapperFDS_control & 0x04) {
 
@@ -847,7 +874,6 @@ int FDSLoad(const char *name, FCEUFILE *fp) {
 		free(fn);
 	}
 
-	extern char LoadedRomFName[2048];
 	strcpy(LoadedRomFName, name); //For the debugger list
 
 	GameInfo->type = GIT_FDS;

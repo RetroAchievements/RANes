@@ -37,6 +37,7 @@
 #include "Qt/sdl-video.h"
 #include "Qt/AviRecord.h"
 #include "Qt/fceuWrapper.h"
+#include "Qt/ConsoleWindow.h"
 
 #ifdef CREATE_AVI
 #include "../videolog/nesvideos-piece.h"
@@ -45,10 +46,6 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
-
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-#define  LSB_FIRST 
-#endif
 
 // GLOBALS
 extern Config *g_config;
@@ -74,6 +71,7 @@ extern bool MaxSpeed;
 extern int input_display;
 extern int frame_display;
 extern int rerecord_display;
+extern uint8 PALRAM[0x20];
 
 /**
  * Attempts to destroy the graphical video display.  Returns 0 on
@@ -209,6 +207,7 @@ int InitVideo(FCEUGI *gi)
 	g_config->getOption("SDL.ShowFrameCount", &frame_display);
 	g_config->getOption("SDL.ShowLagCount", &lagCounterDisplay);
 	g_config->getOption("SDL.ShowRerecordCount", &rerecord_display);
+	g_config->getOption("SDL.ShowGuiMessages", &vidGuiMsgEna);
 	g_config->getOption("SDL.ScanLineStartNTSC", &startNTSC);
 	g_config->getOption("SDL.ScanLineEndNTSC", &endNTSC);
 	g_config->getOption("SDL.ScanLineStartPAL", &startPAL);
@@ -283,7 +282,7 @@ int InitVideo(FCEUGI *gi)
 	}
 	nes_shm->video.pitch = nes_shm->video.ncol * 4;
 
-#ifdef LSB_FIRST
+#ifdef FCEU_BIG_ENDIAN
 	rmask = 0x00FF0000;
 	gmask = 0x0000FF00;
 	bmask = 0x000000FF;
@@ -393,20 +392,37 @@ void LockConsole(){}
 ///Currently unimplemented.
 void UnlockConsole(){}
 
-static int testPattern = 0;
-
-static void WriteTestPattern(void)
+static void vsync_test(void)
 {
-	int i, j, k;
+	int i, j, k, l;
+	int cycleLen, halfCycleLen;
+	static int ofs = 0;
+	uint32_t *pixbuf;
+
+	pixbuf = nes_shm->pixbuf[nes_shm->pixBufIdx];
+
+	cycleLen = nes_shm->video.ncol / 4;
+
+	halfCycleLen = cycleLen / 2;
 
 	k=0;
-	for (i=0; i<GL_NES_WIDTH; i++)
+	for (j=0; j<nes_shm->video.nrow; j++)
 	{
-		for (j=0; j<GL_NES_HEIGHT; j++)
+		for (i=0; i<nes_shm->video.ncol; i++)
 		{
-			nes_shm->pixbuf[k] = 0xffffffff; k++;
+			l = ((i+ofs) % cycleLen);
+
+			if ( l < halfCycleLen )
+			{
+				pixbuf[k] = 0xFFFFFFFF; k++;
+			}
+			else
+			{
+				pixbuf[k] = 0x00000000; k++;
+			}
 		}
 	}
+	ofs = (ofs + 1) % nes_shm->video.ncol;
 }
 
 static void
@@ -455,9 +471,17 @@ doBlitScreen(uint8_t *XBuf, uint8_t *dest)
 
 	if ( dest == NULL ) return;
 
-	if ( testPattern )
+	if ( nes_shm->video.test )
 	{
-		WriteTestPattern();
+		switch ( nes_shm->video.test )
+		{
+			case 1:
+				vsync_test();
+			break;
+			default:
+				// Unknown Test Pattern
+			break;
+		}
 	}
 	else
 	{
@@ -470,8 +494,24 @@ doBlitScreen(uint8_t *XBuf, uint8_t *dest)
 void
 BlitScreen(uint8 *XBuf)
 {
-	doBlitScreen(XBuf, (uint8_t*)nes_shm->pixbuf);
+	int i = nes_shm->pixBufIdx;
 
+	if (usePaletteForVideoBg)
+	{
+		unsigned char r, g, b;
+		FCEUD_GetPalette(0x80 | PALRAM[0], &r, &g, &b);
+
+		if (consoleWindow)
+		{
+			QColor *bgColor = consoleWindow->getVideoBgColorPtr();
+
+			*bgColor = QColor::fromRgb(r,g,b);
+		}
+	}
+
+	doBlitScreen(XBuf, (uint8_t*)nes_shm->pixbuf[i]);
+
+	nes_shm->pixBufIdx = (i+1) % NES_VIDEO_BUFLEN;
 	nes_shm->blit_count++;
 	nes_shm->blitUpdated = 1;
 }

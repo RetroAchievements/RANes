@@ -87,6 +87,7 @@ pal *palo = NULL;
 	(type) (y + to_rgb [4] * i + to_rgb [5] * q)\
 )
 
+FCEU_MAYBE_UNUSED
 static void ApplyDeemphasisNTSC(int entry, u8& r, u8& g, u8& b)
 {
 				static float const to_float = 1.0f / 0xFF;
@@ -177,7 +178,7 @@ int bisqwit_wave(int p, int color) { return (color+p+8)%12 < 6; }
 static void ApplyDeemphasisBisqwit(int entry, u8& r, u8& g, u8& b)
 {
 	if(entry<64) return;
-	int myr, myg, myb;
+	int myr=0, myg=0, myb=0;
 	// The input value is a NES color index (with de-emphasis bits).
 	// We need RGB values. Convert the index into RGB.
 	// For most part, this process is described at:
@@ -252,6 +253,7 @@ static void ApplyDeemphasisBisqwit(int entry, u8& r, u8& g, u8& b)
 }
 
 //classic algorithm
+FCEU_MAYBE_UNUSED
 static void ApplyDeemphasisClassic(int entry, u8& r, u8& g, u8& b)
 {
 	//DEEMPH BITS MAY BE ORDERED WRONG. PLEASE CHECK

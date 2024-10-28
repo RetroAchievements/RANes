@@ -33,6 +33,7 @@
 #include <cstdlib>
 
 extern Config *g_config;
+extern bool turbo;
 
 static volatile int *s_Buffer = 0;
 static unsigned int s_BufferSize;
@@ -41,15 +42,16 @@ static unsigned int s_BufferSize50;
 static unsigned int s_BufferSize75;
 static unsigned int s_BufferRead;
 static unsigned int s_BufferWrite;
-static volatile unsigned int s_BufferIn;
+static volatile unsigned int s_BufferIn = 0;
 static unsigned int s_SampleRate = 44100;
 static double noiseGate = 0.0;
 static double noiseGateRate = 0.010;
 static bool   noiseGateActive = true;
-static bool   muteSoundOutput = false;
+static bool   windowSoundMute = false;
 static bool   fillInit = 1;
+static const unsigned int supportedSampleRates[] = { 11025, 22050, 44100, 48000, 96000, 0 };
 
-static int s_mute = 0;
+static bool s_mute = false;
 
 extern int EmulationPaused;
 extern double frmRateAdjRatio;
@@ -98,7 +100,7 @@ fillaudio(void *udata,
 		noiseGateActive = 1;
 		return;
 	}
-	mute = EmulationPaused || muteSoundOutput;
+	mute = EmulationPaused || windowSoundMute || s_mute;
 
 	if ( mute || noiseGateActive )
 	{
@@ -185,10 +187,12 @@ fillaudio(void *udata,
 int
 InitSound()
 {
-	int sound, soundrate, soundbufsize, soundvolume, soundtrianglevolume, soundsquare1volume, soundsquare2volume, soundnoisevolume, soundpcmvolume, soundq;
+	int i, sound, soundrate, soundbufsize, soundvolume, soundtrianglevolume, soundsquare1volume, soundsquare2volume, soundnoisevolume, soundpcmvolume, soundq;
 	SDL_AudioSpec spec;
 	const char *driverName;
 	int frmRateSampleAdj = 0;
+	int samplesPerFrame;
+	bool sampleRateIsSupported = false;
 
 	g_config->getOption("SDL.Sound", &sound);
 	if (!sound) 
@@ -205,6 +209,7 @@ InitSound()
 	}
 
 	// load configuration variables
+	g_config->getOption("SDL.Sound.Mute", &s_mute);
 	g_config->getOption("SDL.Sound.Rate", &soundrate);
 	g_config->getOption("SDL.Sound.BufSize", &soundbufsize);
 	g_config->getOption("SDL.Sound.Volume", &soundvolume);
@@ -215,20 +220,51 @@ InitSound()
 	g_config->getOption("SDL.Sound.NoiseVolume", &soundnoisevolume);
 	g_config->getOption("SDL.Sound.PCMVolume", &soundpcmvolume);
 
+	i = 0;
+	while (supportedSampleRates[i] != 0)
+	{
+		if ( static_cast<unsigned int>(soundrate) == supportedSampleRates[i])
+		{
+			sampleRateIsSupported = true;
+			break;
+		}
+		i++;
+	}
+
+	if (!sampleRateIsSupported)
+	{
+		printf("Error: Audio Sample Rate %i is either invalid or not supported, reverting to default of 44100\n", soundrate);
+		soundrate = 44100;
+		g_config->setOption("SDL.Sound.Rate", soundrate);
+	}
+
+	if ( (soundbufsize < 15) || (soundbufsize > 200) )
+	{
+		printf("Error: Audio Buffer Size of %i ms is invalid, reverting to default of 128\n", soundbufsize);
+		soundbufsize = 128;
+		g_config->setOption("SDL.Sound.BufSize", soundbufsize);
+	}
+
 	spec.freq = s_SampleRate = soundrate;
 	spec.format = AUDIO_S16SYS;
 	spec.channels = 1;
-	//spec.samples = 512;
-	spec.samples = (int)( ( (double)s_SampleRate / getBaseFrameRate() ) );
+	spec.samples = 512; // This must stay a power of two per SDL documentation
 	spec.callback = fillaudio;
 	spec.userdata = 0;
+
+	samplesPerFrame = (int)( ( (double)s_SampleRate / getBaseFrameRate() ) );
+
+	if ( samplesPerFrame >= 1024 )
+	{
+		spec.samples = 1024;
+	}
 
 	s_BufferSize = soundbufsize * soundrate / 1000;
 
 	// For safety, set a bare minimum:
-	if (s_BufferSize < spec.samples * 2)
+	if (s_BufferSize < static_cast<unsigned int>(spec.samples * 4))
 	{
-		s_BufferSize = spec.samples * 2;
+		s_BufferSize = spec.samples * 4;
 	}
 	s_BufferSize25 =    s_BufferSize/4;
 	s_BufferSize50 =    s_BufferSize/2;
@@ -311,7 +347,7 @@ WriteSound(int32 *buf,
 	int udrFlowDup  = 1;
 	static int skipCounter = 0;
 
-	if ( NoWaiting & 0x01 )
+	if ( (NoWaiting & 0x01) || turbo )
 	{	// During Turbo mode, don't bother with sound as
 		// overflowing the audio buffer can cause delays.
 		return;
@@ -484,6 +520,7 @@ KillSound(void)
 		free((void *)s_Buffer);
 		s_Buffer = 0;
 	}
+	s_BufferIn = 0;
 	return 0;
 }
 
@@ -516,7 +553,9 @@ FCEUD_SoundVolumeAdjust(int n)
 		break;
 	}
 
-	s_mute = 0;
+	s_mute = false;
+	g_config->setOption("SDL.Sound.Mute", s_mute);
+
 	FCEUI_SetSoundVolume(soundvolume);
 	g_config->setOption("SDL.Sound.Volume", soundvolume);
 
@@ -529,21 +568,34 @@ FCEUD_SoundVolumeAdjust(int n)
 void
 FCEUD_SoundToggle(void)
 {
-	if(s_mute) {
-		int soundvolume;
-		g_config->getOption("SDL.SoundVolume", &soundvolume);
+	FCEUD_MuteSoundOutput( !s_mute );
+}
 
-		s_mute = 0;
-		FCEUI_SetSoundVolume(soundvolume);
-		FCEU_DispMessage("Sound mute off.",0);
-	} else {
-		s_mute = 1;
-		FCEUI_SetSoundVolume(0);
-		FCEU_DispMessage("Sound mute on.",0);
-	}
+bool FCEUD_SoundIsMuted(void)
+{
+	return s_mute;
 }
 
 void FCEUD_MuteSoundOutput( bool value )
 {
-	muteSoundOutput = value;
+	if (value != s_mute)
+	{
+		g_config->setOption("SDL.Sound.Mute", value);
+
+		if (value)
+		{
+			FCEU_DispMessage("Sound mute on.",0);
+		}
+		else
+		{
+			FCEU_DispMessage("Sound mute off.",0);
+		}
+	}
+	s_mute = value;
+}
+
+// This function is used by the GUI to mute sound when main window is not in focus.
+void FCEUD_MuteSoundWindow( bool value )
+{
+	windowSoundMute = value;
 }

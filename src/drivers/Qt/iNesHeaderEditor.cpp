@@ -189,7 +189,7 @@ iNesHeaderEditor_t::iNesHeaderEditor_t(QWidget *parent)
     fontCharWidth = fm.width(QLatin1Char('2'));
 #endif
 
-	setWindowTitle("iNES Header Editor");
+	setWindowTitle("NES Header Editor");
 
 	//resize( 512, 512 );
 
@@ -197,7 +197,7 @@ iNesHeaderEditor_t::iNesHeaderEditor_t(QWidget *parent)
 	hdrLayout  = new QVBoxLayout();
 	hbox1      = new QHBoxLayout();
 	hbox       = new QHBoxLayout();
-	hdrBox     = new QGroupBox( tr("iNES Header") );
+	hdrBox     = new QGroupBox( tr("NES Header") );
 	box        = new QGroupBox( tr("Version:") );
 
 	mainLayout->addWidget( hdrBox );
@@ -240,7 +240,7 @@ iNesHeaderEditor_t::iNesHeaderEditor_t(QWidget *parent)
 	{
 		sprintf(stmp, "%d %s", bmap[i].number, bmap[i].name);
 		
-		mapperComboBox->addItem( tr(stmp), i );
+		mapperComboBox->addItem( tr(stmp), bmap[i].number );
 	}
 	hdrLayout->addLayout( hbox1 );
 
@@ -465,6 +465,7 @@ iNesHeaderEditor_t::iNesHeaderEditor_t(QWidget *parent)
 	miscRomsEdit->setMaxLength( 1 );
 	miscRomsEdit->setValidator( validator );
 	miscRomsEdit->setAlignment(Qt::AlignCenter);
+	miscRomsEdit->setMinimumWidth( 3 * fontCharWidth );
 	miscRomsEdit->setMaximumWidth( 3 * fontCharWidth );
 
 	grid = new QGridLayout();
@@ -549,7 +550,7 @@ iNesHeaderEditor_t::~iNesHeaderEditor_t(void)
 //----------------------------------------------------------------------------
 void iNesHeaderEditor_t::closeEvent(QCloseEvent *event)
 {
-	//printf("iNES Header Editor Close Window Event\n");
+	//printf("NES Header Editor Close Window Event\n");
 	done(0);
 	deleteLater();
 	event->accept();
@@ -694,27 +695,27 @@ bool iNesHeaderEditor_t::loadHeader(iNES_HEADER* header)
 		{
 			case errors::OPEN_FAILED:
 			{
-				char buf[2200];
-				sprintf(buf, "Error opening %s!", LoadedRomFName);
+				char buf[5120];
+				snprintf(buf, sizeof(buf), "Error opening %s!", LoadedRomFName);
 				showErrorMsgWindow( buf );
 				break;
 			}
 			case errors::INVALID_HEADER:
-				//MessageBox(parent, "Invalid iNES header.", "iNES Header Editor", MB_OK | MB_ICONERROR);
-				showErrorMsgWindow( "Invalid iNES header." );
+				//MessageBox(parent, "Invalid NES header.", "NES Header Editor", MB_OK | MB_ICONERROR);
+				showErrorMsgWindow( "Invalid NES header." );
 				break;
 			case errors::FDS_HEADER:
-				//MessageBox(parent, "Editing header of an FDS file is not supported.", "iNES Header Editor", MB_OK | MB_ICONERROR);
+				//MessageBox(parent, "Editing header of an FDS file is not supported.", "NES Header Editor", MB_OK | MB_ICONERROR);
 				showErrorMsgWindow("Editing header of an FDS file is not supported.");
 				break;
 			case errors::UNIF_HEADER:
-				//MessageBox(parent, "Editing header of a UNIF file is not supported.", "iNES Header Editor", MB_OK | MB_ICONERROR);
+				//MessageBox(parent, "Editing header of a UNIF file is not supported.", "NES Header Editor", MB_OK | MB_ICONERROR);
 				showErrorMsgWindow("Editing header of a UNIF file is not supported.");
 				break;
 			case errors::NSF_HEADER:
 //			case errors::NSF2_HEADER:
 //			case errors::NSFE_HEADER:
-				//MessageBox(parent, "Editing header of an NSF file is not supported.", "iNES Header Editor", MB_OK | MB_ICONERROR);
+				//MessageBox(parent, "Editing header of an NSF file is not supported.", "NES Header Editor", MB_OK | MB_ICONERROR);
 				showErrorMsgWindow("Editing header of an NSF file is not supported.");
 				break;
 		}
@@ -736,8 +737,9 @@ bool iNesHeaderEditor_t::SaveINESFile(const char* path, iNES_HEADER* header)
 	FCEUFILE* source = FCEU_fopen(LoadedRomFName, NULL, "rb", 0, -1, ext);
 	if (!source)
 	{
-		sprintf(buf, "Opening source file %s failed.", LoadedRomFName);
-		showErrorMsgWindow(buf);
+		char msg[5120];
+		snprintf(msg, sizeof(msg), "Opening source file %s failed.", LoadedRomFName);
+		showErrorMsgWindow(msg);
 		return false;
 	}
 
@@ -745,8 +747,9 @@ bool iNesHeaderEditor_t::SaveINESFile(const char* path, iNES_HEADER* header)
 	FILE* target = FCEUD_UTF8fopen(path, "wb");
 	if (!target)
 	{
-		sprintf(buf, "Creating target file %s failed.", path);
-		showErrorMsgWindow(buf);
+		char msg[5120];
+		snprintf(msg, sizeof(msg), "Creating target file %s failed.", path);
+		showErrorMsgWindow(msg);
 		return false;
 	}
 
@@ -775,7 +778,7 @@ bool iNesHeaderEditor_t::openFile(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	QFileDialog  dialog(this, tr("Open NES File") );
 
 	const QStringList filters(
@@ -796,7 +799,7 @@ bool iNesHeaderEditor_t::openFile(void)
 
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -824,7 +827,8 @@ bool iNesHeaderEditor_t::openFile(void)
 
 	if ( GameInfo == NULL )
 	{
-		strcpy( LoadedRomFName, filename.toStdString().c_str() );
+		strncpy( LoadedRomFName, filename.toStdString().c_str(), sizeof(LoadedRomFName)-1 );
+		LoadedRomFName[sizeof(LoadedRomFName)-1] = 0;
 	}
 
    return true;
@@ -835,7 +839,7 @@ void iNesHeaderEditor_t::saveFileAs(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	QFileDialog  dialog(this, tr("Save iNES File") );
 
 	dialog.setFileMode(QFileDialog::AnyFile);
@@ -849,7 +853,7 @@ void iNesHeaderEditor_t::saveFileAs(void)
 
 	getDirFromFile( LoadedRomFName, dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -903,7 +907,21 @@ void iNesHeaderEditor_t::setHeaderData(iNES_HEADER* header)
 	{
 		mapper |= (header->ROM_type3 & 0x0F) << 8;
 	}
-	mapperComboBox->setCurrentIndex( mapper );
+	for (i=0; i<mapperComboBox->count(); i++)
+	{
+		if ( mapperComboBox->itemData(i).toInt() > mapper )
+		{
+			sprintf( buf, "%i Unknown/unsupported", i);
+			mapperComboBox->insertItem( i, tr(buf), mapper);
+			mapperComboBox->setCurrentIndex(i);
+			break;
+		}
+		else if ( mapperComboBox->itemData(i).toInt() == mapper )
+		{
+			mapperComboBox->setCurrentIndex(i);
+			break;
+		}
+	}
 
 	// Sub Mapper
 	sprintf(buf, "%d", ines20 ? header->ROM_type3 >> 4 : 0);
@@ -1182,7 +1200,7 @@ void iNesHeaderEditor_t::setHeaderData(iNES_HEADER* header)
 	}
 
 	// Input Device:
-	int input = header->reserved[1] & 0x3F;
+	int input = header->expansion & 0x3F;
 	for (i=0; i<inputDevBox->count(); i++)
 	{
 		if ( inputDevBox->itemData(i).toInt() == input )
@@ -1192,7 +1210,7 @@ void iNesHeaderEditor_t::setHeaderData(iNES_HEADER* header)
 	}
 
 	// Miscellaneous ROM Area(s)
-	sprintf(buf, "%d", header->reserved[0] & 3);
+	sprintf(buf, "%d", header->misc_roms & 3);
 	miscRomsEdit->setText( tr(buf) );
 
 	// Trainer
@@ -1905,7 +1923,7 @@ bool iNesHeaderEditor_t::WriteHeaderData(iNES_HEADER* header)
 		int input = inputDevBox->itemData(idx).toInt();
 		if (input <= 0x3F)
 		{
-			_header.reserved[1] |= input & 0x3F;
+			_header.expansion |= input & 0x3F;
 		}
 		else
 		{
@@ -1929,7 +1947,7 @@ bool iNesHeaderEditor_t::WriteHeaderData(iNES_HEADER* header)
 			showErrorMsgWindow("Miscellaneous ROM(s) count has exceeded the limit of iNES 2.0 (3)");
 			return false;
 		}
-		_header.reserved[0] |= misc_roms & 3;
+		_header.misc_roms |= misc_roms & 3;
 	}
 
 	// iNES 1.0 unofficial properties
@@ -2007,7 +2025,7 @@ void iNesHeaderEditor_t::printHeader(iNES_HEADER* _header)
 	printf("%02X ", _header->VRAM_size);
 	printf("%02X ", _header->TV_system);
 	printf("%02X ", _header->VS_hardware);
-	printf("%02X ", _header->reserved[0]);
-	printf("%02X\n", _header->reserved[1]);
+	printf("%02X ", _header->misc_roms);
+	printf("%02X\n", _header->expansion);
 }
 //----------------------------------------------------------------------------

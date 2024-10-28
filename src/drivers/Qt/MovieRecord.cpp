@@ -179,7 +179,7 @@ void MovieRecordDialog_t::setLoadState(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	const char *base;
 	QFileDialog  dialog(this, tr("Load State From File") );
 	QList<QUrl> urls;
@@ -189,6 +189,7 @@ void MovieRecordDialog_t::setLoadState(void)
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 
 	if ( base )
@@ -223,7 +224,7 @@ void MovieRecordDialog_t::setLoadState(void)
 
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -315,7 +316,7 @@ void MovieRecordDialog_t::browseFiles(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	QFileDialog  dialog(this, tr("Save FM2 Movie for Recording") );
 
 	dialog.setFileMode(QFileDialog::AnyFile);
@@ -331,7 +332,7 @@ void MovieRecordDialog_t::browseFiles(void)
 
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);

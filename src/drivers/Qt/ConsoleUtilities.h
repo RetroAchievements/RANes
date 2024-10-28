@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <string>
+
 #include <QColor>
 #include <QTimer>
 #include <QValidator>
@@ -9,15 +11,15 @@
 #include <QHelpEvent>
 #include <QCheckBox>
 
-int  getDirFromFile( const char *path, char *dir );
+int  getDirFromFile( const char *path, std::string &dir );
 
 const char *getRomFile( void );
 
-int getFileBaseName( const char *filepath, char *base, char *suffix = NULL );
+int getFileBaseName( const char *filepath, char *base, char *suffix = nullptr );
 
-int parseFilepath( const char *filepath, char *dir, char *base, char *suffix = NULL );
+int parseFilepath( const char *filepath, std::string *dir, std::string *base = nullptr, std::string *suffix = nullptr );
 
-int fceuExecutablePath( char *outputPath, int outputSize );
+const char *fceuExecutablePath(void);
 
 int fceuLoadConfigColor( const char *confName, QColor *color );
 
@@ -90,4 +92,4 @@ class QCheckBoxRO : public QCheckBox
 
 QString fceuGetOpcodeToolTip( uint8_t *opcode, int size );
 
-QDialog *fceuCustomToolTipShow( QHelpEvent *helpEvent, QDialog *popup );
+QDialog *fceuCustomToolTipShow( const QPoint &globalPos, QDialog *popup );

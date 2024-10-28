@@ -52,6 +52,8 @@ void openCheatDialog(QWidget *parent)
 {
 	if (win != NULL)
 	{
+		win->activateWindow();
+		win->raise();
 		return;
 	}
 	win = new GuiCheatsDialog_t(parent);
@@ -195,6 +197,18 @@ GuiCheatsDialog_t::GuiCheatsDialog_t(QWidget *parent)
 
 	hbox->addWidget(lbl);
 	hbox->addWidget(cheatCmpEntry);
+
+	vbox1->addLayout(hbox);
+
+	hbox = new QHBoxLayout();
+	lbl = new QLabel(tr("Type:"));
+	typeEntry = new QComboBox();
+	typeEntry->addItem(tr("0: Periodic Set (Every Frame)"), 0 );
+	typeEntry->addItem(tr("1: Substitute/Freeze"), 1 );
+	typeEntry->setCurrentIndex(1);
+
+	hbox->addWidget(lbl,1);
+	hbox->addWidget(typeEntry,10);
 
 	vbox1->addLayout(hbox);
 
@@ -435,6 +449,8 @@ GuiCheatsDialog_t::GuiCheatsDialog_t(QWidget *parent)
 
 	setLayout(mainLayout);
 
+	modCheatBtn->setDefault(true);
+
 	connect(srchResetBtn, SIGNAL(clicked(void)), this, SLOT(resetSearchCallback(void)));
 	connect(knownValBtn, SIGNAL(clicked(void)), this, SLOT(knownValueCallback(void)));
 	connect(eqValBtn, SIGNAL(clicked(void)), this, SLOT(equalValueCallback(void)));
@@ -545,13 +561,13 @@ void GuiCheatsDialog_t::showCheatSearchResults(void)
 //----------------------------------------------------------------------------
 void GuiCheatsDialog_t::resetSearchCallback(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	FCEUI_CheatSearchBegin();
 
 	showCheatSearchResults();
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	knownValBtn->setEnabled(true);
 	eqValBtn->setEnabled(true);
@@ -573,7 +589,7 @@ void GuiCheatsDialog_t::knownValueCallback(void)
 {
 	int value;
 	//printf("Cheat Search Known!\n");
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	//printf("'%s'\n", knownValEntry->displayText().toStdString().c_str() );
 
@@ -583,19 +599,19 @@ void GuiCheatsDialog_t::knownValueCallback(void)
 
 	showCheatSearchResults();
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 void GuiCheatsDialog_t::equalValueCallback(void)
 {
 	//printf("Cheat Search Equal!\n");
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	FCEUI_CheatSearchEnd(FCEU_SEARCH_PUERLY_RELATIVE_CHANGE, 0, 0);
 
 	showCheatSearchResults();
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 void GuiCheatsDialog_t::notEqualValueCallback(void)
@@ -604,7 +620,7 @@ void GuiCheatsDialog_t::notEqualValueCallback(void)
 	int value;
 	int checked = useNeVal->checkState() != Qt::Unchecked;
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	if (checked)
 	{
@@ -619,7 +635,7 @@ void GuiCheatsDialog_t::notEqualValueCallback(void)
 
 	showCheatSearchResults();
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 void GuiCheatsDialog_t::greaterThanValueCallback(void)
@@ -628,7 +644,7 @@ void GuiCheatsDialog_t::greaterThanValueCallback(void)
 	int value;
 	int checked = useGrVal->checkState() != Qt::Unchecked;
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	if (checked)
 	{
@@ -643,7 +659,7 @@ void GuiCheatsDialog_t::greaterThanValueCallback(void)
 
 	showCheatSearchResults();
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 void GuiCheatsDialog_t::lessThanValueCallback(void)
@@ -652,7 +668,7 @@ void GuiCheatsDialog_t::lessThanValueCallback(void)
 	int value;
 	int checked = useLtVal->checkState() != Qt::Unchecked;
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	if (checked)
 	{
@@ -667,10 +683,10 @@ void GuiCheatsDialog_t::lessThanValueCallback(void)
 
 	showCheatSearchResults();
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
-int GuiCheatsDialog_t::activeCheatListCB(char *name, uint32 a, uint8 v, int c, int s, int type, void *data)
+int GuiCheatsDialog_t::activeCheatListCB(const char *name, uint32 a, uint8 v, int c, int s, int type, void *data)
 {
 	QTreeWidgetItem *item;
 	char codeStr[32];
@@ -688,14 +704,10 @@ int GuiCheatsDialog_t::activeCheatListCB(char *name, uint32 a, uint8 v, int c, i
 
 	if (item == NULL)
 	{
-		item = new QTreeWidgetItem();
-
-		actvCheatList->addTopLevelItem(item);
+		item = new QTreeWidgetItem(actvCheatList);
 	}
 
-	//item->setFlags( Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable | Qt::ItemIsUserCheckable );
 	item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable | Qt::ItemNeverHasChildren);
-
 	item->setCheckState(0, s ? Qt::Checked : Qt::Unchecked);
 
 	item->setText(0, tr(codeStr));
@@ -710,7 +722,7 @@ int GuiCheatsDialog_t::activeCheatListCB(char *name, uint32 a, uint8 v, int c, i
 	return 1;
 }
 //----------------------------------------------------------------------------
-static int activeCheatListCB(char *name, uint32 a, uint8 v, int c, int s, int type, void *data)
+static int activeCheatListCB(const char *name, uint32 a, uint8 v, int c, int s, int type, void *data)
 {
 	return win->activeCheatListCB(name, a, v, c, s, type, data);
 }
@@ -719,7 +731,7 @@ void GuiCheatsDialog_t::showActiveCheatList(bool redraw)
 {
 	win = this;
 
-	actvCheatRedraw = redraw;
+	enaCheats->setChecked(!globalCheatDisabled);
 
 	if (redraw)
 	{
@@ -728,6 +740,8 @@ void GuiCheatsDialog_t::showActiveCheatList(bool redraw)
 	actvCheatIdx = 0;
 
 	FCEUI_ListCheats(::activeCheatListCB, (void *)this);
+
+	actvCheatList->viewport()->update();
 }
 //----------------------------------------------------------------------------
 void GuiCheatsDialog_t::openCheatFile(void)
@@ -736,7 +750,7 @@ void GuiCheatsDialog_t::openCheatFile(void)
 	int ret, useNativeFileDialogVal;
 	QString filename;
 	std::string last;
-	char dir[512];
+	std::string dir;
 	QFileDialog dialog(this, tr("Open Cheat File"));
 
 	dialog.setFileMode(QFileDialog::ExistingFile);
@@ -751,7 +765,7 @@ void GuiCheatsDialog_t::openCheatFile(void)
 
 	getDirFromFile(last.c_str(), dir);
 
-	dialog.setDirectory(tr(dir));
+	dialog.setDirectory(tr(dir.c_str()));
 
 	// Check config option to use native file dialog or not
 	g_config->getOption("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -779,7 +793,7 @@ void GuiCheatsDialog_t::openCheatFile(void)
 
 	g_config->setOption("SDL.LastOpenFile", filename.toStdString().c_str());
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	fp = fopen(filename.toStdString().c_str(), "r");
 
@@ -788,7 +802,7 @@ void GuiCheatsDialog_t::openCheatFile(void)
 		FCEU_LoadGameCheats(fp, 0);
 		fclose(fp);
 	}
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	showActiveCheatList(true);
 
@@ -800,7 +814,7 @@ void GuiCheatsDialog_t::saveCheatFile(void)
 	FILE *fp;
 	int ret, useNativeFileDialogVal;
 	QString filename;
-	char dir[512];
+	char dir[4096];
 	QFileDialog dialog(this, tr("Save Cheat File"));
 
 	dialog.setFileMode(QFileDialog::AnyFile);
@@ -850,7 +864,7 @@ void GuiCheatsDialog_t::saveCheatFile(void)
 
 	//g_config->setOption ("SDL.LastOpenFile", filename.toStdString().c_str() );
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	fp = FCEUD_UTF8fopen(filename.toStdString().c_str(), "wb");
 
@@ -859,7 +873,7 @@ void GuiCheatsDialog_t::saveCheatFile(void)
 		FCEU_SaveGameCheats(fp);
 		fclose(fp);
 	}
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	showActiveCheatList(true);
 
@@ -871,6 +885,7 @@ void GuiCheatsDialog_t::addActvCheat(void)
 	uint32 a = 0;
 	uint8 v = 0;
 	int c = -1;
+	int t = 1;
 	std::string name, cmpStr;
 
 	a = strtoul(cheatAddrEntry->displayText().toStdString().c_str(), NULL, 16);
@@ -890,9 +905,11 @@ void GuiCheatsDialog_t::addActvCheat(void)
 
 	name = cheatNameEntry->text().toStdString();
 
-	fceuWrapperLock();
-	FCEUI_AddCheat(name.c_str(), a, v, c, 1);
-	fceuWrapperUnLock();
+	t = typeEntry->currentData().toInt();
+
+	FCEU_WRAPPER_LOCK();
+	FCEUI_AddCheat(name.c_str(), a, v, c, t);
+	FCEU_WRAPPER_UNLOCK();
 
 	showActiveCheatList(true);
 }
@@ -911,9 +928,9 @@ void GuiCheatsDialog_t::deleteActvCheat(void)
 
 	int row = actvCheatList->indexOfTopLevelItem(item);
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_DelCheat(row);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	showActiveCheatList(true);
 
@@ -921,6 +938,7 @@ void GuiCheatsDialog_t::deleteActvCheat(void)
 	cheatAddrEntry->setText(tr(""));
 	cheatValEntry->setText(tr(""));
 	cheatCmpEntry->setText(tr(""));
+	typeEntry->setCurrentIndex(0);
 }
 //----------------------------------------------------------------------------
 void GuiCheatsDialog_t::updateCheatParameters(void)
@@ -969,11 +987,13 @@ void GuiCheatsDialog_t::updateCheatParameters(void)
 
 	//printf("Name: %s \n", name.c_str() );
 
-	fceuWrapperLock();
+	type = typeEntry->currentData().toInt();
 
-	FCEUI_SetCheat(row, name.c_str(), a, v, c, s, type);
+	FCEU_WRAPPER_LOCK();
 
-	fceuWrapperUnLock();
+	FCEUI_SetCheat(row, &name, a, v, c, s, type);
+
+	FCEU_WRAPPER_UNLOCK();
 
 	showActiveCheatList(false);
 }
@@ -983,7 +1003,7 @@ void GuiCheatsDialog_t::actvCheatItemClicked(QTreeWidgetItem *item, int column)
 	uint32 a = 0;
 	uint8 v = 0;
 	int c = -1, s = 0, type = 0;
-	char *name = NULL;
+	std::string name;
 	char stmp[64];
 
 	int row = actvCheatList->indexOfTopLevelItem(item);
@@ -1021,14 +1041,9 @@ void GuiCheatsDialog_t::actvCheatItemClicked(QTreeWidgetItem *item, int column)
 		cheatCmpEntry->setText(tr(""));
 	}
 
-	if (name != NULL)
-	{
-		cheatNameEntry->setText(tr(name));
-	}
-	else
-	{
-		cheatNameEntry->setText(tr(""));
-	}
+	cheatNameEntry->setText(tr(name.c_str()));
+
+	typeEntry->setCurrentIndex(type);
 }
 //----------------------------------------------------------------------------
 void GuiCheatsDialog_t::globalEnableCheats(int state)
@@ -1038,9 +1053,9 @@ void GuiCheatsDialog_t::globalEnableCheats(int state)
 	g_config->setOption("SDL.CheatsDisabled", !val);
 	g_config->save();
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_GlobalToggleCheat(val);
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 void GuiCheatsDialog_t::autoLoadSaveCheats(int state)

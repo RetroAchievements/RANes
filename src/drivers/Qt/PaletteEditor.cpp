@@ -314,14 +314,14 @@ void PaletteEditorDialog_t::openPaletteFileDialog(void)
 {
 	int ret, useNativeFileDialogVal;
 	QString filename;
-	char dir[512];
-	char exePath[512];
+	std::string dir;
+	const char *exePath = nullptr;
 	std::string  last, iniPath;
 	QFileDialog  dialog(this, tr("Open Palette From File") );
 	QList<QUrl> urls;
 	QDir  d;
 
-	fceuExecutablePath( exePath, sizeof(exePath) );
+	exePath = fceuExecutablePath();
 
 	//urls = dialog.sidebarUrls();
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
@@ -403,7 +403,7 @@ void PaletteEditorDialog_t::openPaletteFileDialog(void)
 	}
 	getDirFromFile( last.c_str(), dir );
 
-	dialog.setDirectory( tr(dir) );
+	dialog.setDirectory( tr(dir.c_str()) );
 
 	// Check config option to use native file dialog or not
 	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
@@ -615,9 +615,9 @@ void nesPaletteView::setActivePalette(void)
 		//printf("%i  %i,%i,%i \n", p, palo[p].r, palo[p].g, palo[p].b );
 	}
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	FCEUI_SetUserPalette( pal, NUM_COLORS );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 int  nesPaletteView::loadFromFile( const char *filepath )
@@ -1125,10 +1125,10 @@ void nesPalettePickerView::setSelBox( int val )
 	if ( val != selBox )
 	{
 
-		fceuWrapperLock();
+		FCEU_WRAPPER_LOCK();
 		PalettePoke( palAddr, val );
 		FCEUD_UpdatePPUView( -1, 1 );
-		fceuWrapperUnLock();
+		FCEU_WRAPPER_UNLOCK();
 
 		this->update();
 	}
@@ -1369,7 +1369,7 @@ nesPalettePickerDialog::nesPalettePickerDialog( int idx, QWidget *parent)
 //----------------------------------------------------------------------------
 nesPalettePickerDialog::~nesPalettePickerDialog(void)
 {
-	printf("Destroy Palette Editor Config Window\n");
+	//printf("Destroy Palette Editor Config Window\n");
 }
 //----------------------------------------------------------------------------
 void nesPalettePickerDialog::closeEvent(QCloseEvent *event)
@@ -1389,19 +1389,19 @@ void nesPalettePickerDialog::closeWindow(void)
 //----------------------------------------------------------------------------
 void nesPalettePickerDialog::resetButtonClicked(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	palView->setSelBox( palOrigVal );
 	PalettePoke( palAddr, palOrigVal );
 	FCEUD_UpdatePPUView( -1, 1 );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 void nesPalettePickerDialog::cancelButtonClicked(void)
 {	
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	PalettePoke( palAddr, palOrigVal );
 	FCEUD_UpdatePPUView( -1, 1 );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	//printf("Close Window\n");
 	done(0);
@@ -1410,10 +1410,10 @@ void nesPalettePickerDialog::cancelButtonClicked(void)
 //----------------------------------------------------------------------------
 void nesPalettePickerDialog::okButtonClicked(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	PalettePoke( palAddr, palView->getSelBox() );
 	FCEUD_UpdatePPUView( -1, 1 );
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	//printf("Close Window\n");
 	done(0);
