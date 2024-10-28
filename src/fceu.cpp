@@ -1201,6 +1201,11 @@ int  FCEUI_GetRegion(void)
 
 void FCEUI_SetRegion(int region, int notify) 
 {
+#ifdef RETROACHIEVEMENTS
+	if (!RA_WarnDisableHardcore("change region"))
+		return;
+#endif
+
 	switch (region) {
 		case 0: // NTSC
 			normalscanlines = 240;
