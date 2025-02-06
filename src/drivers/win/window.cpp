@@ -1608,12 +1608,12 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 			wrect->bottom = wrect->top + srect.bottom;
 		
 			GetMenuItemRect(hWnd, fceumenu, 0, &file_rect);
-#ifdef RETROACHIEVEMENTS
-			GetMenuItemRect(hWnd, fceumenu, 6, &retroachievements_rect);
-			menuYoffset = retroachievements_rect.top - file_rect.top;
-#else
 			GetMenuItemRect(hWnd, fceumenu, 5, &help_rect);
 			menuYoffset = help_rect.top-file_rect.top;
+
+#ifdef RETROACHIEVEMENTS
+			if(GetMenuItemRect(hWnd, fceumenu, 6, &retroachievements_rect))
+				menuYoffset = retroachievements_rect.top-file_rect.top;
 #endif
 		}
 		//sizchange=1;
