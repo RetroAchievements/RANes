@@ -1427,6 +1427,9 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 	POINT pt;
 	RECT file_rect;
 	RECT help_rect;
+#ifdef RETROACHIEVEMENTS
+	RECT retroachievements_rect;
+#endif
 	int x = 0;
 	
 	char TempArray[2048];
@@ -1607,6 +1610,11 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 			GetMenuItemRect(hWnd, fceumenu, 0, &file_rect);
 			GetMenuItemRect(hWnd, fceumenu, 5, &help_rect);
 			menuYoffset = help_rect.top-file_rect.top;
+
+#ifdef RETROACHIEVEMENTS
+			if(GetMenuItemRect(hWnd, fceumenu, 6, &retroachievements_rect))
+				menuYoffset = retroachievements_rect.top-file_rect.top;
+#endif
 		}
 		//sizchange=1;
 		//break;
