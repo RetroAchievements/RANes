@@ -80,10 +80,6 @@ extern "C" { FILE __iob_func[3] = { *stdin,*stdout,*stderr }; }
 #include "taseditor.h"
 #include "taseditor/taseditor_window.h"
 
-#ifdef RETROACHIEVEMENTS
-#include "retroachievements.h"
-#endif
-
 extern TASEDITOR_WINDOW taseditorWindow;
 extern bool taseditorEnableAcceleratorKeys;
 
@@ -508,11 +504,6 @@ void DoFCEUExit()
 	if(exiting)    //Eh, oops.  I'll need to try to fix this later.
 		return;
 
-#ifdef RETROACHIEVEMENTS
-	if (!RA_ConfirmLoadNewRom(true))
-		return;
-#endif
-
 	// If user was asked to save changes in TAS Editor and chose cancel, don't close FCEUX
 	extern bool exitTASEditor();
 	if (FCEUMOV_Mode(MOVIEMODE_TASEDITOR) && !exitTASEditor())
@@ -856,15 +847,20 @@ int main(int argc,char *argv[])
 
 	InitSpeedThrottle();
 
-	if (t)
+	if (RomFile)
 	{
-		ALoad(t);
+		ALoad(RomFile);
 	} else
 	{
 		if (AutoResumePlay && romNameWhenClosingEmulator && romNameWhenClosingEmulator[0])
 			ALoad(romNameWhenClosingEmulator, 0, true);
 		if (eoptions & EO_FOAFTERSTART)
 			LoadNewGamey(hAppWnd, 0);
+	}
+
+	if (RunInFullscreen) {
+		extern void ToggleFullscreen();
+		ToggleFullscreen();
 	}
 
 	if (PAL && pal_setting_specified && !dendy_setting_specified)
@@ -906,6 +902,8 @@ int main(int argc,char *argv[])
 		FCEU_LoadLuaCode(LuaToLoad);
 		free(LuaToLoad);
 		LuaToLoad = NULL;
+		extern HWND LuaConsoleHWnd;
+		ShowWindow(LuaConsoleHWnd, SW_MINIMIZE);
 	}
 
 	//Initiates AVI capture mode, will set up proper settings, and close FCUEX once capturing is finished
@@ -928,14 +926,8 @@ int main(int argc,char *argv[])
 	if (PauseAfterLoad) FCEUI_ToggleEmulationPause();
 	SetAutoFirePattern(AFon, AFoff);
 	UpdateCheckedMenuItems();
-
-#ifdef RETROACHIEVEMENTS
-	RA_Init();
-#endif
-
 doloopy:
 	UpdateFCEUWindow();
-
 	if(GameInfo)
 	{
 		while(GameInfo)
@@ -983,10 +975,6 @@ doloopy:
 	Sleep(50);
 	if(!exiting)
 		goto doloopy;
-
-#ifdef RETROACHIEVEMENTS
-	RA_Shutdown();
-#endif
 
 	DriverKill();
 	timeEndPeriod(1);
@@ -1114,10 +1102,7 @@ void FCEUD_Update(uint8 *XBuf, int32 *Buffer, int Count)
 	//make sure to update the input once per frame
 	FCEUD_UpdateInput();
 
-#ifdef RETROACHIEVEMENTS
-	// handle inputs (navigate overlay)
-	RA_ProcessInputs();
-#endif
+
 }
 
 static void FCEUD_MakePathDirs(const char *fname)
