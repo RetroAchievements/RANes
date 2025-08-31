@@ -1788,6 +1788,10 @@ LRESULT FAR PASCAL AppWndProc(HWND hWnd,UINT msg,WPARAM wParam,LPARAM lParam)
 			#ifdef _S9XLUA_H
 			if(wParam >= LUA_FIRST_RECENT_FILE && wParam < LUA_FIRST_RECENT_FILE + MAX_NUMBER_OF_LUA_RECENT_FILES)
 			{
+#if RETROACHIEVEMENTS
+				if (!RA_WarnDisableHardcore("open lua windows"))
+					break;
+#endif
 				char*& fname = recent_lua[wParam - LUA_FIRST_RECENT_FILE];
 				if(fname)
 				{
