@@ -89,7 +89,7 @@ static void GetEstimatedGameTitle(char* sNameOut)
 		_splitpath_s(ptr, NULL, 0, NULL, 0, sNameOut, 64, NULL, 0);
 }
 
-static void ResetEmulator()
+static void EnforceHardcoreState()
 {
 	// close the TAS editor
 	if (FCEUMOV_Mode(MOVIEMODE_TASEDITOR))
@@ -138,6 +138,11 @@ static void ResetEmulator()
 	if (fps_scale_unpaused != 256)
 		FCEUD_SetEmulationSpeed(EMUSPEED_NORMAL);
 	FCEUI_SetEmulationPaused(0);
+}
+
+static void ResetEmulator()
+{
+	EnforceHardcoreState();
 
 	// reset emulator
 	FCEUI_ResetNES();
@@ -185,6 +190,9 @@ void RA_Init()
 
 void RA_IdentifyAndActivateGame()
 {
+	if (RA_HardcoreModeIsActive())
+		EnforceHardcoreState();
+
 	if (GameInfo->type == EGIT::GIT_FDS)
 	{
 		RA_ActivateGame(FDS_GameId);
