@@ -30,6 +30,7 @@ extern HWND hNTView; // not in ntview.h
 extern HWND LuaConsoleHWnd; // not in fcelua.h
 
 int FDS_GameId = 0;
+int RA_CurrentConsoleID = NES;
 
 static int GameIsActive()
 {
@@ -170,8 +171,8 @@ void ByteWriter(unsigned int nOffs, uint8 nVal)
 void RA_Init()
 {
 	// initialize the DLL
-	RA_Init(hAppWnd, RA_FCEUX, RANES_VERSION);
-	RA_SetConsoleID(NES);
+	RA_Init(hAppWnd, RA_FCEUX, RANES_VERSION_FULL);
+	RA_SetConsoleID(RA_CurrentConsoleID = NES);
 
 	// provide callbacks to the DLL
 	RA_InstallSharedFunctions(GameIsActive, CauseUnpause, CausePause, RebuildMenu, GetEstimatedGameTitle, ResetEmulator, LoadROM);
@@ -195,10 +196,22 @@ void RA_IdentifyAndActivateGame()
 
 	if (GameInfo->type == EGIT::GIT_FDS)
 	{
+		if (RA_CurrentConsoleID != FamicomDiskSystem)
+		{
+			RA_CurrentConsoleID = FamicomDiskSystem;
+			RA_SetConsoleID(FamicomDiskSystem);
+		}
+
 		RA_ActivateGame(FDS_GameId);
 	}
 	else
 	{
+		if (RA_CurrentConsoleID != NES)
+		{
+			RA_CurrentConsoleID = NES;
+			RA_SetConsoleID(NES);
+		}
+
 		// The file has been split into several buffers. rather than try to piece
 		// it back together, just reload it into a single buffer.
 		std::string fullname;
