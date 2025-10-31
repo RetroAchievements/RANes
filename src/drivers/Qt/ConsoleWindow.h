@@ -23,10 +23,12 @@
 #include <QCursor>
 #include <QMutex>
 #include <QColor>
+#include <QTemporaryDir>
 #if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
 #include <QRecursiveMutex>
 #endif
 
+#include "utils/mutex.h"
 #include "Qt/ColorMenu.h"
 #include "Qt/ConsoleViewerGL.h"
 #include "Qt/ConsoleViewerSDL.h"
@@ -134,11 +136,8 @@ class  consoleWin_t : public QMainWindow
 
 		void setCyclePeriodms( int ms );
 
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
-		QRecursiveMutex *mutex;
-#else
-		QMutex *mutex;
-#endif
+		FCEU::mutex emulatorMutex;
+		FCEU::mutex videoBufferMutex;
 
 		int  videoInit(void);
 		void videoReset(void);
@@ -180,11 +179,13 @@ class  consoleWin_t : public QMainWindow
 		void setContextMenuEnable(bool enable);
 		void setSoundUseGlobalFocus(bool enable);
 
-		void OpenHelpWindow(std::string subpage = "");
+		void OpenHelpWindow(QString subpage = QString());
 
 		int  getPeriodicInterval(void);
 
 		QColor *getVideoBgColorPtr(void){ return &videoBgColor; }
+
+		QString getTempDir();
 
 	protected:
 		consoleMenuBar *menubar;
@@ -195,6 +196,7 @@ class  consoleWin_t : public QMainWindow
 		QMenu *toolsMenu;
 		QMenu *debugMenu;
 		QMenu *movieMenu;
+		QMenu *netPlayMenu;
 		QMenu *helpMenu;
 		QMenu *recentRomMenu;
 		
@@ -206,6 +208,7 @@ class  consoleWin_t : public QMainWindow
 		QAction *quickLoadAct;
 		QAction *quickSaveAct;
 		QAction *loadLuaAct;
+		QAction *loadJsAct;
 		QAction *scrShotAct;
 		QAction *quitAct;
 		QAction *inputConfig;
@@ -260,12 +263,18 @@ class  consoleWin_t : public QMainWindow
 		QAction *recAsWavAct;
 		QAction *stopWavAct;
 		QAction *tasEditorAct;
+		QAction *netPlayHostAct;
+		QAction *netPlayJoinAct;
+		QAction *netPlayDiscAct;
+		QAction *netPlayHostStatAct;
+		QAction *netPlayClientStatAct;
 		//QAction *aviHudAct;
 		//QAction *aviMsgAct;
 
 		QTimer  *gameTimer;
 		QColor   videoBgColor;
 		ColorMenuItem *bgColorMenuItem;
+		QTemporaryDir *tempDir;
 
 		std::string errorMsg;
 		bool        errorMsgValid;
@@ -279,6 +288,7 @@ class  consoleWin_t : public QMainWindow
 		bool        contextMenuEnable;
 		bool        soundUseGlobalFocus;
 		bool        autoHideMenuFullscreen;
+		bool        redrawVideoRequest;
 
 		std::list <std::string*> romList;
 		std::vector <autoFireMenuAction*> afActList;
@@ -314,10 +324,19 @@ class  consoleWin_t : public QMainWindow
 		void changeState(int slot);
 		void saveState(int slot);
 		void loadState(int slot);
-		void transferVideoBuffer(void);
+		void transferVideoBuffer(bool allowRedraw);
 		void syncAutoFirePatternMenu(void);
 
-		std::string findHelpFile(void);
+		QString findHelpFile(void);
+
+	public:
+	signals:
+		void romLoaded(void);
+		void romUnload(void);
+		void stateLoaded(void);
+		void nesResetOccurred(void);
+		void pauseToggled(bool state);
+		void cheatsChanged(void);
 
 	public slots:
 		void openDebugWindow(void);
@@ -327,6 +346,7 @@ class  consoleWin_t : public QMainWindow
 		void toggleMenuVis(void);
 		void recordMovie(void);
 		void winResizeIx(int iScale);
+		void onNetPlayChange(void);
 	private slots:
 		void closeApp(void);
 		void openROMFile(void);
@@ -351,6 +371,10 @@ class  consoleWin_t : public QMainWindow
 		void openTimingConfWin(void);
 		void openStateRecorderConfWin(void);
 		void openPaletteEditorWin(void);
+		void openNetPlayHostWindow(void);
+		void openNetPlayJoinWindow(void);
+		void openNetPlayStatusWindow(void);
+		void closeNetPlaySession(void);
 		void openAviRiffViewer(void);
 		void openTimingStatWin(void);
 		void openMovieOptWin(void);
@@ -372,6 +396,7 @@ class  consoleWin_t : public QMainWindow
 		void incrementState(void);
 		void decrementState(void);
 		void loadLua(void);
+		void loadJs(void);
 		void takeScreenShot(void);
 		void prepareScreenShot(void);
 		void powerConsoleCB(void);
@@ -381,6 +406,7 @@ class  consoleWin_t : public QMainWindow
 		void toggleGameGenie(bool checked);
 		void loadGameGenieROM(void);
 		void loadMostRecentROM(void);
+		void clearRecentRomMenu(void);
 		void setRegionNTSC(void);
 		void setRegionPAL(void);
 		void setRegionDendy(void);

@@ -10,34 +10,113 @@ if (${PUBLIC_RELEASE})
 endif()
 
 if ( ${QT6} )
-	message( STATUS "GUI Frontend: Qt6")
-	set( Qt Qt6 )
-else()
-	message( STATUS "GUI Frontend: Qt5")
-	set( Qt Qt5 )
+	set( QT 6 )
 endif()
 
-if ( ${QHELP} )
-	set(QtHelpModule Help)
-	add_definitions( -D_USE_QHELP )
+if (NOT DEFINED QT)
+	message( STATUS "Attempting to determine Qt Version...")
+	find_package( Qt6 COMPONENTS Core QUIET)
+
+	if (${Qt6Core_FOUND})
+		message( STATUS "Found Qt Version: ${Qt6Core_VERSION}")
+		set( QT 6 )
+	else()
+		find_package( Qt5 COMPONENTS Core QUIET)
+
+	       	if (${Qt5Core_FOUND})
+			message( STATUS "Found Qt Version: ${Qt5Core_VERSION}")
+			set( QT 5 )
+		endif()
+	endif()
 endif()
 
 if ( ${FCEU_PROFILER_ENABLE} )
 	message( STATUS "FCEU Profiler Enabled")
 	add_definitions( -D__FCEU_PROFILER_ENABLE__ )
 endif()
-	
 
-if ( ${QT6} )
-	find_package( Qt6 REQUIRED COMPONENTS Widgets OpenGL OpenGLWidgets ${QtHelpModule})
-  	add_definitions( ${Qt6Widgets_DEFINITIONS} ${Qt6Help_DEFINITIONS} ${Qt6OpenGLWidgets_DEFINITIONS} )
-  	include_directories( ${Qt6Widgets_INCLUDE_DIRS} ${Qt6Help_INCLUDE_DIRS} ${Qt6OpenGLWidgets_INCLUDE_DIRS} )
+if ( ${QT} EQUAL 6 )
+	message( STATUS "GUI Frontend: Qt6")
+	set( Qt Qt6 )
+	find_package( Qt6 REQUIRED COMPONENTS Widgets OpenGL OpenGLWidgets)
+	find_package( Qt6 REQUIRED COMPONENTS Network)
+	find_package( Qt6 COMPONENTS Help QUIET)
+	find_package( Qt6 COMPONENTS Qml)
+	find_package( Qt6 COMPONENTS UiTools)
+	add_definitions( ${Qt6Widgets_DEFINITIONS} ${Qt6Qml_DEFINITIONS} ${Qt6Network_DEFINITIONS} ${Qt6Help_DEFINITIONS} ${Qt6OpenGLWidgets_DEFINITIONS} )
+	# add_definitions(${Qt6UiTools_DEFINITIONS}) # Leave ${Qt6UiTools_DEFINITIONS} out as this is causing a build error
+	include_directories( ${Qt6Widgets_INCLUDE_DIRS} ${Qt6Qml_INCLUDE_DIRS} ${Qt6UiTools_INCLUDE_DIRS} ${Qt6Network_INCLUDE_DIRS} ${Qt6Help_INCLUDE_DIRS} ${Qt6OpenGLWidgets_INCLUDE_DIRS} )
+
+	if (${Qt6Help_FOUND})
+		message( STATUS "Qt6 Help Module Found")
+		if (${QHELP})
+			add_definitions( -D_USE_QHELP )
+		endif()
+	else()
+		message( STATUS "Qt6 Help Module Not Found")
+	endif()
+
+	if (${Qt6Network_FOUND})
+		message( STATUS "Qt6 Network Module Found")
+		add_definitions( -D__FCEU_QNETWORK_ENABLE__ )
+	else()
+		message( STATUS "Qt6 Network Module Not Found")
+	endif()
+
+	if (${Qt6Qml_FOUND})
+		message( STATUS "Qt6 Qml Module Found")
+		add_definitions( -D__FCEU_QSCRIPT_ENABLE__ )
+	else()
+		message( STATUS "Qt6 Qml Module Not Found")
+	endif()
+
+	if (${Qt6UiTools_FOUND})
+		message( STATUS "Qt6 UiTools Module Found")
+		add_definitions( -D__QT_UI_TOOLS__ )
+	else()
+		message( STATUS "Qt6 UiTools Module Not Found")
+	endif()
 else()
-	find_package( Qt5 REQUIRED COMPONENTS Widgets OpenGL ${QtHelpModule})
-	add_definitions( ${Qt5Widgets_DEFINITIONS} ${Qt5Help_DEFINITIONS} )
-	include_directories( ${Qt5Widgets_INCLUDE_DIRS} ${Qt5Help_INCLUDE_DIRS} )
-endif()
+	message( STATUS "GUI Frontend: Qt5")
+	set( Qt Qt5 )
+	find_package( Qt5 REQUIRED COMPONENTS Widgets OpenGL)
+	find_package( Qt5 COMPONENTS Help QUIET)
+	find_package( Qt5 COMPONENTS Network)
+	find_package( Qt5 COMPONENTS Qml)
+	find_package( Qt5 COMPONENTS UiTools)
+	add_definitions( ${Qt5Widgets_DEFINITIONS} ${Qt5Qml_DEFINITIONS} ${Qt5UiTools_DEFINITIONS} ${Qt5Network_DEFINITIONS} ${Qt5Help_DEFINITIONS} )
+	include_directories( ${Qt5Widgets_INCLUDE_DIRS} ${Qt5Qml_INCLUDE_DIRS} ${Qt5UiTools_INCLUDE_DIRS} ${Qt5Network_INCLUDE_DIRS} ${Qt5Help_INCLUDE_DIRS} )
 
+	if (${Qt5Help_FOUND})
+		message( STATUS "Qt5 Help Module Found")
+		if (${QHELP})
+			add_definitions( -D_USE_QHELP )
+		endif()
+	else()
+		message( STATUS "Qt5 Help Module Not Found")
+	endif()
+
+	if (${Qt5Network_FOUND})
+		message( STATUS "Qt5 Network Module Found")
+		add_definitions( -D__FCEU_NETWORK_ENABLE__ )
+	else()
+		message( STATUS "Qt5 Network Module Not Found")
+	endif()
+
+	if (${Qt5Qml_FOUND})
+		message( STATUS "Qt5 Qml Module Found")
+		add_definitions( -D__FCEU_QSCRIPT_ENABLE__ )
+	else()
+		message( STATUS "Qt5 Qml Module Not Found")
+	endif()
+
+	if (${Qt5UiTools_FOUND})
+		message( STATUS "Qt5 UiTools Module Found")
+		add_definitions( -D__QT_UI_TOOLS__ )
+	else()
+		message( STATUS "Qt5 UiTools Module Not Found")
+	endif()
+endif()
 
 if(WIN32)
      find_package(OpenGL REQUIRED)
@@ -50,23 +129,23 @@ if(WIN32)
      add_definitions( -D_USE_LIBARCHIVE )
      add_definitions( /wd4267 /wd4244 )
      #add_definitions( /wd4018 ) # Integer comparison sign mismatch warnings
-     include_directories( ${SDL_INSTALL_PREFIX}/SDL2/include )
-     include_directories( ${LIBARCHIVE_INSTALL_PREFIX}/libarchive/include )
+     include_directories( ${SDL_INSTALL_PREFIX}/include )
+     include_directories( ${LIBARCHIVE_INSTALL_PREFIX}/include )
      include_directories( ${CMAKE_CURRENT_SOURCE_DIR}/drivers/win/zlib )
      set( OPENGL_LDFLAGS  OpenGL::GL )
-     set( SDL2_LDFLAGS  ${SDL_INSTALL_PREFIX}/SDL2/lib/x64/SDL2.lib )
-     set( LIBARCHIVE_LDFLAGS  ${LIBARCHIVE_INSTALL_PREFIX}/libarchive/lib/archive.lib )
+     set( SDL2_LDFLAGS  ${SDL_INSTALL_PREFIX}/lib/x64/SDL2.lib )
+     set( LIBARCHIVE_LDFLAGS  ${LIBARCHIVE_INSTALL_PREFIX}/lib/archive.lib )
      set( SYS_LIBS  wsock32 ws2_32 vfw32 Htmlhelp )
      set(APP_ICON_RESOURCES_WINDOWS  ${CMAKE_SOURCE_DIR}/icons/fceux.rc )
 
      if ( ${USE_LIBAV} )
         add_definitions( -D_USE_LIBAV ${LIBAV_CFLAGS} )
-        include_directories( ${FFMPEG_INSTALL_PREFIX}/ffmpeg/include )
-        set( LIBAV_LDFLAGS  ${FFMPEG_INSTALL_PREFIX}/ffmpeg/lib/avcodec.lib
-        	                 ${FFMPEG_INSTALL_PREFIX}/ffmpeg/lib/avformat.lib
-                	         ${FFMPEG_INSTALL_PREFIX}/ffmpeg/lib/avutil.lib
-                        	 ${FFMPEG_INSTALL_PREFIX}/ffmpeg/lib/swscale.lib
-                        	 ${FFMPEG_INSTALL_PREFIX}/ffmpeg/lib/swresample.lib )
+        include_directories( ${FFMPEG_INSTALL_PREFIX}/include )
+        set( LIBAV_LDFLAGS  ${FFMPEG_INSTALL_PREFIX}/lib/avcodec.lib
+        	                 ${FFMPEG_INSTALL_PREFIX}/lib/avformat.lib
+                	         ${FFMPEG_INSTALL_PREFIX}/lib/avutil.lib
+                        	 ${FFMPEG_INSTALL_PREFIX}/lib/swscale.lib
+                        	 ${FFMPEG_INSTALL_PREFIX}/lib/swresample.lib )
      endif()
 
 else(WIN32)
@@ -285,14 +364,6 @@ endif()
 include_directories( ${CMAKE_SOURCE_DIR}/src )
 include_directories( ${CMAKE_SOURCE_DIR}/src/drivers )
 
-if(APPLE)
-  add_definitions( -DPSS_STYLE=1 )
-else(APPLE)
-  if(UNIX)
-    add_definitions( -DPSS_STYLE=1 )
-  endif(UNIX)
-endif(APPLE)
-
 set(SRC_CORE
 	${CMAKE_CURRENT_SOURCE_DIR}/asm.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/cart.cpp
@@ -337,7 +408,6 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/120.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/121.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/12in1.cpp
-  	${CMAKE_CURRENT_SOURCE_DIR}/boards/151.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/156.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/158B.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/15.cpp
@@ -375,7 +445,10 @@ set(SRC_CORE
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/33.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/34.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/354.cpp
-  	${CMAKE_CURRENT_SOURCE_DIR}/boards/36.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/boards/413.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/boards/471.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/boards/451.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/boards/36.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/3d-block.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/40.cpp
   	${CMAKE_CURRENT_SOURCE_DIR}/boards/411120-c.cpp
@@ -579,6 +652,7 @@ set(SRC_DRIVERS_SDL
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ConsoleSoundConf.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/StateRecorderConf.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/iNesHeaderEditor.cpp  
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/QtScriptManager.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/SplashScreen.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/TraceLogger.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/AboutWindow.cpp  
@@ -596,6 +670,7 @@ set(SRC_DRIVERS_SDL
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/sdl-joystick.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/sdl-throttle.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/unix-netplay.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/NetPlay.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/AviRecord.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/AviRiffViewer.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/avi/avi-utils.cpp
@@ -666,6 +741,9 @@ target_link_libraries( ${APP_NAME}
    ${ASAN_LDFLAGS}  ${GPROF_LDFLAGS}
    ${${Qt}Widgets_LIBRARIES}
    ${${Qt}Help_LIBRARIES}
+   ${${Qt}Qml_LIBRARIES}
+   ${${Qt}UiTools_LIBRARIES}
+   ${${Qt}Network_LIBRARIES}
    ${${Qt}OpenGL_LIBRARIES}
    ${${Qt}OpenGLWidgets_LIBRARIES}
    ${OPENGL_LDFLAGS}  

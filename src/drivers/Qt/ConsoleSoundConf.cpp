@@ -189,10 +189,10 @@ ConsoleSndConfDialog_t::ConsoleSndConfDialog_t(QWidget *parent)
 
 	frame = new QGroupBox(tr("Triangle"));
 	vbox2 = new QVBoxLayout();
-	triLbl = new QLabel("255");
+	triLbl = new QLabel("256");
 	vslider = new QSlider(Qt::Vertical);
 	vslider->setMinimum(0);
-	vslider->setMaximum(255);
+	vslider->setMaximum(256);
 	setSliderFromProperty(vslider, triLbl, "SDL.Sound.TriangleVolume");
 
 	vbox2->addWidget(triLbl);
@@ -204,10 +204,10 @@ ConsoleSndConfDialog_t::ConsoleSndConfDialog_t(QWidget *parent)
 
 	frame = new QGroupBox(tr("Square1"));
 	vbox2 = new QVBoxLayout();
-	sqr1Lbl = new QLabel("255");
+	sqr1Lbl = new QLabel("256");
 	vslider = new QSlider(Qt::Vertical);
 	vslider->setMinimum(0);
-	vslider->setMaximum(255);
+	vslider->setMaximum(256);
 	setSliderFromProperty(vslider, sqr1Lbl, "SDL.Sound.Square1Volume");
 
 	vbox2->addWidget(sqr1Lbl);
@@ -219,10 +219,10 @@ ConsoleSndConfDialog_t::ConsoleSndConfDialog_t(QWidget *parent)
 
 	frame = new QGroupBox(tr("Square2"));
 	vbox2 = new QVBoxLayout();
-	sqr2Lbl = new QLabel("255");
+	sqr2Lbl = new QLabel("256");
 	sqr2Slider = new QSlider(Qt::Vertical);
 	sqr2Slider->setMinimum(0);
-	sqr2Slider->setMaximum(255);
+	sqr2Slider->setMaximum(256);
 	setSliderFromProperty(sqr2Slider, sqr2Lbl, "SDL.Sound.Square2Volume");
 
 	vbox2->addWidget(sqr2Lbl);
@@ -234,10 +234,10 @@ ConsoleSndConfDialog_t::ConsoleSndConfDialog_t(QWidget *parent)
 
 	frame = new QGroupBox(tr("Noise"));
 	vbox2 = new QVBoxLayout();
-	nseLbl = new QLabel("255");
+	nseLbl = new QLabel("256");
 	nseSlider = new QSlider(Qt::Vertical);
 	nseSlider->setMinimum(0);
-	nseSlider->setMaximum(255);
+	nseSlider->setMaximum(256);
 	setSliderFromProperty(nseSlider, nseLbl, "SDL.Sound.NoiseVolume");
 
 	vbox2->addWidget(nseLbl);
@@ -249,10 +249,10 @@ ConsoleSndConfDialog_t::ConsoleSndConfDialog_t(QWidget *parent)
 
 	frame = new QGroupBox(tr("PCM"));
 	vbox2 = new QVBoxLayout();
-	pcmLbl = new QLabel("255");
+	pcmLbl = new QLabel("256");
 	pcmSlider = new QSlider(Qt::Vertical);
 	pcmSlider->setMinimum(0);
-	pcmSlider->setMaximum(255);
+	pcmSlider->setMaximum(256);
 	setSliderFromProperty(pcmSlider, pcmLbl, "SDL.Sound.PCMVolume");
 
 	vbox2->addWidget(pcmLbl);
@@ -332,7 +332,7 @@ void ConsoleSndConfDialog_t::periodicUpdate(void)
 
 	bufUsage->setValue( (int)(percBufUse) );
 
-	sprintf( stmp, "Sink Starve Count: %u", nes_shm->sndBuf.starveCounter );
+	snprintf( stmp, sizeof(stmp), "Sink Starve Count: %u", nes_shm->sndBuf.starveCounter );
 
 	starveLbl->setText( tr(stmp) );
 
@@ -396,7 +396,7 @@ void ConsoleSndConfDialog_t::setSliderFromProperty(QSlider *slider, QLabel *lbl,
 	char stmp[32];
 	g_config->getOption(property, &pval);
 	slider->setValue(pval);
-	sprintf(stmp, "%i", pval);
+	snprintf(stmp, sizeof(stmp), "%i", pval);
 	lbl->setText(stmp);
 }
 //----------------------------------------------------
@@ -404,7 +404,7 @@ void ConsoleSndConfDialog_t::bufSizeChanged(int value)
 {
 	char stmp[32];
 
-	sprintf(stmp, "%i", value);
+	snprintf(stmp, sizeof(stmp), "%i", value);
 
 	bufSizeLabel->setText(stmp);
 
@@ -422,7 +422,7 @@ void ConsoleSndConfDialog_t::volumeChanged(int value)
 {
 	char stmp[32];
 
-	sprintf(stmp, "%i", value);
+	snprintf(stmp, sizeof(stmp), "%i", value);
 
 	volLbl->setText(stmp);
 
@@ -439,7 +439,7 @@ void ConsoleSndConfDialog_t::triangleChanged(int value)
 {
 	char stmp[32];
 
-	sprintf(stmp, "%i", value);
+	snprintf(stmp, sizeof(stmp), "%i", value);
 
 	triLbl->setText(stmp);
 
@@ -456,7 +456,7 @@ void ConsoleSndConfDialog_t::square1Changed(int value)
 {
 	char stmp[32];
 
-	sprintf(stmp, "%i", value);
+	snprintf(stmp, sizeof(stmp), "%i", value);
 
 	sqr1Lbl->setText(stmp);
 
@@ -473,7 +473,7 @@ void ConsoleSndConfDialog_t::square2Changed(int value)
 {
 	char stmp[32];
 
-	sprintf(stmp, "%i", value);
+	snprintf(stmp, sizeof(stmp), "%i", value);
 
 	sqr2Lbl->setText(stmp);
 
@@ -490,7 +490,7 @@ void ConsoleSndConfDialog_t::noiseChanged(int value)
 {
 	char stmp[32];
 
-	sprintf(stmp, "%i", value);
+	snprintf(stmp, sizeof(stmp), "%i", value);
 
 	nseLbl->setText(stmp);
 
@@ -507,7 +507,7 @@ void ConsoleSndConfDialog_t::pcmChanged(int value)
 {
 	char stmp[32];
 
-	sprintf(stmp, "%i", value);
+	snprintf(stmp, sizeof(stmp), "%i", value);
 
 	pcmLbl->setText(stmp);
 

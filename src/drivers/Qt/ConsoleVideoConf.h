@@ -55,6 +55,9 @@ class ConsoleVideoConfDialog_t : public QDialog
 		QCheckBox   *showFrameCount_cbx;
 		QCheckBox   *showLagCount_cbx;
 		QCheckBox   *showRerecordCount_cbx;
+		#if defined(WIN32) && (QT_VERSION_MAJOR < 6)
+		QCheckBox   *winFullScreenBorderCbx;
+		#endif
 		QDoubleSpinBox *xScaleBox;
 		QDoubleSpinBox *yScaleBox;
 		QLabel         *aspectSelectLabel;
@@ -111,6 +114,9 @@ class ConsoleVideoConfDialog_t : public QDialog
 		void  ntscEndScanLineChanged(int value);
 		void  palStartScanLineChanged(int value);
 		void  palEndScanLineChanged(int value);
+		#if defined(WIN32) && (QT_VERSION_MAJOR < 6)
+		void  winFullScreenBorderChanged(int value);
+		#endif
 
 };
 

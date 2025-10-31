@@ -49,6 +49,7 @@ extern SFORMAT FCEUVSUNI_STATEINFO[];
 uint8 *trainerpoo = NULL;
 uint8 *ROM = NULL;
 uint8 *VROM = NULL;
+uint8 *MiscROM = NULL;
 uint8 *ExtraNTARAM = NULL;
 iNES_HEADER head;
 
@@ -58,6 +59,7 @@ uint8 Mirroring = 0;
 uint8 MirroringAs2bits = 0;
 uint32 ROM_size = 0;
 uint32 VROM_size = 0;
+uint32 MiscROM_size = 0;
 char LoadedRomFName[4096]; //mbg merge 7/17/06 added
 char LoadedRomFNamePatchToUse[4096];
 
@@ -473,21 +475,33 @@ static void CheckHInfo(uint64 partialmd5) {
 	if (MapperNo == 99)
 		Mirroring = 2;
 
-	if (tofix) {
-		char gigastr[768];
-		strcpy(gigastr, "The iNES header contains incorrect information.  For now, the information will be corrected in RAM.  ");
+	if (tofix)
+	{
+		char tmpStr[128];
+		std::string gigastr;
+		gigastr.reserve(768);
+		gigastr.assign("The iNES header contains incorrect information.  For now, the information will be corrected in RAM.  ");
 		if (tofix & 1)
-			sprintf(gigastr + strlen(gigastr), "The mapper number should be set to %d.  ", MapperNo);
-		if (tofix & 2) {
+		{
+			snprintf(tmpStr, sizeof(tmpStr), "The mapper number should be set to %d.  ", MapperNo);
+			gigastr.append(tmpStr);
+		}
+		if (tofix & 2) 
+		{
 			const char *mstr[3] = { "Horizontal", "Vertical", "Four-screen" };
-			sprintf(gigastr + strlen(gigastr), "Mirroring should be set to \"%s\".  ", mstr[Mirroring & 3]);
+			snprintf(tmpStr, sizeof(tmpStr), "Mirroring should be set to \"%s\".  ", mstr[Mirroring & 3]);
+			gigastr.append(tmpStr);
 		}
 		if (tofix & 4)
-			strcat(gigastr, "The battery-backed bit should be set.  ");
+		{
+			gigastr.append("The battery-backed bit should be set.  ");
+		}
 		if (tofix & 8)
-			strcat(gigastr, "This game should not have any CHR ROM.  ");
-		strcat(gigastr, "\n");
-		FCEU_printf("%s", gigastr);
+		{
+			gigastr.append("This game should not have any CHR ROM.  ");
+		}
+		gigastr.append("\n");
+		FCEU_printf("%s", gigastr.c_str());
 	}
 }
 
@@ -533,7 +547,7 @@ BMAPPINGLocal bmap[] = {
 	{"100-in-1",			 15, Mapper15_Init},
 	{"BANDAI 24C02",		 16, Mapper16_Init},
 	{"FFE Rev. B",			 17, Mapper17_Init},
-	{"JALECO SS880006",		 18, Mapper18_Init},	// JF-NNX (EB89018-30007) boards
+	{"JALECO SS88006",		 18, Mapper18_Init},	// JF-NNX (EB89018-30007) boards
 	{"Namcot 106",			 19, Mapper19_Init},
 //	{"",					 20, Mapper20_Init},
 	{"Konami VRC2/VRC4 A",	 21, Mapper21_Init},
@@ -543,7 +557,7 @@ BMAPPINGLocal bmap[] = {
 	{"Konami VRC2/VRC4 D",	 25, Mapper25_Init},
 	{"Konami VRC6 Rev. B",	 26, Mapper26_Init},
 	{"CC-21 MI HUN CHE",	 27, UNLCC21_Init},		// Former dupe for VRC2/VRC4 mapper, redefined with crc to mihunche boards
-	{"",					 28, Mapper28_Init},
+	{"ACTION 53",			 28, Mapper28_Init},
 	{"RET-CUFROM",			 29, Mapper29_Init},
 	{"UNROM 512",			 30, UNROM512_Init},
 	{"infiniteneslives-NSF", 31, Mapper31_Init},
@@ -616,7 +630,7 @@ BMAPPINGLocal bmap[] = {
 //	{"",					 98, Mapper98_Init},
 	{"VS Uni/Dual- system",	 99, Mapper99_Init},
 //	{"",					100, Mapper100_Init},
-	{"",					101, Mapper101_Init},
+//	{"",					101, Mapper101_Init},	// Deprecated, dupe
 //	{"",					102, Mapper102_Init},
 	{"FDS DOKIDOKI FULL",	103, Mapper103_Init},
 //	{"",					104, Mapper104_Init},
@@ -633,7 +647,7 @@ BMAPPINGLocal bmap[] = {
 	{"MMC3 PIRATE A",		115, Mapper115_Init},
 	{"MMC1/MMC3/VRC PIRATE",116, UNLSL12_Init},
 	{"FUTURE MEDIA BOARD",	117, Mapper117_Init},
-	{"TSKROM",				118, TKSROM_Init},
+	{"TKSROM",				118, TKSROM_Init},
 	{"NES-TQROM",			119, Mapper119_Init},
 	{"FDS TOBIDASE",		120, Mapper120_Init},
 	{"MMC3 PIRATE PROT. A",	121, Mapper121_Init},
@@ -666,11 +680,11 @@ BMAPPINGLocal bmap[] = {
 	{"SA0037",				148, SA0037_Init},
 	{"SA0036",				149, SA0036_Init},
 	{"S74LS374N",			150, S74LS374N_Init},
-	{"",					151, Mapper151_Init},
-	{"",					152, Mapper152_Init},
+//	{"",					151, Mapper151_Init},	// Deprecated, dupe
+	{"BA SARA DISCRETE",	152, Mapper152_Init},
 	{"BANDAI SRAM",			153, Mapper153_Init},	// Bandai board 16 with SRAM instead of EEPROM
 	{"",					154, Mapper154_Init},
-	{"",					155, Mapper155_Init},
+	{"MMC1A",				155, Mapper155_Init},	// No WRAM disable
 	{"",					156, Mapper156_Init},
 	{"BANDAI BARCODE",		157, Mapper157_Init},
 //	{"",					158, Mapper158_Init},
@@ -695,15 +709,15 @@ BMAPPINGLocal bmap[] = {
 	{"",					177, Mapper177_Init},
 	{"",					178, Mapper178_Init},
 //	{"",					179, Mapper179_Init},
-	{"",					180, Mapper180_Init},
+	{"UNROM+74HC08",		180, Mapper180_Init},	// Crazy Climber
 	{"",					181, Mapper181_Init},
 //	{"",					182, Mapper182_Init},	// Deprecated, dupe
 	{"",					183, Mapper183_Init},
-	{"",					184, Mapper184_Init},
-	{"",					185, Mapper185_Init},
-	{"",					186, Mapper186_Init},
+	{"SUNSOFT-K",			184, Mapper184_Init},	// Sunsoft-1 mapper
+	{"CNROM+SECURITY",		185, Mapper185_Init},
+	{"STUDY BOX",			186, Mapper186_Init},
 	{"",					187, Mapper187_Init},
-	{"",					188, Mapper188_Init},
+	{"KARAOKE STUDIO",		188, Mapper188_Init},
 	{"",					189, Mapper189_Init},
 	{"",					190, Mapper190_Init},
 	{"",					191, Mapper191_Init},
@@ -743,8 +757,8 @@ BMAPPINGLocal bmap[] = {
 	{"",					225, Mapper225_Init},
 	{"BMC 22+20-in-1",		226, Mapper226_Init},
 	{"",					227, Mapper227_Init},
-	{"",					228, Mapper228_Init},
-	{"",					229, Mapper229_Init},
+	{"ACTIVE ENTERPRISES",	228, Mapper228_Init},
+	{"BMC 31-in-1",			229, Mapper229_Init},
 	{"BMC Contra+22-in-1",	230, Mapper230_Init},
 	{"",					231, Mapper231_Init},
 	{"BMC QUATTRO",			232, Mapper232_Init},
@@ -794,7 +808,10 @@ BMAPPINGLocal bmap[] = {
 	{"FAM250/81-01-39-C/SCHI-24",			354, Mapper354_Init },
 
 	{"Impact Soft MMC3 Flash Board",	406, Mapper406_Init },
+	{"Super Russian Roulette",	413, Mapper413_Init },
 	{"INX_007T_V01",		470, INX_007T_Init },
+	{"Haratyler HP/MP",		451, Mapper451_Init },
+	{"Impact Soft IM1",		471, Mapper471_Init },
 
 	{"KONAMI QTAi Board",	547, QTAi_Init },
 
@@ -806,10 +823,13 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 	struct md5_context md5;
 	uint64 partialmd5 = 0;
 	const char* mappername = "Not Listed";
+	size_t filesize = FCEU_fgetsize(fp);
 
 	if (FCEU_fread(&head, 1, 16, fp) != 16 || memcmp(&head, "NES\x1A", 4))
 		return LOADER_INVALID_FORMAT;
-	
+	// Remove header size from filesize
+	filesize -= 16;
+
 	head.cleanup();
 
 	iNESCart.clear();
@@ -837,34 +857,36 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 	MirroringAs2bits = head.ROM_type & 1;
 	if (head.ROM_type & 8) MirroringAs2bits |= 2;
 
-	int not_round_size;
+	int not_round_size = 0;
+	int rom_size_bytes = 0;
+	int vrom_size_bytes = 0;
+
 	if (!iNES2)	{
-		not_round_size = head.ROM_size;
+		not_round_size = head.ROM_size << 14;
 	}
 	else {
 		if ((head.Upper_ROM_VROM_size & 0x0F) != 0x0F)
 			// simple notation
-			not_round_size = head.ROM_size | ((head.Upper_ROM_VROM_size & 0x0F) << 8);
+			not_round_size = (head.ROM_size | ((head.Upper_ROM_VROM_size & 0x0F) << 8)) << 14;
 		else
 			// exponent-multiplier notation
-			not_round_size = ((1 << (head.ROM_size >> 2)) * ((head.ROM_size & 0b11) * 2 + 1)) >> 14;
+			not_round_size = ((1 << (head.ROM_size >> 2)) * ((head.ROM_size & 0b11) * 2 + 1));
 	}
 	
 	if (!head.ROM_size && !iNES2)
-		ROM_size = 256;
+		rom_size_bytes = 256 << 14;
 	else
-		ROM_size = uppow2(not_round_size);
+		rom_size_bytes = uppow2(not_round_size);
 
-	VROM_size = uppow2(head.VROM_size | (iNES2?((head.Upper_ROM_VROM_size & 0xF0)<<4):0));
 	if (!iNES2)	{
-		VROM_size = uppow2(head.VROM_size);
+		vrom_size_bytes = uppow2(head.VROM_size << 13);
 	}
 	else {
 		if ((head.Upper_ROM_VROM_size & 0xF0) != 0xF0)
 			// simple notation
-			VROM_size = uppow2(head.VROM_size | ((head.Upper_ROM_VROM_size & 0xF0) << 4));
+			vrom_size_bytes = uppow2((head.VROM_size | ((head.Upper_ROM_VROM_size & 0xF0) << 4)) << 13);
 		else
-			VROM_size = ((1 << (head.VROM_size >> 2)) * ((head.VROM_size & 0b11) * 2 + 1)) >> 13;
+			vrom_size_bytes = ((1 << (head.VROM_size >> 2)) * ((head.VROM_size & 0b11) * 2 + 1));
 	}
 
 	int round = true;
@@ -880,12 +902,15 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 		}
 	}
 
-	ROM = (uint8*)FCEU_malloc(ROM_size << 14);
-	memset(ROM, 0xFF, ROM_size << 14);
+	ROM_size = rom_size_bytes >> 14;
+	VROM_size = vrom_size_bytes >> 13;
 
-	if (VROM_size) {
-		VROM = (uint8*)FCEU_malloc(VROM_size << 13);
-		memset(VROM, 0xFF, VROM_size << 13);
+	ROM = (uint8*)FCEU_malloc(rom_size_bytes);
+	memset(ROM, 0xFF, rom_size_bytes);
+
+	if (vrom_size_bytes) {
+		VROM = (uint8*)FCEU_malloc(vrom_size_bytes);
+		memset(VROM, 0xFF, vrom_size_bytes);
 	}
 
 	// Set Vs. System flag if need
@@ -941,26 +966,36 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 	if (head.ROM_type & 4) {	/* Trainer */
 		trainerpoo = (uint8*)FCEU_gmalloc(512);
 		FCEU_fread(trainerpoo, 512, 1, fp);
+		filesize -= 512;
 	}
 
 	ResetCartMapping();
 	ResetExState(0, 0);
 
-	SetupCartPRGMapping(0, ROM, ROM_size << 14, 0);
+	SetupCartPRGMapping(0, ROM, rom_size_bytes, 0);
 
-	FCEU_fread(ROM, 0x4000, (round) ? ROM_size : not_round_size, fp);
+	FCEU_fread(ROM, 1, (round) ? rom_size_bytes : not_round_size, fp);
 
-	if (VROM_size)
-		FCEU_fread(VROM, 0x2000, VROM_size, fp);
+	if (vrom_size_bytes)
+		FCEU_fread(VROM, 1, vrom_size_bytes, fp);
+	
+	// Misc ROMS
+	if ((head.misc_roms & 0x03) && !(head.ROM_type & 4)) {
+		MiscROM_size = filesize - rom_size_bytes - vrom_size_bytes;
+		MiscROM = (uint8 *)FCEU_malloc(MiscROM_size);
+		memset(MiscROM, 0xFF, MiscROM_size);
+		FCEU_fread(MiscROM, 1, MiscROM_size, fp);
+		FCEU_printf(" Misc ROM size : %d\n", MiscROM_size);
+	}
 
 	md5_starts(&md5); 
-	md5_update(&md5, ROM, ROM_size << 14);
+	md5_update(&md5, ROM, rom_size_bytes);
 
-	iNESGameCRC32 = CalcCRC32(0, ROM, ROM_size << 14);
+	iNESGameCRC32 = CalcCRC32(0, ROM, rom_size_bytes);
 
-	if (VROM_size) {
-		iNESGameCRC32 = CalcCRC32(iNESGameCRC32, VROM, VROM_size << 13);
-		md5_update(&md5, VROM, VROM_size << 13);
+	if (vrom_size_bytes) {
+		iNESGameCRC32 = CalcCRC32(iNESGameCRC32, VROM, vrom_size_bytes);
+		md5_update(&md5, VROM, vrom_size_bytes);
 	}
 	md5_finish(&md5, iNESCart.MD5);
 	memcpy(&GameInfo->MD5, &iNESCart.MD5, sizeof(iNESCart.MD5));
@@ -969,8 +1004,8 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 
 	iNESCart.CRC32 = iNESGameCRC32;
 
-	FCEU_printf(" PRG ROM: %d x 16KiB = %d KiB\n", round ? ROM_size : not_round_size, (round ? ROM_size : not_round_size) * 16);
-	FCEU_printf(" CHR ROM: %d x  8KiB = %d KiB\n", VROM_size, VROM_size * 8);
+	FCEU_printf(" PRG ROM: %d x 16KiB = %d KiB\n", (round ? rom_size_bytes : not_round_size) >> 14, ((round ? rom_size_bytes : not_round_size) >> 14) * 16);
+	FCEU_printf(" CHR ROM: %d x  8KiB = %d KiB\n", (vrom_size_bytes >> 13), (vrom_size_bytes >> 13) * 8);
 	FCEU_printf(" ROM CRC32: 0x%08x\n", iNESGameCRC32);
 	{
 		int x;
@@ -1003,6 +1038,7 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 			FCEU_printf(" WRAM backed by battery: %d KiB\n", iNESCart.battery_wram_size / 1024);
 			FCEU_printf(" VRAM backed by battery: %d KiB\n", iNESCart.battery_vram_size / 1024);
 		}
+		if (head.misc_roms & 0x03) FCEU_printf(" Misc ROM: %d KiB\n", MiscROM_size / 1024);
 	}
 
 	SetInput();
@@ -1015,8 +1051,8 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 	/* Must remain here because above functions might change value of
 	VROM_size and free(VROM).
 	*/
-	if (VROM_size)
-		SetupCartCHRMapping(0, VROM, VROM_size * 0x2000, 0);
+	if (vrom_size_bytes)
+		SetupCartCHRMapping(0, VROM, vrom_size_bytes, 0);
 
 	if (Mirroring == 2) {
 		ExtraNTARAM = (uint8*)FCEU_gmalloc(2048);

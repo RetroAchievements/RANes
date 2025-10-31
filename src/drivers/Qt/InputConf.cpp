@@ -66,7 +66,7 @@ InputConfDialog_t::InputConfDialog_t(QWidget *parent)
 	QPalette pal;
 	QColor color;
 	char stmp[256];
-	int fourscore, autoInputPreset;
+	int fourscore, autoInputPreset, newDeviceBehavior;
 
 	pal = this->palette();
 
@@ -80,10 +80,22 @@ InputConfDialog_t::InputConfDialog_t(QWidget *parent)
 
 	nesInputFrame = new QGroupBox(tr("NES-Style Input Ports"));
 	vbox1 = new QVBoxLayout();
-	hbox = new QHBoxLayout();
+	newDeviceOptionBox = new QComboBox();
 	fourScoreEna = new QCheckBox(tr("Attach 4-Score (Implies four gamepads)"));
 	port2Mic = new QCheckBox(tr("Replace Port 2 Start with Microphone"));
 	autoPreset = new QCheckBox(tr("Auto Load/Save Presets at ROM Open/Close"));
+
+	hbox = new QHBoxLayout();
+	hbox->addWidget( new QLabel(tr("On New Gamepad Device Detection:")), 1);
+	hbox->addWidget(newDeviceOptionBox, 3);
+	vbox1->addLayout(hbox);
+
+	newDeviceOptionBox->addItem("Do nothing", 0);
+	newDeviceOptionBox->addItem("Prompt User for Reconfigure", 1);
+	newDeviceOptionBox->addItem("Auto Reconfigure", 2);
+
+	g_config->getOption("SDL.NewInputDeviceBehavior", &newDeviceBehavior);
+	setComboBoxFromValue( newDeviceOptionBox, newDeviceBehavior );
 
 	g_config->getOption("SDL.FourScore", &fourscore);
 	fourScoreEna->setChecked(fourscore);
@@ -92,6 +104,7 @@ InputConfDialog_t::InputConfDialog_t(QWidget *parent)
 	g_config->getOption("SDL.AutoInputPreset", &autoInputPreset);
 	autoPreset->setChecked(autoInputPreset);
 
+	hbox = new QHBoxLayout();
 	hbox->addWidget(fourScoreEna);
 	hbox->addWidget(port2Mic);
 	vbox1->addLayout(hbox);
@@ -168,7 +181,7 @@ InputConfDialog_t::InputConfDialog_t(QWidget *parent)
 
 	color = pal.color(QPalette::WindowText);
 
-	sprintf(stmp, "border: 2px solid #%02X%02X%02X", color.red(), color.green(), color.blue());
+	snprintf(stmp, sizeof(stmp), "border: 2px solid #%02X%02X%02X", color.red(), color.green(), color.blue());
 
 	//printf("%s\n", stmp);
 	nesPortLabel[0]->setAlignment(Qt::AlignCenter);
@@ -240,6 +253,7 @@ InputConfDialog_t::InputConfDialog_t(QWidget *parent)
 	connect(port2Mic, SIGNAL(stateChanged(int)), this, SLOT(port2MicChanged(int)));
 	connect(autoPreset, SIGNAL(stateChanged(int)), this, SLOT(autoPresetChanged(int)));
 
+	connect(newDeviceOptionBox , SIGNAL(activated(int)), this, SLOT(newDeviceSettingsChange(int)));
 	connect(nesPortComboxBox[0], SIGNAL(activated(int)), this, SLOT(port1Select(int)));
 	connect(nesPortComboxBox[1], SIGNAL(activated(int)), this, SLOT(port2Select(int)));
 	connect(expPortComboxBox, SIGNAL(activated(int)), this, SLOT(expSelect(int)));
@@ -360,6 +374,12 @@ void InputConfDialog_t::updatePortComboBoxes(void)
 			expPortComboxBox->setCurrentIndex(j);
 		}
 	}
+}
+//----------------------------------------------------------------------------
+void InputConfDialog_t::newDeviceSettingsChange(int index)
+{
+	g_config->setOption("SDL.NewInputDeviceBehavior", newDeviceOptionBox->itemData(index).toInt());
+	g_config->save();
 }
 //----------------------------------------------------------------------------
 void InputConfDialog_t::port1Select(int index)
@@ -489,10 +509,10 @@ void InputConfDialog_t::openLoadPresetFile(void)
 	{
 		return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
 	FCEU_WRAPPER_LOCK();
-	loadInputSettingsFromFile(filename.toStdString().c_str());
+	loadInputSettingsFromFile(filename.toLocal8Bit().constData());
 	FCEU_WRAPPER_UNLOCK();
 
 	updatePortLabels();
@@ -561,9 +581,9 @@ void InputConfDialog_t::openSavePresetFile(void)
 	{
 		return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	saveInputSettingsToFile(filename.toStdString().c_str());
+	saveInputSettingsToFile(filename.toLocal8Bit().constData());
 }
 //----------------------------------------------------------------------------
 void InputConfDialog_t::updatePeriodic(void)

@@ -517,9 +517,9 @@ int GuiCheatsDialog_t::addSearchResult(uint32_t a, uint8_t last, uint8_t current
 
 	item = new QTreeWidgetItem();
 
-	sprintf(addrStr, "$%04X", a);
-	sprintf(lastStr, "%02X", last);
-	sprintf(curStr, "%02X", current);
+	snprintf(addrStr, sizeof(addrStr), "$%04X", a);
+	snprintf(lastStr, sizeof(lastStr), "%02X", last);
+	snprintf(curStr, sizeof(curStr), "%02X", current);
 
 	//item->setFont( 0, font );
 	//item->setFont( 1, font );
@@ -591,9 +591,9 @@ void GuiCheatsDialog_t::knownValueCallback(void)
 	//printf("Cheat Search Known!\n");
 	FCEU_WRAPPER_LOCK();
 
-	//printf("'%s'\n", knownValEntry->displayText().toStdString().c_str() );
+	//printf("'%s'\n", knownValEntry->displayText().toLocal8Bit().constData() );
 
-	value = strtol(knownValEntry->displayText().toStdString().c_str(), NULL, 16);
+	value = strtol(knownValEntry->displayText().toLocal8Bit().constData(), NULL, 16);
 
 	FCEUI_CheatSearchEnd(FCEU_SEARCH_NEWVAL_KNOWN, value, 0);
 
@@ -624,7 +624,7 @@ void GuiCheatsDialog_t::notEqualValueCallback(void)
 
 	if (checked)
 	{
-		value = strtol(neValEntry->displayText().toStdString().c_str(), NULL, 16);
+		value = strtol(neValEntry->displayText().toLocal8Bit().constData(), NULL, 16);
 
 		FCEUI_CheatSearchEnd(FCEU_SEARCH_PUERLY_RELATIVE_CHANGE, 0, value);
 	}
@@ -648,7 +648,7 @@ void GuiCheatsDialog_t::greaterThanValueCallback(void)
 
 	if (checked)
 	{
-		value = strtol(grValEntry->displayText().toStdString().c_str(), NULL, 16);
+		value = strtol(grValEntry->displayText().toLocal8Bit().constData(), NULL, 16);
 
 		FCEUI_CheatSearchEnd(FCEU_SEARCH_NEWVAL_GT_KNOWN, 0, value);
 	}
@@ -672,7 +672,7 @@ void GuiCheatsDialog_t::lessThanValueCallback(void)
 
 	if (checked)
 	{
-		value = strtol(ltValEntry->displayText().toStdString().c_str(), NULL, 16);
+		value = strtol(ltValEntry->displayText().toLocal8Bit().constData(), NULL, 16);
 
 		FCEUI_CheatSearchEnd(FCEU_SEARCH_NEWVAL_LT_KNOWN, 0, value);
 	}
@@ -693,11 +693,11 @@ int GuiCheatsDialog_t::activeCheatListCB(const char *name, uint32 a, uint8 v, in
 
 	if (c >= 0)
 	{
-		sprintf(codeStr, "$%04X?%02X:%02X", a, c, v);
+		snprintf(codeStr, sizeof(codeStr), "$%04X?%02X:%02X", a, c, v);
 	}
 	else
 	{
-		sprintf(codeStr, "$%04X:%02X   ", a, v);
+		snprintf(codeStr, sizeof(codeStr), "$%04X:%02X   ", a, v);
 	}
 
 	item = actvCheatList->topLevelItem(actvCheatIdx);
@@ -789,13 +789,13 @@ void GuiCheatsDialog_t::openCheatFile(void)
 	{
 		return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	g_config->setOption("SDL.LastOpenFile", filename.toStdString().c_str());
+	g_config->setOption("SDL.LastOpenFile", filename.toLocal8Bit().constData());
 
 	FCEU_WRAPPER_LOCK();
 
-	fp = fopen(filename.toStdString().c_str(), "r");
+	fp = fopen(filename.toLocal8Bit().constData(), "r");
 
 	if (fp != NULL)
 	{
@@ -834,7 +834,7 @@ void GuiCheatsDialog_t::saveCheatFile(void)
 		dialog.selectFile(dir);
 	}
 
-	sprintf(dir, "%s/cheats", FCEUI_GetBaseDirectory());
+	snprintf(dir, sizeof(dir), "%s/cheats", FCEUI_GetBaseDirectory());
 
 	dialog.setDirectory(tr(dir));
 
@@ -860,13 +860,13 @@ void GuiCheatsDialog_t::saveCheatFile(void)
 	{
 		return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	//g_config->setOption ("SDL.LastOpenFile", filename.toStdString().c_str() );
+	//g_config->setOption ("SDL.LastOpenFile", filename.toLocal8Bit().constData() );
 
 	FCEU_WRAPPER_LOCK();
 
-	fp = FCEUD_UTF8fopen(filename.toStdString().c_str(), "wb");
+	fp = FCEUD_UTF8fopen(filename.toLocal8Bit().constData(), "wb");
 
 	if (fp != NULL)
 	{
@@ -888,11 +888,11 @@ void GuiCheatsDialog_t::addActvCheat(void)
 	int t = 1;
 	std::string name, cmpStr;
 
-	a = strtoul(cheatAddrEntry->displayText().toStdString().c_str(), NULL, 16);
+	a = strtoul(cheatAddrEntry->displayText().toLocal8Bit().constData(), NULL, 16);
 
-	v = strtoul(cheatValEntry->displayText().toStdString().c_str(), NULL, 16);
+	v = strtoul(cheatValEntry->displayText().toLocal8Bit().constData(), NULL, 16);
 
-	cmpStr = cheatCmpEntry->displayText().toStdString();
+	cmpStr = cheatCmpEntry->displayText().toLocal8Bit().constData();
 
 	if (isxdigit(cmpStr[0]))
 	{
@@ -903,7 +903,7 @@ void GuiCheatsDialog_t::addActvCheat(void)
 		c = -1;
 	}
 
-	name = cheatNameEntry->text().toStdString();
+	name = cheatNameEntry->text().toLocal8Bit().constData();
 
 	t = typeEntry->currentData().toInt();
 
@@ -965,11 +965,11 @@ void GuiCheatsDialog_t::updateCheatParameters(void)
 	}
 	//printf("Row: %i \n", row );
 
-	a = strtoul(cheatAddrEntry->displayText().toStdString().c_str(), NULL, 16);
+	a = strtoul(cheatAddrEntry->displayText().toLocal8Bit().constData(), NULL, 16);
 
-	v = strtoul(cheatValEntry->displayText().toStdString().c_str(), NULL, 16);
+	v = strtoul(cheatValEntry->displayText().toLocal8Bit().constData(), NULL, 16);
 
-	cmpStr = cheatCmpEntry->displayText().toStdString();
+	cmpStr = cheatCmpEntry->displayText().toLocal8Bit().constData();
 
 	//printf("CMP: '%s' \n", cmpStr.c_str() );
 
@@ -983,7 +983,7 @@ void GuiCheatsDialog_t::updateCheatParameters(void)
 	}
 	//printf("CMP: '%i' 0x%X\n", c, c );
 
-	name = cheatNameEntry->text().toStdString();
+	name = cheatNameEntry->text().toLocal8Bit().constData();
 
 	//printf("Name: %s \n", name.c_str() );
 
@@ -1025,15 +1025,15 @@ void GuiCheatsDialog_t::actvCheatItemClicked(QTreeWidgetItem *item, int column)
 			FCEUI_ToggleCheat(row);
 		}
 	}
-	sprintf(stmp, "%04X", a);
+	snprintf(stmp, sizeof(stmp), "%04X", a);
 	cheatAddrEntry->setText(tr(stmp));
 
-	sprintf(stmp, "%02X", v);
+	snprintf(stmp, sizeof(stmp), "%02X", v);
 	cheatValEntry->setText(tr(stmp));
 
 	if (c >= 0)
 	{
-		sprintf(stmp, "%02X", c);
+		snprintf(stmp, sizeof(stmp), "%02X", c);
 		cheatCmpEntry->setText(tr(stmp));
 	}
 	else

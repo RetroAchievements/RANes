@@ -47,6 +47,7 @@
 #include <QActionGroup>
 #include <QShortcut>
 #include <QUrl>
+#include <QDir>
 
 #include "../../fceu.h"
 #include "../../fds.h"
@@ -55,6 +56,7 @@
 #include "../../movie.h"
 #include "../../wave.h"
 #include "../../state.h"
+#include "../../cheat.h"
 #include "../../profiler.h"
 #include "../../version.h"
 #include "common/os_utils.h"
@@ -67,6 +69,7 @@
 #include "Qt/main.h"
 #include "Qt/dface.h"
 #include "Qt/input.h"
+#include "Qt/throttle.h"
 #include "Qt/ColorMenu.h"
 #include "Qt/ConsoleWindow.h"
 #include "Qt/InputConf.h"
@@ -86,6 +89,7 @@
 #include "Qt/TimingConf.h"
 #include "Qt/FrameTimingStats.h"
 #include "Qt/LuaControl.h"
+#include "Qt/QtScriptManager.h"
 #include "Qt/CheatsConf.h"
 #include "Qt/GameGenie.h"
 #include "Qt/HexEditor.h"
@@ -105,6 +109,7 @@
 #include "Qt/RamSearch.h"
 #include "Qt/keyscan.h"
 #include "Qt/nes_shm.h"
+#include "Qt/NetPlay.h"
 #include "Qt/TasEditor/TasEditorWindow.h"
 
 #ifdef __APPLE__
@@ -119,13 +124,19 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	int setFullScreen = false;
 
 	//QString libpath = QLibraryInfo::location(QLibraryInfo::PluginsPath);
-	//printf("LibPath: '%s'\n", libpath.toStdString().c_str() );
+	//printf("LibPath: '%s'\n", libpath.toLocal8Bit().constData() );
+
+	tempDir = new QTemporaryDir();
+	if (tempDir->isValid())
+	{
+		printf("Temp Folder: %s\n", tempDir->path().toLocal8Bit().constData());
+	}
 
 #ifdef __APPLE__
 	qt_set_sequence_auto_mnemonic(true);
 #endif
 
-	printf("Running on Platform: %s\n", QGuiApplication::platformName().toStdString().c_str() );
+	printf("Running on Platform: %s\n", QGuiApplication::platformName().toLocal8Bit().constData() );
 
 	QThread *thread = QThread::currentThread();
 
@@ -152,6 +163,7 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	mainMenuEmuWasPaused   = false;
 	mainMenuPauseWhenActv  = false;
 	autoHideMenuFullscreen = false;
+	redrawVideoRequest     = false;
 
 	createMainMenu();
 
@@ -168,11 +180,6 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	setAcceptDrops(true);
 
 	gameTimer  = new QTimer( this );
-#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
-	mutex      = new QRecursiveMutex();
-#else
-	mutex      = new QMutex( QMutex::Recursive );
-#endif
 	emulatorThread = new emulatorThread_t(this);
 
 	connect(emulatorThread, &QThread::finished, emulatorThread, &QObject::deleteLater);
@@ -183,6 +190,10 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 
 	gameTimer->setTimerType( Qt::PreciseTimer );
 	gameTimer->start( 8 ); // 120hz
+
+#ifdef __FCEU_QSCRIPT_ENABLE__
+	QtScriptManager::create(nullptr);
+#endif
 
 	emulatorThread->start();
 
@@ -271,6 +282,30 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	aviDiskThread = new AviRecordDiskThread_t(this);
 
 	scrHandlerConnected = false;
+
+	// Register State Load Callback with Emulation Core
+	auto stateLoadCallback = []( bool loadSuccess )
+	{
+		//printf("State Loaded: %i \n", loadSuccess );
+		if (loadSuccess && (consoleWindow != nullptr) )
+		{
+			emit consoleWindow->stateLoaded();
+		}
+	};
+	FCEUSS_SetLoadCallback( stateLoadCallback );
+
+	// Register Cheat Change Callback
+	auto cheatChangeCallback = []( void* userData )
+	{
+		FCEU_UNUSED(userData);
+
+		//printf("Cheats Changed Event!\n");
+		if (consoleWindow != nullptr)
+		{
+			emit consoleWindow->cheatsChanged();
+		}
+	};
+	FCEU_SetCheatChangeEventCallback( cheatChangeCallback, this );
 }
 
 consoleWin_t::~consoleWin_t(void)
@@ -311,6 +346,12 @@ consoleWin_t::~consoleWin_t(void)
 
 	closeGamePadConfWindow();
 
+#ifdef __FCEU_QSCRIPT_ENABLE__
+	QtScriptManager::destroy();
+#endif
+
+	NetPlayCloseSession();
+
 	// The closeApp function call stops all threads.
 	// Calling quit on threads should not happen here. 
 	//printf("Thread Finished: %i \n", emulatorThread->isFinished() );
@@ -326,8 +367,6 @@ consoleWin_t::~consoleWin_t(void)
 	//FCEU_WRAPPER_UNLOCK();
 
 	unloadVideoDriver();
-
-	delete mutex;
 
 	// LoadGame() checks for an IP and if it finds one begins a network session
 	// clear the NetworkIP field so this doesn't happen unintentionally
@@ -353,6 +392,11 @@ consoleWin_t::~consoleWin_t(void)
 		consoleWindow = NULL;
 	}
 
+	if (tempDir != nullptr)
+	{
+		delete tempDir;
+		tempDir = nullptr;
+	}
 }
 
 int consoleWin_t::videoInit(void)
@@ -410,7 +454,7 @@ void consoleWin_t::winScreenChanged(QScreen *scr)
 		return;
 	}
 	refreshRate = scr->refreshRate();
-	//printf("Screen Refresh Rate: %f\n", scr->refreshRate() );
+	printf("Screen Refresh Rate: %f\n", scr->refreshRate() );
 
 	//printf("Screen Changed: %p\n", scr );
 	if ( viewport_GL != NULL )
@@ -747,12 +791,12 @@ void consoleWin_t::dropEvent(QDropEvent *event)
 						(suffix[0] == 'f') && (suffix[1] == 'c') &&
 							( (suffix[2] == 's') || suffix[2].isDigit() );
 
-		//printf("DragNDrop Suffix: %s\n", suffix.toStdString().c_str() );
+		//printf("DragNDrop Suffix: %s\n", suffix.toLocal8Bit().constData() );
 
 		if (isStateSaveFile)
 		{
 			FCEU_WRAPPER_LOCK();
-			FCEUI_LoadState( filename.toStdString().c_str() );
+			FCEUI_LoadState( filename.toLocal8Bit().constData() );
 			FCEU_WRAPPER_UNLOCK();
 
 			event->accept();
@@ -762,12 +806,12 @@ void consoleWin_t::dropEvent(QDropEvent *event)
 			int luaLoadSuccess;
 
 			FCEU_WRAPPER_LOCK();
-			luaLoadSuccess = FCEU_LoadLuaCode( filename.toStdString().c_str() );
+			luaLoadSuccess = FCEU_LoadLuaCode( filename.toLocal8Bit().constData() );
 			FCEU_WRAPPER_UNLOCK();
 
 			if (luaLoadSuccess)
 			{
-				g_config->setOption("SDL.LastLoadLua", filename.toStdString().c_str());
+				g_config->setOption("SDL.LastLoadLua", filename.toLocal8Bit().constData());
 			}
 			event->accept();
 		}
@@ -776,12 +820,12 @@ void consoleWin_t::dropEvent(QDropEvent *event)
 			int romLoadSuccess;
 
 			FCEU_WRAPPER_LOCK();
-			romLoadSuccess = LoadGame( filename.toStdString().c_str() );
+			romLoadSuccess = LoadGame( filename.toLocal8Bit().constData() );
 			FCEU_WRAPPER_UNLOCK();
 
 			if (!romLoadSuccess)
 			{
-				printf("DragNDrop ROM Load Failed for %s\n", filename.toStdString().c_str() );
+				printf("DragNDrop ROM Load Failed for %s\n", filename.toLocal8Bit().constData() );
 			}
 			event->accept();
 		}
@@ -855,6 +899,14 @@ void consoleWin_t::initHotKeys(void)
 	Hotkeys[HK_FRAME_ADVANCE].getShortcut()->setEnabled(false);
 	Hotkeys[HK_TURBO        ].getShortcut()->setEnabled(false);
 
+	connect( Hotkeys[ HK_SPEED_QUARTER ].getShortcut(), &QShortcut::activated, [] { CustomEmulationSpeed(  25); } );
+	connect( Hotkeys[ HK_SPEED_HALF    ].getShortcut(), &QShortcut::activated, [] { CustomEmulationSpeed(  50); } );
+	connect( Hotkeys[ HK_SPEED_NORMAL  ].getShortcut(), &QShortcut::activated, [] { CustomEmulationSpeed( 100); } );
+	connect( Hotkeys[ HK_SPEED_2X      ].getShortcut(), &QShortcut::activated, [] { CustomEmulationSpeed( 200); } );
+	connect( Hotkeys[ HK_SPEED_4X      ].getShortcut(), &QShortcut::activated, [] { CustomEmulationSpeed( 400); } );
+	connect( Hotkeys[ HK_SPEED_8X      ].getShortcut(), &QShortcut::activated, [] { CustomEmulationSpeed( 800); } );
+	connect( Hotkeys[ HK_SPEED_16X     ].getShortcut(), &QShortcut::activated, [] { CustomEmulationSpeed(1600); } );
+
 	connect( Hotkeys[ HK_VOLUME_MUTE ].getShortcut(), SIGNAL(activated()), this, SLOT(muteSoundVolume(void)) );
 	connect( Hotkeys[ HK_VOLUME_DOWN ].getShortcut(), SIGNAL(activated()), this, SLOT(decrSoundVolume(void)) );
 	connect( Hotkeys[ HK_VOLUME_UP   ].getShortcut(), SIGNAL(activated()), this, SLOT(incrSoundVolume(void)) );
@@ -915,13 +967,14 @@ void consoleWin_t::createMainMenu(void)
 	menubar->setNativeMenuBar( useNativeMenuBar ? true : false );
 
 	// Top Level Menu Iterms
-	fileMenu  = menubar->addMenu(tr("&File"));
-	movieMenu = menubar->addMenu(tr("&Movie"));
-	optMenu   = menubar->addMenu(tr("&Options"));
-	emuMenu   = menubar->addMenu(tr("&Emulation"));
-	toolsMenu = menubar->addMenu(tr("&Tools"));
-	debugMenu = menubar->addMenu(tr("&Debug"));
-	helpMenu  = menubar->addMenu(tr("&Help"));
+	fileMenu    = menubar->addMenu(tr("&File"));
+	movieMenu   = menubar->addMenu(tr("&Movie"));
+	optMenu     = menubar->addMenu(tr("&Options"));
+	emuMenu     = menubar->addMenu(tr("&Emulation"));
+	toolsMenu   = menubar->addMenu(tr("&Tools"));
+	debugMenu   = menubar->addMenu(tr("&Debug"));
+	netPlayMenu = menubar->addMenu(tr("&NetPlay"));
+	helpMenu    = menubar->addMenu(tr("&Help"));
 
 	//-----------------------------------------------------------------------
 	// File
@@ -1022,7 +1075,7 @@ void consoleWin_t::createMainMenu(void)
 	{
 	        char stmp[8];
 
-	        sprintf( stmp, "Slot &%i", i );
+	        snprintf( stmp, sizeof(stmp), "Slot &%i", i );
 
 	        state[i] = new QAction(tr(stmp), this);
 	        state[i]->setCheckable(true);
@@ -1071,7 +1124,7 @@ void consoleWin_t::createMainMenu(void)
 	connect( Hotkeys[ HK_SELECT_STATE_NEXT ].getShortcut(), SIGNAL(activated()), this, SLOT(incrementState(void)) );
 
 #ifdef _S9XLUA_H
-	// File -> Quick Save
+	// File -> Load Lua
 	loadLuaAct = new QAction(tr("Load &Lua Script"), this);
 	//loadLuaAct->setShortcut( QKeySequence(tr("F5")));
 	loadLuaAct->setStatusTip(tr("Load Lua Script"));
@@ -1082,7 +1135,20 @@ void consoleWin_t::createMainMenu(void)
 	
 	fileMenu->addSeparator();
 #else
-	loadLuaAct = NULL;
+	loadLuaAct = nullptr;
+#endif
+
+#ifdef __FCEU_QSCRIPT_ENABLE__
+	// File -> Load JavaScript
+	loadJsAct = new QAction(tr("Load &JavaScript"), this);
+	loadJsAct->setStatusTip(tr("Load JavaScript"));
+	connect(loadJsAct, SIGNAL(triggered()), this, SLOT(loadJs(void)) );
+	
+	fileMenu->addAction(loadJsAct);
+	
+	fileMenu->addSeparator();
+#else
+	loadJsAct = NULL;
 #endif
 
 	// File -> Screenshot
@@ -1225,7 +1291,7 @@ void consoleWin_t::createMainMenu(void)
 	{
 	        char stmp[8];
 
-	        sprintf( stmp, "&%ix", i+1 );
+	        snprintf( stmp, sizeof(stmp), "&%ix", i+1 );
 
 	        winSizeAct[i] = new QAction(tr(stmp), this);
 
@@ -1600,7 +1666,7 @@ void consoleWin_t::createMainMenu(void)
 
 		for (int j=1; j<=(6-i); j++)
 		{
-			sprintf( stmp, "%i On, %i Off", i, j );
+			snprintf( stmp, sizeof(stmp), "%i On, %i Off", i, j );
 			autoFireMenuAction *afAct = new autoFireMenuAction( i, j, tr(stmp), this);
 			afAct->setCheckable(true);
 			group->addAction(afAct);
@@ -1633,6 +1699,69 @@ void consoleWin_t::createMainMenu(void)
 	
 	subMenu->addAction(act);
 
+	//-----------------------------------------------------------------------
+	// NetPlay
+
+	connect( netPlayMenu, SIGNAL(aboutToShow(void)), this, SLOT(mainMenuOpen(void)) );
+	connect( netPlayMenu, SIGNAL(aboutToHide(void)), this, SLOT(mainMenuClose(void)) );
+
+	// NetPlay -> Host
+	act = new QAction(tr("&Host"), this);
+	//act->setShortcut( QKeySequence(tr("Shift+F7")));
+	act->setStatusTip(tr("Host Game Window"));
+	connect(act, SIGNAL(triggered()), this, SLOT(openNetPlayHostWindow(void)) );
+	netPlayHostAct = act;
+
+	netPlayMenu->addAction(act);
+
+	// NetPlay -> Join
+	act = new QAction(tr("&Join"), this);
+	//act->setShortcut( QKeySequence(tr("Shift+F7")));
+	act->setStatusTip(tr("Join Game Window"));
+	connect(act, SIGNAL(triggered()), this, SLOT(openNetPlayJoinWindow(void)) );
+	netPlayJoinAct = act;
+
+	netPlayMenu->addAction(act);
+
+	// NetPlay -> Client Status Dialog
+	act = new QAction(tr("Host &Status"), this);
+	//act->setShortcut( QKeySequence(tr("Shift+F7")));
+	act->setStatusTip(tr("Open Netplay Host Status Dialog"));
+	connect(act, SIGNAL(triggered()), this, SLOT(openNetPlayStatusWindow(void)) );
+	act->setEnabled(false);
+	act->setVisible(false);
+	netPlayHostStatAct = act;
+
+	netPlayMenu->addAction(act);
+
+	// NetPlay -> Client Status Dialog
+	act = new QAction(tr("Client &Status"), this);
+	//act->setShortcut( QKeySequence(tr("Shift+F7")));
+	act->setStatusTip(tr("Open Netplay Client Status Dialog"));
+	connect(act, SIGNAL(triggered()), this, SLOT(openNetPlayStatusWindow(void)) );
+	act->setEnabled(false);
+	act->setVisible(false);
+	netPlayClientStatAct = act;
+
+	netPlayMenu->addAction(act);
+
+	netPlayMenu->addSeparator();
+	act = new QAction(tr(""), this);
+	act->setEnabled(false);
+	netPlayMenu->addAction(act);
+
+	// NetPlay -> End Game / Disconnect
+	act = new QAction(tr("&Disconnect/End Game"), this);
+	//act->setShortcut( QKeySequence(tr("Shift+F7")));
+	act->setStatusTip(tr("Disconnect Netplay Game"));
+	connect(act, SIGNAL(triggered()), this, SLOT(closeNetPlaySession(void)) );
+	act->setEnabled(false);
+	netPlayDiscAct = act;
+
+	netPlayMenu->addAction(act);
+
+
+	//netPlayMenu->setEnabled(false);
 	//-----------------------------------------------------------------------
 	// Tools
 
@@ -2154,13 +2283,14 @@ void consoleWin_t::buildRecentRomMenu(void)
 
 	for (int i=0; i<10; i++)
 	{
-		sprintf(buf, "SDL.RecentRom%02i", i);
+		snprintf(buf, sizeof(buf), "SDL.RecentRom%02i", i);
 
 		g_config->getOption( buf, &s);
 
 		//printf("Recent Rom:%i  '%s'\n", i, s.c_str() );
+		bool fileExists = !s.empty() && QFile::exists(tr(s.c_str()));
 
-		if ( s.size() > 0 )
+		if ( fileExists )
 		{
 			act = new consoleRecentRomAction( tr(s.c_str()), recentRomMenu);
 
@@ -2174,7 +2304,24 @@ void consoleWin_t::buildRecentRomMenu(void)
 
 			romList.push_front( sptr );
 		}
+		else
+		{
+			// Clear the option if file does not exist
+			s.clear();
+
+			g_config->setOption( buf, s);
+		}
 	}
+	// Add a dummy disable QAction to create a larger dead space between the ROM list and the clear item.
+	// Helps prevent accidental unintended clicking of the clear list item
+	recentRomMenu->addSeparator();
+	act = new QAction(recentRomMenu);
+	act->setEnabled(false);
+	recentRomMenu->addAction(act);
+
+	act = new QAction(tr("Clear Recent ROM List"), recentRomMenu);
+	connect(act, SIGNAL(triggered()), this, SLOT(clearRecentRomMenu(void)) );
+	recentRomMenu->addAction(act);
 }
 //---------------------------------------------------------------------------
 void consoleWin_t::saveRecentRomMenu(void)
@@ -2189,13 +2336,32 @@ void consoleWin_t::saveRecentRomMenu(void)
 	for (it=romList.begin(); it != romList.end(); it++)
 	{
 		s = *it;
-		sprintf(buf, "SDL.RecentRom%02i", i);
+		snprintf(buf, sizeof(buf), "SDL.RecentRom%02i", i);
 
-		g_config->setOption( buf, s->c_str() );
+		g_config->setOption( buf, *s );
 
 		//printf("Recent Rom:%u  '%s'\n", i, s->c_str() );
 		i--;
 	}
+	for (i = romList.size(); i < 10; i++)
+	{
+		snprintf(buf, sizeof(buf), "SDL.RecentRom%02i", i);
+		g_config->setOption( buf, "");
+	}
+
+}
+//---------------------------------------------------------------------------
+void consoleWin_t::clearRecentRomMenu()
+{
+	char buf[128];
+	for (int i = 0; i < 10; i++)
+	{
+		snprintf(buf, sizeof(buf), "SDL.RecentRom%02i", i);
+		g_config->setOption( buf, "");
+	}
+	clearRomList();
+
+	recentRomMenuReset = true;
 }
 //---------------------------------------------------------------------------
 void consoleWin_t::addRecentRom( const char *rom )
@@ -2490,13 +2656,13 @@ void consoleWin_t::openROMFile(void)
 	{
 	   return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	g_config->setOption ("SDL.LastOpenFile", filename.toStdString().c_str() );
+	g_config->setOption ("SDL.LastOpenFile", filename.toLocal8Bit().constData() );
 
 	FCEU_WRAPPER_LOCK();
 	CloseGame ();
-	LoadGame ( filename.toStdString().c_str() );
+	LoadGame ( filename.toLocal8Bit().constData() );
 	FCEU_WRAPPER_UNLOCK();
 
    return;
@@ -2504,15 +2670,27 @@ void consoleWin_t::openROMFile(void)
 
 void consoleWin_t::loadRomRequestCB( QString s )
 {
-	printf("Load ROM Req: '%s'\n", s.toStdString().c_str() );
+	printf("Load ROM Req: '%s'\n", s.toLocal8Bit().constData() );
 	FCEU_WRAPPER_LOCK();
 	CloseGame ();
-	LoadGame ( s.toStdString().c_str() );
+	LoadGame ( s.toLocal8Bit().constData() );
 	FCEU_WRAPPER_UNLOCK();
 }
 
 void consoleWin_t::closeROMCB(void)
 {
+	if (isNetPlayClient())
+	{
+		QString msgBoxTxt = tr("Unloading ROM will cause a disconnect from the current netplay session.\n\nDo you want to continue with unloading and disconnection?");
+		int ans = QMessageBox::question( this, tr("NetPlay Client ROM Unload Warning"), msgBoxTxt, QMessageBox::Yes | QMessageBox::No );
+
+		if (ans == QMessageBox::No)
+		{
+			return;
+		}
+		NetPlayCloseSession();
+	}
+
 	FCEU_WRAPPER_LOCK();
 	CloseGame();
 	FCEU_WRAPPER_UNLOCK();
@@ -2583,12 +2761,12 @@ void consoleWin_t::loadNSF(void)
    {
       return;
    }
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	g_config->setOption ("SDL.LastOpenNSF", filename.toStdString().c_str() );
+	g_config->setOption ("SDL.LastOpenNSF", filename.toLocal8Bit().constData() );
 
 	FCEU_WRAPPER_LOCK();
-	LoadGame( filename.toStdString().c_str() );
+	LoadGame( filename.toLocal8Bit().constData() );
 	FCEU_WRAPPER_UNLOCK();
 }
 
@@ -2667,12 +2845,12 @@ void consoleWin_t::loadStateFrom(void)
    {
       return;
    }
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	g_config->setOption ("SDL.LastLoadStateFrom", filename.toStdString().c_str() );
+	g_config->setOption ("SDL.LastLoadStateFrom", filename.toLocal8Bit().constData() );
 
 	FCEU_WRAPPER_LOCK();
-	FCEUI_LoadState( filename.toStdString().c_str() );
+	FCEUI_LoadState( filename.toLocal8Bit().constData() );
 	FCEU_WRAPPER_UNLOCK();
 }
 
@@ -2758,12 +2936,12 @@ void consoleWin_t::saveStateAs(void)
 	{
 	   return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	g_config->setOption ("SDL.LastSaveStateAs", filename.toStdString().c_str() );
+	g_config->setOption ("SDL.LastSaveStateAs", filename.toLocal8Bit().constData() );
 
 	FCEU_WRAPPER_LOCK();
-	FCEUI_SaveState( filename.toStdString().c_str() );
+	FCEUI_SaveState( filename.toLocal8Bit().constData() );
 	FCEU_WRAPPER_UNLOCK();
 }
 
@@ -2973,6 +3151,19 @@ void consoleWin_t::loadLua(void)
 #endif
 }
 
+void consoleWin_t::loadJs(void)
+{
+#ifdef __FCEU_QSCRIPT_ENABLE__
+	QScriptDialog_t *jsCtrlWin;
+
+	//printf("Open JS Control Window\n");
+	
+   jsCtrlWin = new QScriptDialog_t(this);
+	
+   jsCtrlWin->show();
+#endif
+}
+
 void consoleWin_t::openInputConfWin(void)
 {
 	//printf("Open Input Config Window\n");
@@ -3073,6 +3264,39 @@ void consoleWin_t::openPaletteEditorWin(void)
    win = new PaletteEditorDialog_t(this);
 	
    win->show();
+}
+
+void consoleWin_t::openNetPlayHostWindow(void)
+{
+	//printf("Open NetPlay Host Window\n");
+	
+	openNetPlayHostDialog(this);
+}
+
+void consoleWin_t::openNetPlayJoinWindow(void)
+{
+	//printf("Open NetPlay Join Window\n");
+	
+	openNetPlayJoinDialog(this);
+}
+
+void consoleWin_t::openNetPlayStatusWindow(void)
+{
+	//printf("Open NetPlay Status Window\n");
+
+	if (isNetPlayHost())
+	{
+		openNetPlayHostStatusDialog(this);
+	}
+	else
+	{
+		openNetPlayClientStatusDialog(this);
+	}
+}
+
+void consoleWin_t::closeNetPlaySession(void)
+{
+	NetPlayCloseSession();
 }
 
 void consoleWin_t::openAviRiffViewer(void)
@@ -3344,7 +3568,7 @@ void consoleWin_t::warnAmbiguousShortcut( QShortcut *shortcut)
 	std::string msg;
 	int c = 0;
 
-	sprintf( stmp, "Error: Ambiguous Shortcut Activation for Key Sequence: '%s'\n", shortcut->key().toString().toStdString().c_str() );
+	snprintf( stmp, sizeof(stmp), "Error: Ambiguous Shortcut Activation for Key Sequence: '%s'\n", shortcut->key().toString().toLocal8Bit().constData() );
 
 	msg.assign( stmp );
 
@@ -3402,6 +3626,9 @@ void consoleWin_t::consolePause(void)
 	FCEU_WRAPPER_LOCK();
 	fceuWrapperTogglePause();
 	FCEU_WRAPPER_UNLOCK();
+
+	bool isPaused = FCEUI_EmulationPaused() ? true : false;
+	emit pauseToggled( isPaused );
 
 	mainMenuEmuPauseSet = false;
    return;
@@ -3539,12 +3766,12 @@ void consoleWin_t::loadGameGenieROM(void)
 	{
 	   return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	g_config->setOption ("SDL.LastOpenFile", filename.toStdString().c_str() );
+	g_config->setOption ("SDL.LastOpenFile", filename.toLocal8Bit().constData() );
 
 	// copy file to proper place (~/.fceux/gg.rom)
-	std::ifstream f1 ( filename.toStdString().c_str(), std::fstream::binary);
+	std::ifstream f1 ( filename.toLocal8Bit().constData(), std::fstream::binary);
 	std::string fn_out = FCEU_MakeFName (FCEUMKF_GGROM, 0, "");
 	std::ofstream f2 (fn_out.c_str (),
 	std::fstream::trunc | std::fstream::binary);
@@ -3634,10 +3861,10 @@ void consoleWin_t::fdsLoadBiosFile(void)
 	{
 	   return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
 	// copy BIOS file to proper place (~/.fceux/disksys.rom)
-	std::ifstream fdsBios (filename.toStdString().c_str(), std::fstream::binary);
+	std::ifstream fdsBios (filename.toLocal8Bit().constData(), std::fstream::binary);
 	std::string output_filename =
 		FCEU_MakeFName (FCEUMKF_FDSROM, 0, "");
 	std::ofstream outFile (output_filename.c_str (),
@@ -4069,11 +4296,11 @@ void consoleWin_t::aviRecordAsStart(void)
 	{
 	   return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	FCEUI_printf ("AVI Recording movie to %s\n", filename.toStdString().c_str() );
+	FCEUI_printf ("AVI Recording movie to %s\n", filename.toLocal8Bit().constData() );
 
-	lastPath = QFileInfo(filename).absolutePath().toStdString();
+	lastPath = QFileInfo(filename).absolutePath().toLocal8Bit().constData();
 
 	if ( lastPath.size() > 0 )
 	{
@@ -4081,7 +4308,7 @@ void consoleWin_t::aviRecordAsStart(void)
 	}
 
 	FCEU_WRAPPER_LOCK();
-	if ( aviRecordOpenFile( filename.toStdString().c_str() ) == 0 )
+	if ( aviRecordOpenFile( filename.toLocal8Bit().constData() ) == 0 )
 	{
 		aviDiskThread->start();
 	}
@@ -4261,11 +4488,11 @@ void consoleWin_t::wavRecordAsStart(void)
 	{
 	   return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	FCEUI_printf ("WAV Recording movie to %s\n", filename.toStdString().c_str() );
+	FCEUI_printf ("WAV Recording movie to %s\n", filename.toLocal8Bit().constData() );
 
-	lastPath = QFileInfo(filename).absolutePath().toStdString();
+	lastPath = QFileInfo(filename).absolutePath().toLocal8Bit().constData();
 
 	if ( lastPath.size() > 0 )
 	{
@@ -4273,7 +4500,7 @@ void consoleWin_t::wavRecordAsStart(void)
 	}
 
 	FCEU_WRAPPER_LOCK();
-	FCEUI_BeginWaveRecord( filename.toStdString().c_str() );
+	FCEUI_BeginWaveRecord( filename.toLocal8Bit().constData() );
 	FCEU_WRAPPER_UNLOCK();
 }
 
@@ -4514,46 +4741,80 @@ void consoleWin_t::loadMostRecentROM(void)
 	FCEU_WRAPPER_UNLOCK();
 }
 
+QString consoleWin_t::getTempDir()
+{
+	QString path;
+	if (tempDir->isValid())
+	{
+		path = tempDir->path();
+	}
+	else
+	{
+		path = QDir::tempPath();
+	}
+	return path;
+}
+
 int consoleWin_t::getPeriodicInterval(void)
 {
 	return gameTimer->interval();
 }
 
-void consoleWin_t::transferVideoBuffer(void)
+void consoleWin_t::transferVideoBuffer(bool allowRedraw)
 {
 	FCEU_PROFILE_FUNC(prof, "VideoXfer");
-	if ( nes_shm->blitUpdated )
-	{
-		nes_shm->blitUpdated = 0;
 
-		if (viewport_Interface)
+	{
+		FCEU::autoScopedLock lock(videoBufferMutex);
+		if ( nes_shm->blitUpdated )
 		{
-			viewport_Interface->transfer2LocalBuffer();
-			viewport_Interface->queueRedraw();
+			nes_shm->blitUpdated = 0;
+
+			if (viewport_Interface != nullptr)
+			{
+				viewport_Interface->transfer2LocalBuffer();
+				redrawVideoRequest = true;
+			}
 		}
+	}
+
+	// Don't queue redraw in mutex lock scope
+	if (allowRedraw && redrawVideoRequest && (viewport_Interface != nullptr))
+	{
+		viewport_Interface->queueRedraw();
+		redrawVideoRequest = false;
 	}
 }
 
 void consoleWin_t::emuFrameFinish(void)
 {
-	static bool eventProcessingInProg = false;
+	//static bool eventProcessingInProg = false;
 
-	if ( eventProcessingInProg )
-	{   // Prevent recursion as processEvents function can double back on us
-		return;
-	}
-	eventProcessingInProg = true;
-	// Process all events before attempting to render viewport
-	QCoreApplication::processEvents();
+	guiSignalRecvMark();
 
-	eventProcessingInProg = false;
+	//if ( eventProcessingInProg )
+	//{   // Prevent recursion as processEvents function can double back on us
+	//	return;
+	//}
+	// Prevent recursion as processEvents function can double back on us
+	//if ( !eventProcessingInProg )
+	//{
+	//	eventProcessingInProg = true;
+	//	// Process all events before attempting to render viewport
+	//	QCoreApplication::processEvents();
+	//	eventProcessingInProg = false;
+	//}
 
 	// Update Input Devices
-	FCEUD_UpdateInput();
+	//FCEUD_UpdateInput();
 	
 	//printf("EMU Frame Finish\n");
 
-	transferVideoBuffer();
+//#ifdef __FCEU_QSCRIPT_ENABLE__
+//	QtScriptManager::getInstance()->frameFinishedUpdate();
+//#endif
+
+	transferVideoBuffer(false);
 }
 
 void consoleWin_t::updatePeriodic(void)
@@ -4561,21 +4822,24 @@ void consoleWin_t::updatePeriodic(void)
 	FCEU_PROFILE_FUNC(prof, "updatePeriodic");
 	static bool eventProcessingInProg = false;
 
-	if ( eventProcessingInProg )
-	{   // Prevent recursion as processEvents function can double back on us
-		return;
+	//if ( eventProcessingInProg )
+	//{   // Prevent recursion as processEvents function can double back on us
+	//	return;
+	//}
+	// Prevent recursion as processEvents function can double back on us
+	if ( !eventProcessingInProg )
+	{
+		eventProcessingInProg = true;
+		// Process all events before attempting to render viewport
+		QCoreApplication::processEvents();
+		eventProcessingInProg = false;
 	}
-	eventProcessingInProg = true;
-	// Process all events before attempting to render viewport
-	QCoreApplication::processEvents();
-
-	eventProcessingInProg = false;
 
 	// Update Input Devices
 	FCEUD_UpdateInput();
 	
 	// RePaint Game Viewport
-	transferVideoBuffer();
+	transferVideoBuffer(true);
 
 	// Low Rate Updates
 	if ( (updateCounter % 30) == 0 )
@@ -4632,12 +4896,39 @@ void consoleWin_t::updatePeriodic(void)
 		closeRequested = false;
 	}
 
+	NetPlayPeriodicUpdate();
+
 	updateCounter++;
 
 #ifdef __FCEU_PROFILER_ENABLE__
 		FCEU_profiler_log_thread_activity();
 #endif
    return;
+}
+
+void consoleWin_t::onNetPlayChange(void)
+{
+	const bool netPlayactv = NetPlayActive();
+
+	netPlayHostAct->setEnabled( !netPlayactv );
+	netPlayJoinAct->setEnabled( !netPlayactv );
+	netPlayDiscAct->setEnabled(  netPlayactv );
+
+	if (netPlayactv)
+	{
+		const bool isHost = isNetPlayHost();
+		netPlayHostStatAct->setEnabled(isHost);
+		netPlayHostStatAct->setVisible(isHost);
+		netPlayClientStatAct->setEnabled(!isHost);
+		netPlayClientStatAct->setVisible(!isHost);
+	}
+	else
+	{
+		netPlayHostStatAct->setEnabled(false);
+		netPlayHostStatAct->setVisible(false);
+		netPlayClientStatAct->setEnabled(false);
+		netPlayClientStatAct->setVisible(false);
+	}
 }
 
 emulatorThread_t::emulatorThread_t( QObject *parent )
@@ -4855,6 +5146,7 @@ void emulatorThread_t::run(void)
 
 void emulatorThread_t::signalFrameFinished(void)
 {
+	emuSignalSendMark();
 	emit frameFinished();
 }
 
@@ -4908,7 +5200,7 @@ consoleRecentRomAction::consoleRecentRomAction(QString desc, QWidget *parent)
 	QString txt;
 	QFileInfo fi(desc);
 
-	path = desc.toStdString();
+	path = desc.toLocal8Bit().constData();
 
 	txt  = fi.fileName();
 	txt += QString("\t");

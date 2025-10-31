@@ -37,11 +37,13 @@
 #include "Qt/sdl-video.h"
 #include "Qt/nes_shm.h"
 #include "Qt/unix-netplay.h"
+#include "Qt/NetPlay.h"
 #include "Qt/AviRecord.h"
 #include "Qt/HexEditor.h"
 #include "Qt/CheatsConf.h"
 #include "Qt/SymbolicDebug.h"
 #include "Qt/CodeDataLogger.h"
+#include "Qt/QtScriptManager.h"
 #include "Qt/ConsoleDebugger.h"
 #include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleUtilities.h"
@@ -63,6 +65,7 @@
 #include "common/os_utils.h"
 #include "common/configSys.h"
 #include "utils/timeStamp.h"
+#include "utils/StringUtils.h"
 #include "../../oldmovie.h"
 #include "../../types.h"
 
@@ -107,6 +110,7 @@ static int   mutexLocks = 0;
 static int   mutexPending = 0;
 static bool  emulatorHasMutex = 0;
 unsigned int emulatorCycleCount = 0;
+static int archiveFileLoadIndex = -1;
 
 extern double g_fpsScale;
 
@@ -306,10 +310,21 @@ int reloadLastGame(void)
  * provides data necessary for the driver code(number of scanlines to
  * render, what virtual input devices to use, etc.).
  */
-int LoadGame(const char *path, bool silent)
+int LoadGame(const char *path, bool silent, bool netPlayRequested)
 {
 	std::string fullpath;
 	int gg_enabled, autoLoadDebug, autoOpenDebugger, autoInputPreset;
+
+	// Check if this application instance has joined a net play session, 
+	// NetPlay clients can only load ROMs retrieved from the host server.
+	// However, clients can request that a host load their ROM for all players.
+	auto* netPlayClient = NetPlayClient::GetInstance();
+
+	if (!netPlayRequested && (netPlayClient != nullptr))
+	{
+		netPlayClient->requestRomLoad( path );
+		return 0;
+	}
 
 	if (isloaded){
 		CloseGame();
@@ -320,24 +335,14 @@ int LoadGame(const char *path, bool silent)
 	// Resolve absolute path to file
 	if ( fi.exists() )
 	{
-		//printf("FI: '%s'\n", fi.absoluteFilePath().toStdString().c_str() );
-		//printf("FI: '%s'\n", fi.canonicalFilePath().toStdString().c_str() );
-		fullpath = fi.canonicalFilePath().toStdString();
+		//printf("FI: '%s'\n", fi.absoluteFilePath().toLocal8Bit().constData() );
+		//printf("FI: '%s'\n", fi.canonicalFilePath().toLocal8Bit().constData() );
+		fullpath = fi.canonicalFilePath().toLocal8Bit().constData();
 	}
 	else
 	{
 		fullpath.assign( path );
 	}
-//#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
-//
-//	// Resolve absolute path to file
-//	if ( realpath( path, fullpath ) == NULL )
-//	{
-//		strcpy( fullpath, path );
-//	}
-//#else
-//	strcpy( fullpath, path );
-//#endif
 
 	//printf("Fullpath: %zi '%s'\n", sizeof(fullpath), fullpath );
 
@@ -465,7 +470,11 @@ int LoadGame(const char *path, bool silent)
 	//}
 	isloaded = 1;
 
-	//FCEUD_NetworkConnect();
+	// Signal to listeners that a new ROM was loaded
+	if ( consoleWindow )
+	{
+		emit consoleWindow->romLoaded();
+	}
 	return 1;
 }
 
@@ -485,6 +494,12 @@ CloseGame(void)
 
 	if (!isloaded) {
 		return(0);
+	}
+
+	// Signal to listeners that current ROM is being unloaded
+	if ( consoleWindow )
+	{
+		emit consoleWindow->romUnload();
 	}
 
 	// If the emulation thread is stuck hanging at a breakpoint,
@@ -558,6 +573,11 @@ int  fceuWrapperSoftReset(void)
 	if ( isloaded )
 	{
 		ResetNES();
+
+		if (consoleWindow != nullptr)
+		{
+			emit consoleWindow->nesResetOccurred();
+		}
 	}
 	return 0;
 }
@@ -572,12 +592,13 @@ int  fceuWrapperHardReset(void)
 
 		if ( GameInfo->archiveFilename )
 		{
-			strcpy( romPath, GameInfo->archiveFilename );
+			Strlcpy( romPath, GameInfo->archiveFilename, sizeof(romPath) );
 		}
 		else if ( GameInfo->filename )
 		{
-			strcpy( romPath, GameInfo->filename );
+			Strlcpy( romPath, GameInfo->filename, sizeof(romPath) );
 		}
+		fceuWrapperSetArchiveFileLoadIndex( GameInfo->archiveIndex );
 
 		if ( romPath[0] != 0 )
 		{
@@ -585,6 +606,7 @@ int  fceuWrapperHardReset(void)
 			//printf("Loading: '%s'\n", romPath );
 			LoadGame ( romPath );
 		}
+		fceuWrapperClearArchiveFileLoadIndex();
 	}
 	return 0;
 }
@@ -688,7 +710,7 @@ static void ShowUsage(const char *prog)
 	j=0;
 	for (i=0; i<styleList.size(); i++)
 	{
-		printf("  %16s  ", styleList[i].toStdString().c_str() ); j++;
+		printf("  %16s  ", styleList[i].toLocal8Bit().constData() ); j++;
 
 		if ( j >= 4 )
 		{
@@ -1043,7 +1065,7 @@ int  fceuWrapperInit( int argc, char *argv[] )
 		// Resolve absolute path to file
 		if ( fi.exists() )
 		{
-			std::string fullpath = fi.canonicalFilePath().toStdString().c_str();
+			std::string fullpath = fi.canonicalFilePath().toLocal8Bit().constData();
 
 			error = LoadGame( fullpath.c_str() );
 
@@ -1116,9 +1138,9 @@ int  fceuWrapperInit( int argc, char *argv[] )
 		// Resolve absolute path to file
 		if ( fi.exists() )
 		{
-			//printf("FI: '%s'\n", fi.absoluteFilePath().toStdString().c_str() );
-			//printf("FI: '%s'\n", fi.canonicalFilePath().toStdString().c_str() );
-			s = fi.canonicalFilePath().toStdString();
+			//printf("FI: '%s'\n", fi.absoluteFilePath().toLocal8Bit().constData() );
+			//printf("FI: '%s'\n", fi.canonicalFilePath().toLocal8Bit().constData() );
+			s = fi.canonicalFilePath().toLocal8Bit().constData();
 		}
 //#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
 //
@@ -1369,7 +1391,7 @@ void fceuWrapperLock(const char *filename, int line, const char *func)
 			printf("Already Locked By: %s\n", lockFile.c_str() );
 			printf("Requested By: %s:%i - %s\n", filename, line, func );
 		}
-		sprintf( txt, ":%i - ", line );
+		snprintf( txt, sizeof(txt), ":%i - ", line );
 		lockFile.assign(filename);
 		lockFile.append(txt);
 		lockFile.append(func);
@@ -1381,7 +1403,7 @@ void fceuWrapperLock(void)
 	mutexPending++;
 	if ( consoleWindow != NULL )
 	{
-		consoleWindow->mutex->lock();
+		consoleWindow->emulatorMutex.lock();
 	}
 	mutexPending--;
 	mutexLocks++;
@@ -1396,7 +1418,7 @@ bool fceuWrapperTryLock(const char *filename, int line, const char *func, int ti
 	if ( lockAcq && debugMutexLock)
 	{
 		char txt[32];
-		sprintf( txt, ":%i - ", line );
+		snprintf( txt, sizeof(txt), ":%i - ", line );
 		lockFile.assign(filename);
 		lockFile.append(txt);
 		lockFile.append(func);
@@ -1411,7 +1433,7 @@ bool fceuWrapperTryLock(int timeout)
 	mutexPending++;
 	if ( consoleWindow != NULL )
 	{
-		lockAcq = consoleWindow->mutex->tryLock( timeout );
+		lockAcq = consoleWindow->emulatorMutex.tryLock( timeout );
 	}
 	mutexPending--;
 
@@ -1429,7 +1451,7 @@ void fceuWrapperUnLock(void)
 		mutexLocks--;
 		if ( consoleWindow != NULL )
 		{
-			consoleWindow->mutex->unlock();
+			consoleWindow->emulatorMutex.unlock();
 		}
 	}
 	else
@@ -1474,20 +1496,56 @@ int  fceuWrapperUpdate( void )
 	}
 	mutexLockFail = false;
 	emulatorHasMutex = 1;
+
+	// For netplay, set pause if we do not have input ready for all players
+	if (NetPlayActive())
+	{
+		if (NetPlayFrameWait())
+		{
+			FCEUI_SetNetPlayPause(true);
+		}
+		else
+		{
+			FCEUI_SetNetPlayPause(false);
+		}
+	}
+	else
+	{
+		FCEUI_SetNetPlayPause(false);
+	}
  
 	if ( GameInfo )
 	{
+#ifdef __FCEU_QSCRIPT_ENABLE__
+		auto* qscriptMgr = QtScriptManager::getInstance();
+
+		bool scriptsLoaded = (qscriptMgr != nullptr) && (qscriptMgr->numScriptsLoaded() > 0);
+
+		if (scriptsLoaded)
+		{
+			qscriptMgr->frameBeginUpdate();
+		}
+#endif
+
 		DoFun(frameskip, periodic_saves);
 	
+#ifdef __FCEU_QSCRIPT_ENABLE__
+		if (scriptsLoaded)
+		{
+			qscriptMgr->frameFinishedUpdate();
+		}
+#endif
+
 		hexEditorUpdateMemoryValues();
+
+		fceuWrapperUnLock();
+
+		emulatorHasMutex = 0;
 
 		if ( consoleWindow )
 		{
 			consoleWindow->emulatorThread->signalFrameFinished();
 		}
-		fceuWrapperUnLock();
-
-		emulatorHasMutex = 0;
 
 #ifdef __FCEU_PROFILER_ENABLE__
 		FCEU_profiler_log_thread_activity();
@@ -1675,7 +1733,7 @@ static FCEUFILE* minizip_OpenArchive(ArchiveScanRecord& asr, std::string &fname,
 
 		//printf("Filename: %u '%s' \n", fi.uncompressed_size, filename );
 
-		if (searchFile)
+		if ( (searchFile != nullptr) && !searchFile->empty())
 		{
 			if ( strcmp( searchFile->c_str(), filename ) == 0 )
 			{
@@ -1794,7 +1852,8 @@ static FCEUFILE* libarchive_OpenArchive( ArchiveScanRecord& asr, std::string& fn
 		filename = archive_entry_pathname(entry);
 		fileSize = archive_entry_size(entry);
 
-		if (searchFile)
+		//printf("ArchiveFile:%i  %s\n", idx, filename);
+		if ( (searchFile != nullptr) && !searchFile->empty())
 		{
 			if (strcmp( filename, searchFile->c_str() ) == 0)
 			{
@@ -1859,6 +1918,16 @@ static FCEUFILE* libarchive_OpenArchive( ArchiveScanRecord& asr, std::string& fn
 
 #endif
 
+void fceuWrapperSetArchiveFileLoadIndex(int idx)
+{
+	archiveFileLoadIndex = idx;
+}
+
+void fceuWrapperClearArchiveFileLoadIndex()
+{
+	archiveFileLoadIndex = -1;
+}
+
 FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, std::string* innerFilename, int* userCancel)
 {
 	FCEUFILE* fp = nullptr;
@@ -1876,6 +1945,7 @@ FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, std::str
 		{
 			char base[512], suffix[128];
 
+			//printf("File:%zi   %s\n", i, asr.files[i].name.c_str() );
 			getFileBaseName( asr.files[i].name.c_str(), base, suffix );
 
 			if ( (strcasecmp( suffix, ".nes" ) == 0) ||
@@ -1890,7 +1960,11 @@ FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, std::str
 
 		if ( fileList.size() > 1 )
 		{
-			if ( consoleWindow != NULL )
+			if ( (archiveFileLoadIndex >= 0) && (static_cast<size_t>(archiveFileLoadIndex) < asr.files.size()))
+			{
+				searchFile.clear();
+			}
+			else if ( consoleWindow != NULL )
 			{
 				int sel = consoleWindow->showListSelectDialog( "Select ROM From Archive", fileList );
 
@@ -1909,16 +1983,18 @@ FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, std::str
 		{
 			searchFile = fileList[0];
 		}
+		//printf("Archive Search File: %s\n", searchFile.c_str());
 	}
 
 #ifdef _USE_LIBARCHIVE
-	fp = libarchive_OpenArchive(asr, fname, &searchFile, -1 );
+	fp = libarchive_OpenArchive(asr, fname, &searchFile, archiveFileLoadIndex );
 #endif
 
 	if (fp == nullptr)
 	{
-		fp = minizip_OpenArchive(asr, fname, &searchFile, -1 );
+		fp = minizip_OpenArchive(asr, fname, &searchFile, archiveFileLoadIndex );
 	}
+	//printf("Archive File Index: %i\n", fp->archiveIndex);
 	return fp;
 }
 
@@ -1960,10 +2036,6 @@ FCEUFILE* FCEUD_OpenArchiveIndex(ArchiveScanRecord& asr, std::string &fname, int
     }
 DUMMY(FCEUD_HideMenuToggle)
 DUMMY(FCEUD_MovieReplayFrom)
-//DUMMY(FCEUD_AviRecordTo)
-//DUMMY(FCEUD_AviStop)
-//void FCEUI_AviVideoUpdate(const unsigned char* buffer) { }
-//bool FCEUI_AviIsRecording(void) {return false;}
 void FCEUI_UseInputPreset(int preset) { }
 bool FCEUD_PauseAfterPlayback() { return pauseAfterPlayback; }
 

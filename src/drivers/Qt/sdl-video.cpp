@@ -62,8 +62,10 @@ static int s_fullscreen = 0;
 static int noframe = 0;
 static int initBlitToHighDone = 0;
 
-#define NWIDTH	(256 - (s_clipSides ? 16 : 0))
-#define NOFFSET	(s_clipSides ? 8 : 0)
+#define NWIDTH	  (256 - (s_clipSides ? 16 : 0))
+#define NOFFSET	  (s_clipSides ? 8 : 0)
+
+#define NTSCWIDTH (301 - (s_clipSides ? 19 : 0))
 
 static int s_paletterefresh = 1;
 
@@ -168,7 +170,7 @@ void CalcVideoDimensions(void)
 	int iScale = nes_shm->video.xscale;
 	if ( s_sponge == 3 )
 	{
-		nes_shm->video.ncol = iScale*301;
+		nes_shm->video.ncol = iScale*NTSCWIDTH;
 	}
 	else
 	{
@@ -264,7 +266,7 @@ int InitVideo(FCEUGI *gi)
 	int iScale = nes_shm->video.xscale;
 	if ( s_sponge == 3 )
 	{
-		nes_shm->video.ncol = iScale*301;
+		nes_shm->video.ncol = iScale*NTSCWIDTH;
 	}
 	else
 	{
@@ -446,7 +448,7 @@ doBlitScreen(uint8_t *XBuf, uint8_t *dest)
 
 	if ( s_sponge == 3 )
 	{
-		w = ixScale*301;
+		w = ixScale*NTSCWIDTH;
 		bw = 256;
 	}
 	else
@@ -494,8 +496,6 @@ doBlitScreen(uint8_t *XBuf, uint8_t *dest)
 void
 BlitScreen(uint8 *XBuf)
 {
-	int i = nes_shm->pixBufIdx;
-
 	if (usePaletteForVideoBg)
 	{
 		unsigned char r, g, b;
@@ -509,11 +509,18 @@ BlitScreen(uint8 *XBuf)
 		}
 	}
 
-	doBlitScreen(XBuf, (uint8_t*)nes_shm->pixbuf[i]);
+	if (consoleWindow != nullptr)
+	{
+		FCEU::autoScopedLock lock(consoleWindow->videoBufferMutex);
 
-	nes_shm->pixBufIdx = (i+1) % NES_VIDEO_BUFLEN;
-	nes_shm->blit_count++;
-	nes_shm->blitUpdated = 1;
+		int i = nes_shm->pixBufIdx;
+
+		doBlitScreen(XBuf, (uint8_t*)nes_shm->pixbuf[i]);
+
+		nes_shm->pixBufIdx = (i+1) % NES_VIDEO_BUFLEN;
+		nes_shm->blit_count++;
+		nes_shm->blitUpdated = 1;
+	}
 }
 
 void FCEUI_AviVideoUpdate(const unsigned char* buffer)

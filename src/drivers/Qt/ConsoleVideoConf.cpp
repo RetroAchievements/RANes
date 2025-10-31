@@ -35,6 +35,10 @@
 #include "Qt/ConsoleVideoConf.h"
 #include "Qt/nes_shm.h"
 
+#if defined(WIN32) && (QT_VERSION_MAJOR < 6)
+#include <QtPlatformHeaders/QWindowsWindowFunctions>
+#endif
+
 extern int input_display;
 extern int frame_display;
 extern int rerecord_display;
@@ -119,14 +123,26 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 
 	vbox1->addLayout( hbox1 );
 
-	// Enable OpenGL Linear Filter Checkbox
-	gl_LF_chkBox  = new QCheckBox( tr("Enable OpenGL Linear Filter") );
+	// Enable Linear Filter Checkbox
+	gl_LF_chkBox  = new QCheckBox( tr("Enable Linear Filter") );
 
 	setCheckBoxFromProperty( gl_LF_chkBox  , "SDL.OpenGLip");
 
 	connect(gl_LF_chkBox , SIGNAL(stateChanged(int)), this, SLOT(openGL_linearFilterChanged(int)) );
 
 	vbox1->addWidget( gl_LF_chkBox );
+
+#if defined(WIN32) && (QT_VERSION_MAJOR < 6)
+	// 1px full screen border - hack fix for QOpenGLWidget fullscreen issues
+	winFullScreenBorderCbx  = new QCheckBox( tr("Fullscreen Border (1px)") );
+	winFullScreenBorderCbx->setToolTip(tr("Hack fix for QOpenGLWidget fullscreen issue. May not be needed."));
+
+	setCheckBoxFromProperty( winFullScreenBorderCbx  , "SDL.winFullScreenBorder");
+
+	connect(winFullScreenBorderCbx, SIGNAL(stateChanged(int)), this, SLOT(winFullScreenBorderChanged(int)) );
+
+	vbox1->addWidget(winFullScreenBorderCbx);
+#endif
 
 	// Region Select
 	lbl = new QLabel( tr("Region:") );
@@ -502,7 +518,7 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	scrRateReadout->setFont( font );
 	scrRateReadout->setReadOnly(true);
 	scrRateReadout->setAlignment(Qt::AlignCenter);
-	sprintf( stmp, "%.3f", consoleWindow->getRefreshRate() );
+	snprintf( stmp, sizeof(stmp), "%.3f", consoleWindow->getRefreshRate() );
 	scrRateReadout->setText( tr(stmp) );
 
 	hbox->addWidget( new QLabel( tr("Refresh Rate (Hz):") ) );
@@ -590,11 +606,11 @@ void ConsoleVideoConfDialog_t::updateReadouts(void)
 			v = consoleWindow->viewport_Interface->size();
 		}
 
-		sprintf( stmp, "%i x %i ", w.width(), w.height() );
+		snprintf( stmp, sizeof(stmp), "%i x %i ", w.width(), w.height() );
 
 		winSizeReadout->setText( tr(stmp) );
 
-		sprintf( stmp, "%i x %i ", v.width(), v.height() );
+		snprintf( stmp, sizeof(stmp), "%i x %i ", v.width(), v.height() );
 
 		vpSizeReadout->setText( tr(stmp) );
 	}
@@ -709,7 +725,7 @@ void ConsoleVideoConfDialog_t::openGL_linearFilterChanged( int value )
 {
    bool opt =  (value != Qt::Unchecked);
    g_config->setOption("SDL.OpenGLip", opt );
-	g_config->save ();
+   g_config->save();
 
    if ( consoleWindow != NULL )
    {
@@ -719,6 +735,20 @@ void ConsoleVideoConfDialog_t::openGL_linearFilterChanged( int value )
       }
    }
 }
+//----------------------------------------------------
+#if defined(WIN32) && (QT_VERSION_MAJOR < 6)
+void ConsoleVideoConfDialog_t::winFullScreenBorderChanged(int value)
+{
+	bool opt = (value != Qt::Unchecked);
+	// This function is needed to fix the issue referenced below. It adds a 1-pixel border
+	// around the fullscreen window due to some limitation in windows.
+	// https://doc.qt.io/qt-5/windows-issues.html#fullscreen-opengl-based-windows
+	QWindowsWindowFunctions::setHasBorderInFullScreen( consoleWindow->windowHandle(), opt);
+
+	g_config->setOption("SDL.winFullScreenBorder", opt );
+	g_config->save();
+}
+#endif
 //----------------------------------------------------
 void ConsoleVideoConfDialog_t::autoScaleChanged( int value )
 {

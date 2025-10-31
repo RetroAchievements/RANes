@@ -62,11 +62,11 @@ int  getDirFromFile( const char *path, std::string &dir )
 
 		if (fi.exists())
 		{
-			dir = fi.canonicalPath().toStdString();
+			dir = fi.canonicalPath().toLocal8Bit().constData();
 		}
 		else
 		{
-			dir = fi.absolutePath().toStdString();
+			dir = fi.absolutePath().toLocal8Bit().constData();
 		}
 		//printf("Dir: '%s'\n", dir.c_str());
 	}
@@ -535,13 +535,13 @@ void fceuDecIntValidtor::setMinMax( long long int min, long long int max)
 QValidator::State fceuDecIntValidtor::validate(QString &input, int &pos) const
 {
    long long int i, v;
-   //printf("Validate: %i '%s'\n", input.size(), input.toStdString().c_str() );
+   //printf("Validate: %i '%s'\n", input.size(), input.toLocal8Bit().constData() );
 
    if ( input.size() == 0 )
    {
       return QValidator::Acceptable;
    }
-   std::string s = input.toStdString();
+   std::string s = input.toLocal8Bit().constData();
    i=0;
 
    if (s[i] == '-')
@@ -602,14 +602,14 @@ void fceuHexIntValidtor::setMinMax( long long int min, long long int max)
 QValidator::State fceuHexIntValidtor::validate(QString &input, int &pos) const
 {
    long long int i, v;
-   //printf("Validate: %i '%s'\n", input.size(), input.toStdString().c_str() );
+   //printf("Validate: %i '%s'\n", input.size(), input.toLocal8Bit().constData() );
 
    if ( input.size() == 0 )
    {
       return QValidator::Acceptable;
    }
 	input = input.toUpper();
-   std::string s = input.toStdString();
+   std::string s = input.toLocal8Bit().constData();
    i=0;
 
    if (s[i] == '-')
@@ -1339,7 +1339,7 @@ QString fceuGetOpcodeToolTip( uint8_t *opcode, int size )
 
 	for (int i=0; i<size; i++)
 	{
-		sprintf(stmp, "$%02X  ", opcode[i] );
+		snprintf(stmp, sizeof(stmp), "$%02X  ", opcode[i] );
 
 		text.append( stmp );
 	}
@@ -1347,7 +1347,7 @@ QString fceuGetOpcodeToolTip( uint8_t *opcode, int size )
 	text.append( addrMode );
 
 	text.append( "\nCycle Count:\t\t" );
-	sprintf( stmp, "%i", X6502_GetOpcodeCycles( opcode[0] ) );
+	snprintf( stmp, sizeof(stmp), "%i", X6502_GetOpcodeCycles( opcode[0] ) );
 	text.append( stmp );
 	text.append( "\n" );
 
@@ -1381,5 +1381,38 @@ QString fceuGetOpcodeToolTip( uint8_t *opcode, int size )
 	}
 
 	return QString::fromStdString( text );
+}
+//----------------------------------------------------
+void  setCheckBoxFromProperty( QCheckBox *cbx, const char *property )
+{
+	int  pval;
+	g_config->getOption (property, &pval);
+
+	cbx->setCheckState( pval ? Qt::Checked : Qt::Unchecked );
+}
+//----------------------------------------------------
+void  setComboBoxFromProperty( QComboBox *cbx, const char *property )
+{
+	int  i, pval;
+	g_config->getOption (property, &pval);
+
+	for (i=0; i<cbx->count(); i++)
+	{
+		if ( pval == cbx->itemData(i).toInt() )
+		{
+			cbx->setCurrentIndex(i); break;
+		}
+	}
+}
+//---------------------------------------------------------------------------
+void  setComboBoxFromValue( QComboBox *cbx, int pval )
+{
+	for (int i=0; i<cbx->count(); i++)
+	{
+		if ( pval == cbx->itemData(i).toInt() )
+		{
+			cbx->setCurrentIndex(i); break;
+		}
+	}
 }
 //---------------------------------------------------------------------------

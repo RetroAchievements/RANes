@@ -73,7 +73,7 @@ void ColorMenuItem::setImageColor( QColor c )
 
 	lastColor = c;
 
-	b = parentWidget()->palette().color(QPalette::WindowText);
+	b = qobject_cast<QWidget*>(parent())->palette().color(QPalette::WindowText);
 
 	i=0;
 
@@ -119,9 +119,9 @@ void ColorMenuItem::pickerClosed(int ret)
 
 			colorText = colorPtr->name();
 
-			//printf("Saving '%s' = Color string '%s'\n", confName.c_str(), colorText.toStdString().c_str() );
+			//printf("Saving '%s' = Color string '%s'\n", confName.c_str(), colorText.toLocal8Bit().constData() );
 
-			g_config->setOption( confName, colorText.toStdString().c_str() );
+			g_config->setOption( confName, colorText.toLocal8Bit().constData() );
 
 			g_config->save();
 		}
@@ -140,7 +140,7 @@ void ColorMenuItem::openColorPicker(void)
 		qs = title;
 		qs.replace( "&", "", Qt::CaseInsensitive); // get rid of & accelerator characters
 
-		picker = new ColorMenuPickerDialog_t( colorPtr, qs.toStdString().c_str(), parentWidget() );
+		picker = new ColorMenuPickerDialog_t( colorPtr, qs.toLocal8Bit().constData(), qobject_cast<QWidget*>(parent()) );
 
 		picker->show();
 
@@ -167,7 +167,7 @@ ColorMenuPickerDialog_t::ColorMenuPickerDialog_t( QColor *c, const char *titleTe
 
 	style = this->style();
 
-	sprintf( stmp, "Pick Color for %s", titleText);
+	snprintf( stmp, sizeof(stmp), "Pick Color for %s", titleText);
 
 	setWindowTitle( stmp );
 

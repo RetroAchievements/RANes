@@ -26,6 +26,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <string>
+#include <atomic>
 
 #ifdef WIN32
 #include <windows.h>
@@ -79,12 +80,12 @@ extern "C"
 static gwavi_t  *gwavi = NULL;
 static bool      recordEnable = false;
 static bool      recordAudio  = true;
-static int       vbufHead = 0;
-static int       vbufTail = 0;
-static int       vbufSize = 0;
-static int       abufHead = 0;
-static int       abufTail = 0;
-static int       abufSize = 0;
+static std::atomic<int> vbufHead(0);
+static std::atomic<int> vbufTail(0);
+static constexpr int    vbufSize = 1024 * 1024 * 64;
+static std::atomic<int> abufHead(0);
+static std::atomic<int> abufTail(0);
+static constexpr int    abufSize = 256 * 1024;
 static uint32_t *rawVideoBuf = NULL;
 static int16_t  *rawAudioBuf = NULL;
 static int       aviDriver = 0;
@@ -460,7 +461,14 @@ static int encode_frame( unsigned char *inBuf, int width, int height )
 	pic->stride[1] = width/2;
 	pic->stride[2] = width/2;
 
+#if defined(MAX_SCALABLE_LAYERS) && (X265_BUILD >= 210) && (X265_BUILD < 213)
+	/* Handle API changes for scalable layers output in x265 4.0 */
+	x265_picture *pics[MAX_SCALABLE_LAYERS] = {NULL};
+	pics[0] = pic;
+	ret = x265_encoder_encode( hdl, &nal, &i_nal, pic, pics );
+#else
 	ret = x265_encoder_encode( hdl, &nal, &i_nal, pic, &pic_out );
+#endif
 
 	if ( ret <= 0 )
 	{
@@ -493,7 +501,14 @@ static int close(void)
 	/* Flush delayed frames */
 	while( hdl != NULL )
 	{
+#if defined(MAX_SCALABLE_LAYERS) && (X265_BUILD >= 210) && (X265_BUILD < 213)
+	    /* Handle API changes for scalable layers output in x265 4.0 */
+	    x265_picture *pics[MAX_SCALABLE_LAYERS] = {NULL};
+	    pics[0] = pic;
+	    ret = x265_encoder_encode( hdl, &nal, &i_nal, pic, pics );
+#else
 	    ret = x265_encoder_encode( hdl, &nal, &i_nal, NULL, &pic_out );
+#endif
 
 	    if ( ret <= 0 )
 	    {
@@ -795,7 +810,7 @@ struct OutputStream
 		if ( writeError )
 		{
 			char msg[512];
-			sprintf( msg, "%s Stream Write Errors Detected.\nOutput may be incomplete or corrupt.\nSee log file '%s' for details\n",
+			snprintf( msg, sizeof(msg), "%s Stream Write Errors Detected.\nOutput may be incomplete or corrupt.\nSee log file '%s' for details\n",
 				       isAudio ? "Audio" : "Video", AV_LOG_FILE_NAME);
 			FCEUD_PrintError(msg);
 		}
@@ -2123,7 +2138,7 @@ int aviRecordLogOpen(void)
 		if ( avLogFp == NULL )
 		{
 			char msg[512];
-			sprintf( msg, "Error: Failed to open AV Recording log file for writing: %s\n", AV_LOG_FILE_NAME);
+			snprintf( msg, sizeof(msg), "Error: Failed to open AV Recording log file for writing: %s\n", AV_LOG_FILE_NAME);
 			FCEUD_PrintError(msg);
 			avLogFp = stdout;
 		}
@@ -2216,15 +2231,15 @@ int aviRecordOpenFile( const char *filepath )
 
 	date = QDate::currentDate();
 
-	avi_info.add_pair( "ICRD", date.toString(Qt::ISODate).toStdString().c_str() ); 
+	avi_info.add_pair( "ICRD", date.toString(Qt::ISODate).toLocal8Bit().constData() ); 
 
-	avi_info.add_pair( "ILNG", QLocale::languageToString( locale.language() ).toStdString().c_str() );
+	avi_info.add_pair( "ILNG", QLocale::languageToString( locale.language() ).toLocal8Bit().constData() );
 
-	avi_info.add_pair( "IARL", QLocale::countryToString( locale.country() ).toStdString().c_str() );
+	avi_info.add_pair( "IARL", QLocale::countryToString( locale.country() ).toLocal8Bit().constData() );
 
-	avi_info.add_pair( "IMED", QSysInfo::prettyProductName().toStdString().c_str() );
+	avi_info.add_pair( "IMED", QSysInfo::prettyProductName().toLocal8Bit().constData() );
 
-	sprintf( txt, "FCEUX %s", FCEU_VERSION_STRING );
+	snprintf( txt, sizeof(txt), "FCEUX %s", FCEU_VERSION_STRING );
 	avi_info.add_pair( "ITCH", txt );
 
 	romFile = getRomFile();
@@ -2305,7 +2320,7 @@ int aviRecordOpenFile( const char *filepath )
 			char msg[512];
 			fprintf( avLogFp, "Error: Failed to open AVI file.\n");
 			recordEnable = false;
-			sprintf( msg, "Error: AV Recording Initialization Failed.\nSee %s for details...\n", AV_LOG_FILE_NAME);
+			snprintf( msg, sizeof(msg), "Error: AV Recording Initialization Failed.\nSee %s for details...\n", AV_LOG_FILE_NAME);
 			FCEUD_PrintError(msg);
 			return -1;
 		}
@@ -2320,16 +2335,14 @@ int aviRecordOpenFile( const char *filepath )
 			char msg[512];
 			fprintf( avLogFp, "Error: Failed to open AVI file.\n");
 			recordEnable = false;
-			sprintf( msg, "Error: AV Recording Initialization Failed.\nSee %s for details...\n", AV_LOG_FILE_NAME);
+			snprintf( msg, sizeof(msg), "Error: AV Recording Initialization Failed.\nSee %s for details...\n", AV_LOG_FILE_NAME);
 			FCEUD_PrintError(msg);
 			return -1;
 		}
 	}
 
-	vbufSize    = 1024 * 1024 * 60;
 	rawVideoBuf = (uint32_t*)malloc( vbufSize * sizeof(uint32_t) );
 
-	abufSize    = 96000;
 	rawAudioBuf = (int16_t*)malloc( abufSize * sizeof(uint16_t) );
 
 	vbufHead = 0;
@@ -2348,10 +2361,6 @@ int aviRecordAddFrame( void )
 		return -1;
 	}
 
-	//if ( gwavi == NULL )
-	//{
-	//	return -1;
-	//}
 	if ( FCEUI_EmulationPaused() )
 	{
 		return 0;
@@ -2361,25 +2370,28 @@ int aviRecordAddFrame( void )
 
 	numPixels  = nes_shm->video.ncol * nes_shm->video.nrow;
 
-	availSize = (vbufTail - vbufHead);
-	if ( availSize <= 0 )
+	head = vbufHead;
+
+	auto calcAvailSize = [&]()
 	{
-		availSize += vbufSize;
-	}
+		availSize = (vbufTail - head);
+		if ( availSize <= 0 )
+		{
+			availSize += vbufSize;
+		}
+	};
+
+	calcAvailSize();
 
 	while ( numPixels > availSize )
 	{
 		//printf("Video Unavail %i \n", availSize );
 		msleep(1);
 
-		availSize = (vbufTail - vbufHead);
-		if ( availSize <= 0 )
-		{
-			availSize += vbufSize;
-		}
+		calcAvailSize();
 	}
 
-	i = 0; head = vbufHead;
+	i = 0;
 
 	while ( i < numPixels )
 	{
@@ -2408,12 +2420,17 @@ int aviRecordAddAudioFrame( int32_t *buf, int numSamples )
 		return -1;
 	}
 
+	// Get current buffer index values from atomic variables and store in stack variables
+	// Do loop processing with stack variables and then update atomics when finished
+	int head = abufHead;
+
 	for (int i=0; i<numSamples; i++)
 	{
-		rawAudioBuf[ abufHead ] = buf[i];
+		rawAudioBuf[ head ] = buf[i];
 
-		abufHead = (abufHead + 1) % abufSize;
+		head = (head + 1) % abufSize;
 	}
+	abufHead = head;
 
 	return 0;
 }
@@ -2437,8 +2454,10 @@ int aviRecordClose(void)
 	{
 		free(rawAudioBuf); rawAudioBuf = NULL;
 	}
-	vbufTail = abufTail = 0;
-	vbufSize = abufSize = 0;
+	vbufHead = 0;
+	abufHead = 0;
+	vbufTail = 0;
+	abufTail = 0;
 
 	return 0;
 }
@@ -2600,6 +2619,8 @@ void AviRecordDiskThread_t::run(void)
 	char localRecordAudio = 0;
 	int  avgAudioPerFrame, audioChunkSize, audioSamplesAvail=0;
 	int  localVideoFormat;
+	int audioHead = 0;
+	int audioTail = 0;
 
 	fprintf( avLogFp, "AVI Record Disk Thread Start\n");
 
@@ -2672,12 +2693,19 @@ void AviRecordDiskThread_t::run(void)
 	// Main Disk Record Loop
 	while ( !isInterruptionRequested() )
 	{
-		
-		while ( (numPixelsReady < numPixels) && (vbufTail != vbufHead) )
 		{
-			videoOut[ numPixelsReady ] = rawVideoBuf[ vbufTail ]; numPixelsReady++;
-			
-			vbufTail = (vbufTail + 1) % vbufSize;
+			// Get current buffer index values from atomic variables and store in stack variables
+			// Do loop processing with stack variables and then update atomics when finished
+			int vhead = vbufHead;
+			int vtail = vbufTail;
+
+			while ( (numPixelsReady < numPixels) && (vtail != vhead) )
+			{
+				videoOut[ numPixelsReady ] = rawVideoBuf[ vtail ]; numPixelsReady++;
+
+				vtail = (vtail + 1) % vbufSize;
+			}
+			vbufTail = vtail;
 		}
 
 		if ( numPixelsReady >= numPixels )
@@ -2731,7 +2759,11 @@ void AviRecordDiskThread_t::run(void)
 
 			numPixelsReady = 0;
 
-			audioSamplesAvail = abufHead - abufTail;
+			// Get current buffer index values from atomic variables and store in stack variables
+			// Do loop processing with stack variables and then update atomics when finished
+			audioHead = abufHead;
+			audioTail = abufTail;
+			audioSamplesAvail = audioHead - audioTail;
 
 			if ( audioSamplesAvail < 0 )
 			{
@@ -2743,17 +2775,18 @@ void AviRecordDiskThread_t::run(void)
 			{
 				numSamples = 0;
 
-				while ( abufHead != abufTail )
+				while ( audioHead != audioTail )
 				{
-					audioOut[ numSamples ] = rawAudioBuf[ abufTail ]; numSamples++;
+					audioOut[ numSamples ] = rawAudioBuf[ audioTail ]; numSamples++;
 
-					abufTail = (abufTail + 1) % abufSize;
+					audioTail = (audioTail + 1) % abufSize;
 
 					if ( numSamples >= audioChunkSize )
 					{
 						break;
 					}
 				}
+				abufTail = audioTail;
 
 				if ( numSamples > 0 )
 				{
@@ -2779,8 +2812,11 @@ void AviRecordDiskThread_t::run(void)
 		}
 	}
 
+	audioHead = abufHead;
+	audioTail = abufTail;
+
 	// Write Leftover Audio Samples
-	audioSamplesAvail = abufHead - abufTail;
+	audioSamplesAvail = audioHead - audioTail;
 
 	if ( audioSamplesAvail < 0 )
 	{
@@ -2793,12 +2829,13 @@ void AviRecordDiskThread_t::run(void)
 		//printf("Writing Last %i Audio Samples\n", audioSamplesAvail );
 		numSamples = 0;
 
-		while ( abufHead != abufTail )
+		while ( audioHead != audioTail )
 		{
-			audioOut[ numSamples ] = rawAudioBuf[ abufTail ]; numSamples++;
+			audioOut[ numSamples ] = rawAudioBuf[ audioTail ]; numSamples++;
 
-			abufTail = (abufTail + 1) % abufSize;
+			audioTail = (audioTail + 1) % abufSize;
 		}
+		abufTail = audioTail;
 
 		if ( numSamples > 0 )
 		{
@@ -3136,7 +3173,7 @@ void LibavOptionsPage::initSampleRateSelect( const char *codec_name )
 
 		while ( c->supported_samplerates[i] != 0 )
 		{
-			sprintf( rateName, "%i", c->supported_samplerates[i] );
+			snprintf( rateName, sizeof(rateName), "%i", c->supported_samplerates[i] );
 
 			audioSampleRate->addItem( tr(rateName), c->supported_samplerates[i] );
 
@@ -3263,10 +3300,10 @@ void LibavOptionsPage::initCodecLists(void)
 		c = av_codec_iterate( &it );
 	}
 
-	initPixelFormatSelect( videoEncSel->currentText().toStdString().c_str() );
-	initSampleFormatSelect( audioEncSel->currentText().toStdString().c_str() );
-	initSampleRateSelect( audioEncSel->currentText().toStdString().c_str() );
-	initChannelLayoutSelect( audioEncSel->currentText().toStdString().c_str() );
+	initPixelFormatSelect( videoEncSel->currentText().toLocal8Bit().constData() );
+	initSampleFormatSelect( audioEncSel->currentText().toLocal8Bit().constData() );
+	initSampleRateSelect( audioEncSel->currentText().toLocal8Bit().constData() );
+	initChannelLayoutSelect( audioEncSel->currentText().toLocal8Bit().constData() );
 
 	videoEncSel->model()->sort(0, Qt::AscendingOrder);
 	audioEncSel->model()->sort(0, Qt::AscendingOrder);
@@ -3281,7 +3318,7 @@ void LibavOptionsPage::videoCodecChanged(int idx)
 {
 	const AVCodec *c;
 
-	LIBAV::video_st.selEnc = videoEncSel->currentText().toStdString().c_str();
+	LIBAV::video_st.selEnc = videoEncSel->currentText().toLocal8Bit().constData();
 
 	c = avcodec_find_encoder_by_name( LIBAV::video_st.selEnc.c_str() );
 
@@ -3296,7 +3333,7 @@ void LibavOptionsPage::audioCodecChanged(int idx)
 {
 	const AVCodec *c;
 
-	LIBAV::audio_st.selEnc = audioEncSel->currentText().toStdString().c_str();
+	LIBAV::audio_st.selEnc = audioEncSel->currentText().toLocal8Bit().constData();
 
 	c = avcodec_find_encoder_by_name( LIBAV::audio_st.selEnc.c_str() );
 
@@ -3410,7 +3447,7 @@ void LibavEncOptItem::setValueText(void)
 						if ( units[x]->default_val.i64 & i )
 						{
 							char stmp2[128];
-							sprintf( stmp2, "%s", units[x]->name );
+							snprintf( stmp2, sizeof(stmp2), "%s", units[x]->name );
 							if (j>0)
 							{
 								strcat( stmp, ",");
@@ -3445,7 +3482,7 @@ void LibavEncOptItem::setValueText(void)
 						if ( units[x]->default_val.i64 == i )
 						{
 							char stmp2[128];
-							sprintf( stmp2, " (%s)", units[x]->name );
+							snprintf( stmp2, sizeof(stmp2), " (%s)", units[x]->name );
 							strcat( stmp, stmp2 );
 							break;
 						}
@@ -3481,12 +3518,12 @@ LibavEncOptWin::LibavEncOptWin(int type, QWidget *parent)
 	if ( type )
 	{
 		codec_name = LIBAV::audio_st.selEnc.c_str();
-		sprintf( title, "%s Audio Encoder Configuration", codec_name );
+		snprintf( title, sizeof(title), "%s Audio Encoder Configuration", codec_name );
 	}
 	else
 	{
 		codec_name = LIBAV::video_st.selEnc.c_str();
-		sprintf( title, "%s Video Encoder Configuration", codec_name );
+		snprintf( title, sizeof(title), "%s Video Encoder Configuration", codec_name );
 	}
 	setWindowTitle( title );
 	resize(512, 512);
@@ -3816,13 +3853,13 @@ LibavEncOptInputWin::LibavEncOptInputWin( LibavEncOptItem *itemIn, QWidget *pare
 
 			grid->addWidget( new QLabel( tr("Range:")   ), 2, 0 );
 
-			sprintf( stmp, "[ %.0f, %.0f ]", opt->min, opt->max );
+			snprintf( stmp, sizeof(stmp), "[ %.0f, %.0f ]", opt->min, opt->max );
 
 			grid->addWidget( new QLabel( tr(stmp)   ), 2, 1 );
 
 			grid->addWidget( new QLabel( tr("Default:")   ), 3, 0 );
 
-			sprintf( stmp, "%lli", (long long)opt->default_val.i64 );
+			snprintf( stmp, sizeof(stmp), "%lli", (long long)opt->default_val.i64 );
 
 			grid->addWidget( new QLabel( tr(stmp)   ), 3, 1 );
 
@@ -3838,12 +3875,12 @@ LibavEncOptInputWin::LibavEncOptInputWin( LibavEncOptItem *itemIn, QWidget *pare
 				{
 					if ( item->units[i]->help )
 					{
-						sprintf( stmp, "%3lli:  %s  -  %s", (long long)item->units[i]->default_val.i64,
+						snprintf( stmp, sizeof(stmp), "%3lli:  %s  -  %s", (long long)item->units[i]->default_val.i64,
 							item->units[i]->name, item->units[i]->help );
 					}
 					else
 					{
-						sprintf( stmp, "%3lli:  %s", (long long)item->units[i]->default_val.i64,
+						snprintf( stmp, sizeof(stmp), "%3lli:  %s", (long long)item->units[i]->default_val.i64,
 							item->units[i]->name );
 					}
 
@@ -3874,13 +3911,13 @@ LibavEncOptInputWin::LibavEncOptInputWin( LibavEncOptItem *itemIn, QWidget *pare
 
 			grid->addWidget( new QLabel( tr("Range:")   ), 2, 0 );
 
-			sprintf( stmp, "[ %e, %e ]", opt->min, opt->max );
+			snprintf( stmp, sizeof(stmp), "[ %e, %e ]", opt->min, opt->max );
 
 			grid->addWidget( new QLabel( tr(stmp)   ), 2, 1 );
 
 			grid->addWidget( new QLabel( tr("Default:")   ), 3, 0 );
 
-			sprintf( stmp, "%f", opt->default_val.dbl );
+			snprintf( stmp, sizeof(stmp), "%f", opt->default_val.dbl );
 
 			grid->addWidget( new QLabel( tr(stmp)   ), 3, 1 );
 
@@ -3905,7 +3942,7 @@ LibavEncOptInputWin::LibavEncOptInputWin( LibavEncOptItem *itemIn, QWidget *pare
 
 			if ( opt->default_val.str )
 			{
-				sprintf( stmp, "%s", opt->default_val.str );
+				snprintf( stmp, sizeof(stmp), "%s", opt->default_val.str );
 			}
 			grid->addWidget( new QLabel( tr(stmp)   ), 2, 1 );
 
@@ -3929,7 +3966,7 @@ LibavEncOptInputWin::LibavEncOptInputWin( LibavEncOptItem *itemIn, QWidget *pare
 
 			grid->addWidget( new QLabel( tr("Default:")   ), 2, 0 );
 
-			sprintf( stmp, "%i/%i", opt->default_val.q.num, opt->default_val.q.den );
+			snprintf( stmp, sizeof(stmp), "%i/%i", opt->default_val.q.num, opt->default_val.q.den );
 
 			grid->addWidget( new QLabel( tr(stmp)   ), 2, 1 );
 
@@ -3959,7 +3996,7 @@ LibavEncOptInputWin::LibavEncOptInputWin( LibavEncOptItem *itemIn, QWidget *pare
 
 			grid->addWidget( new QLabel( tr("Default:")   ), 2, 0 );
 
-			sprintf( stmp, "%s", opt->default_val.i64 ? "true" : "false" );
+			snprintf( stmp, sizeof(stmp), "%s", opt->default_val.i64 ? "true" : "false" );
 
 			grid->addWidget( new QLabel( tr(stmp)   ), 2, 1 );
 
@@ -3983,7 +4020,7 @@ LibavEncOptInputWin::LibavEncOptInputWin( LibavEncOptItem *itemIn, QWidget *pare
 
 			grid->addWidget( new QLabel( tr("Default:")   ), 2, 0 );
 
-			sprintf( stmp, "0x%08llX", (unsigned long long)opt->default_val.i64 );
+			snprintf( stmp, sizeof(stmp), "0x%08llX", (unsigned long long)opt->default_val.i64 );
 
 			grid->addWidget( new QLabel( tr(stmp)   ), 2, 1 );
 
@@ -3993,7 +4030,7 @@ LibavEncOptInputWin::LibavEncOptInputWin( LibavEncOptItem *itemIn, QWidget *pare
 
 				for (size_t i=0; i<item->units.size(); i++)
 				{
-					sprintf( stmp, "%s", item->units[i]->name );
+					snprintf( stmp, sizeof(stmp), "%s", item->units[i]->name );
 
 					c = new QCheckBox( tr(stmp) );
 
@@ -4102,7 +4139,7 @@ void LibavEncOptInputWin::applyChanges(void)
 		{
 			if ( strEntry )
 			{
-				av_opt_set( item->obj, item->opt->name, strEntry->text().toStdString().c_str(), 0 );
+				av_opt_set( item->obj, item->opt->name, strEntry->text().toLocal8Bit().constData(), 0 );
 			}
 		}
 		break;

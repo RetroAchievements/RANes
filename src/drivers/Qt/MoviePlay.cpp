@@ -241,13 +241,13 @@ void MoviePlayDialog_t::updateMovieText(void)
 	}
 	idx = movSelBox->currentIndex();
 
-	path = movSelBox->itemText(idx).toStdString();
+	path = movSelBox->itemText(idx).toLocal8Bit().constData();
 
 	fp = FCEU_fopen(path.c_str(), 0, "rb", 0);
 
 	if (fp == NULL)
 	{
-		sprintf(stmp, "Error: Failed to open file '%s'", path.c_str());
+		snprintf(stmp, sizeof(stmp), "Error: Failed to open file '%s'", path.c_str());
 		showErrorMsgWindow(stmp);
 		clearMovieText();
 		return;
@@ -260,7 +260,7 @@ void MoviePlayDialog_t::updateMovieText(void)
 
 		validator->setMinMax(0, info.num_frames);
 
-		sprintf(stmp, "%u", (unsigned)info.num_frames);
+		snprintf(stmp, sizeof(stmp), "%u", (unsigned)info.num_frames);
 
 		movFramesLbl->setText(tr(stmp));
 		pauseAtFrameEntry->setText(tr(stmp));
@@ -272,11 +272,11 @@ void MoviePlayDialog_t::updateMovieText(void)
 		int seconds = num_seconds % 60;
 		int minutes = (num_seconds / 60) % 60;
 		int hours = (num_seconds / 60 / 60) % 60;
-		sprintf(stmp, "%02d:%02d:%02d.%02d", hours, minutes, seconds, fraction);
+		snprintf(stmp, sizeof(stmp), "%02d:%02d:%02d.%02d", hours, minutes, seconds, fraction);
 
 		movLenLbl->setText(tr(stmp));
 
-		sprintf(stmp, "%u", (unsigned)info.rerecord_count);
+		snprintf(stmp, sizeof(stmp), "%u", (unsigned)info.rerecord_count);
 
 		recCountLbl->setText(tr(stmp));
 
@@ -297,11 +297,11 @@ void MoviePlayDialog_t::updateMovieText(void)
 
 		if (info.emu_version_used < 20000)
 		{
-			sprintf(stmp, "FCEU %u.%02u.%02u%s", info.emu_version_used / 10000, (info.emu_version_used / 100) % 100, (info.emu_version_used) % 100, info.emu_version_used < 9813 ? " (blip)" : "");
+			snprintf(stmp, sizeof(stmp), "FCEU %u.%02u.%02u%s", info.emu_version_used / 10000, (info.emu_version_used / 100) % 100, (info.emu_version_used) % 100, info.emu_version_used < 9813 ? " (blip)" : "");
 		}
 		else
 		{
-			sprintf(stmp, "FCEUX %u.%02u.%02u", info.emu_version_used / 10000, (info.emu_version_used / 100) % 100, (info.emu_version_used) % 100);
+			snprintf(stmp, sizeof(stmp), "FCEUX %u.%02u.%02u", info.emu_version_used / 10000, (info.emu_version_used / 100) % 100, (info.emu_version_used) % 100);
 		}
 		emuUsedLbl->setText(tr(stmp));
 
@@ -315,14 +315,14 @@ void MoviePlayDialog_t::updateMovieText(void)
 
 			if (strcmp(stmp, md5_asciistr(info.md5_of_rom_used)) != 0)
 			{
-				sprintf(stmp, "Warning: Selected movie file '%s' may not have been created using the currently loaded ROM.", path.c_str());
+				snprintf(stmp, sizeof(stmp), "Warning: Selected movie file '%s' may not have been created using the currently loaded ROM.", path.c_str());
 				showWarningMsgWindow(stmp);
 			}
 		}
 	}
 	else
 	{
-		sprintf(stmp, "Error: Selected file '%s' does not have a recognized movie format.", path.c_str());
+		snprintf(stmp, sizeof(stmp), "Error: Selected file '%s' does not have a recognized movie format.", path.c_str());
 		showErrorMsgWindow(stmp);
 		clearMovieText();
 	}
@@ -337,7 +337,7 @@ int MoviePlayDialog_t::addFileToList(const char *file, bool setActive)
 
 	for (int i = 0; i < movSelBox->count(); i++)
 	{
-		if (strcmp(file, movSelBox->itemText(i).toStdString().c_str()) == 0)
+		if (strcmp(file, movSelBox->itemText(i).toLocal8Bit().constData()) == 0)
 		{
 			if (setActive)
 			{
@@ -402,7 +402,7 @@ void MoviePlayDialog_t::scanDirectory(const char *dirPath, const char *md5)
 	{
 		QFileInfo fileInfo = list.at(i);
 
-		path = std::string(dirPath) + fileInfo.fileName().toStdString();
+		path = std::string(dirPath) + fileInfo.fileName().toLocal8Bit().constData();
 
 		//printf("File: '%s'\n", path.c_str() );
 
@@ -465,13 +465,13 @@ void MoviePlayDialog_t::playMovie(void)
 
 	idx = movSelBox->currentIndex();
 
-	path = movSelBox->itemText(idx).toStdString();
+	path = movSelBox->itemText(idx).toLocal8Bit().constData();
 
 	replayReadOnlySetting = openReadOnly->isChecked();
 
 	if (pauseAtFrame->isChecked())
 	{
-		pauseframe = strtol(pauseAtFrameEntry->text().toStdString().c_str(), NULL, 0);
+		pauseframe = strtol(pauseAtFrameEntry->text().toLocal8Bit().constData(), NULL, 0);
 	}
 
 	FCEU_WRAPPER_LOCK();
@@ -485,7 +485,7 @@ void MoviePlayDialog_t::playMovie(void)
 	if (movieLoadError)
 	{
 		char stmp[256];
-		sprintf(stmp, "Error: Could not load movie file: %s \n", path.c_str());
+		snprintf(stmp, sizeof(stmp), "Error: Could not load movie file: %s \n", path.c_str());
 		showErrorMsgWindow(stmp);
 	}
 	else
@@ -539,7 +539,7 @@ void MoviePlayDialog_t::openMovie(void)
 	{
 		return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
 	if (GameInfo)
 	{
@@ -547,7 +547,7 @@ void MoviePlayDialog_t::openMovie(void)
 
 		strcpy(md5, md5_asciistr(GameInfo->MD5));
 
-		if (checkMD5Sum(filename.toStdString().c_str(), md5))
+		if (checkMD5Sum(filename.toLocal8Bit().constData(), md5))
 		{
 			md5Match = 1;
 		}
@@ -558,11 +558,11 @@ void MoviePlayDialog_t::openMovie(void)
 		}
 	}
 
-	addFileToList(filename.toStdString().c_str(), true);
+	addFileToList(filename.toLocal8Bit().constData(), true);
 
 	updateMovieText();
 
-	g_config->setOption("SDL.LastOpenMovie", filename.toStdString().c_str());
+	g_config->setOption("SDL.LastOpenMovie", filename.toLocal8Bit().constData());
 
 	return;
 }
