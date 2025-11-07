@@ -35,6 +35,7 @@
 #include "Qt/sdl-video.h"
 #include "Qt/AviRecord.h"
 #include "Qt/unix-netplay.h"
+#include "Qt/NetPlay.h"
 #include "Qt/TasEditor/taseditor_config.h"
 
 #ifdef WIN32
@@ -213,6 +214,27 @@ int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const 
 		break;
 		case HK_TURBO:
 			name = "Turbo"; keySeq = "Tab"; group = "Speed";
+		break;
+		case HK_SPEED_NORMAL:
+			name = "Normal Speed"; keySeq = ""; group = "Speed";
+		break;
+		case HK_SPEED_QUARTER:
+			name = "1/4x Speed"; keySeq = ""; group = "Speed";
+		break;
+		case HK_SPEED_HALF:
+			name = "1/2x Speed"; keySeq = ""; group = "Speed";
+		break;
+		case HK_SPEED_2X:
+			name = "2x Speed"; keySeq = ""; group = "Speed";
+		break;
+		case HK_SPEED_4X:
+			name = "4x Speed"; keySeq = ""; group = "Speed";
+		break;
+		case HK_SPEED_8X:
+			name = "8x Speed"; keySeq = ""; group = "Speed";
+		break;
+		case HK_SPEED_16X:
+			name = "16x Speed"; keySeq = ""; group = "Speed";
 		break;
 		case HK_TOGGLE_INPUT_DISPLAY:
 			name = "ToggleInputDisplay"; keySeq = ","; group = "Misc";
@@ -593,15 +615,27 @@ InitConfig()
 	config->addOption("SDL.SpecialFilter", 0);
 	config->addOption("SDL.SpecialFX", 0);
 	config->addOption("SDL.Vsync", 1);
+	#ifdef WIN32
+	config->addOption("SDL.winFullScreenBorder", 0);
+	#endif
+
+	QString userName = qgetenv("USER");
+    	if (userName.isEmpty())
+	{
+        	userName = qgetenv("USERNAME");
+	}
 
 	// network play options - netplay is broken
 	config->addOption("server", "SDL.NetworkIsServer", 0);
-	config->addOption('n', "net", "SDL.NetworkIP", "");
-	config->addOption('u', "user", "SDL.NetworkUsername", "");
+	config->addOption('n', "net", "SDL.NetworkIP", "localhost");
+	config->addOption('u', "user", "SDL.NetworkUsername", userName.toLocal8Bit().constData());
 	config->addOption('w', "pass", "SDL.NetworkPassword", "");
 	config->addOption('k', "netkey", "SDL.NetworkGameKey", "");
-	config->addOption("port", "SDL.NetworkPort", 4046);
+	config->addOption("port", "SDL.NetworkPort", NetPlayServer::DefaultPort);
 	config->addOption("players", "SDL.NetworkPlayers", 1);
+	config->addOption("SDL.NetPlayHostAllowClientRomLoadReq", 0);
+	config->addOption("SDL.NetPlayHostAllowClientStateLoadReq", 0);
+	config->addOption("SDL.NetPlayHostEnforceAppVersionChk", 1);
      
 	// input configuration options
 	config->addOption("input1", "SDL.Input.0", "GamePad.0");
@@ -614,6 +648,7 @@ InitConfig()
 	config->addOption("SDL.AutofireOffFrames", 1);
 	config->addOption("SDL.AutofireCustomOnFrames" , 1);
 	config->addOption("SDL.AutofireCustomOffFrames", 1);
+	config->addOption("SDL.NewInputDeviceBehavior", 1);
 
 	// display input
 	config->addOption("inputdisplay", "SDL.InputDisplay", 0);
@@ -777,6 +812,7 @@ InitConfig()
 	config->addOption("_lastsavestateas", "SDL.LastSaveStateAs", savPath );
 	config->addOption("_lastopenmovie", "SDL.LastOpenMovie", movPath);
 	config->addOption("_lastloadlua", "SDL.LastLoadLua", "");
+	config->addOption("_lastloadjs", "SDL.LastLoadJs", "");
 	config->addOption("SDL.HelpFilePath", "");
 	config->addOption("SDL.AviFilePath", "");
 	config->addOption("SDL.WavFilePath", "");
@@ -784,7 +820,7 @@ InitConfig()
 	for (unsigned int i=0; i<10; i++)
 	{
 		char buf[128];
-		sprintf(buf, "SDL.RecentRom%02u", i);
+		snprintf(buf, sizeof(buf), "SDL.RecentRom%02u", i);
 
 		config->addOption( buf, "");
 	}
@@ -792,7 +828,7 @@ InitConfig()
 	for (unsigned int i=0; i<10; i++)
 	{
 		char buf[128];
-		sprintf(buf, "SDL.RecentTasProject%02u", i);
+		snprintf(buf, sizeof(buf), "SDL.RecentTasProject%02u", i);
 
 		config->addOption( buf, "");
 	}
@@ -1051,7 +1087,7 @@ InitConfig()
 
 		//keyText.assign(" mod=");
 
-		//sprintf( buf, "  key=%s", SDL_GetKeyName( Hotkeys[i] ) );
+		//snprintf( buf, sizeof(buf), "  key=%s", SDL_GetKeyName( Hotkeys[i] ) );
 
 		if ( hotKeyName[0] != 0 )
 		{

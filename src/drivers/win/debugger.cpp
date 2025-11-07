@@ -1,7 +1,7 @@
 /* FCE Ultra - NES/Famicom Emulator
  *
  * Copyright notice for this file:
- *  Copyright (C) 2002 Ben Parnell
+ *  Copyright (C) 2002 Jay Oster aka Parasyte <jay@kodewerx.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -691,7 +691,7 @@ void Disassemble(HWND hWnd, int id, int scrollid, unsigned int addr)
 		{
 			if ((addr + size) > 0xFFFF)
 			{
-				while (addr < 0xFFFF)
+				while (addr <= 0xFFFF)
 				{
 					swprintf(chr, L"%02X        OVERFLOW\n", GetMem(addr++));
 					wcscat(debug_wstr, chr);
@@ -1905,7 +1905,7 @@ BOOL CALLBACK IDC_DEBUGGER_DISASSEMBLY_WndProc(HWND hwndDlg, UINT uMsg, WPARAM w
 					if (GetNesFileAddress(i) == -1)
 						sprintf(str,"CPU Address $%04X, Error retreiving ROM File Address!",i);
 					else
-						sprintf(str,"CPU Address %02X:%04X, Offset 0x%06X in file \"%.40s%s\" (NL file: %X)",getBank(i),i,GetNesFileAddress(i),ptr,dotdot,getBank(i));
+						sprintf(str,"CPU Address %02X:%04X, Offset 0x%06X in file \"%.40s%s\"",getBank(i),i,GetNesFileAddress(i),ptr,dotdot);
 					SetDlgItemText(hDebug, IDC_DEBUGGER_ADDR_LINE,str);
 				} else
 				{
@@ -1967,6 +1967,7 @@ INT_PTR CALLBACK DebuggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 	//these messages get handled at any time
 	switch(uMsg)
 	{
+
 		case WM_INITDIALOG:
 		{
 			char str[256] = { 0 };
@@ -2161,22 +2162,16 @@ INT_PTR CALLBACK DebuggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 							break;
 						case IDC_DEBUGGER_CYCLES_EXCEED:
 						{
-							if (HIWORD(wParam) == EN_CHANGE)
-							{
-								char str[16];
-								GetDlgItemText(hwndDlg, IDC_DEBUGGER_CYCLES_EXCEED, str, 16);
-								break_cycles_limit = strtoul(str, NULL, 10);
-							}
+							char str[16];
+							GetDlgItemText(hwndDlg, IDC_DEBUGGER_CYCLES_EXCEED, str, 16);
+							break_cycles_limit = strtoul(str, NULL, 10);
 							break;
 						}
 						case IDC_DEBUGGER_INSTRUCTIONS_EXCEED:
 						{
-							if (HIWORD(wParam) == EN_CHANGE)
-							{
-								char str[16];
-								GetDlgItemText(hwndDlg, IDC_DEBUGGER_INSTRUCTIONS_EXCEED, str, 16);
-								break_instructions_limit = strtoul(str, NULL, 10);
-							}
+							char str[16];
+							GetDlgItemText(hwndDlg, IDC_DEBUGGER_INSTRUCTIONS_EXCEED, str, 16);
+							break_instructions_limit = strtoul(str, NULL, 10);
 							break;
 						}
 						case ID_DEBUGGER_DEFCOLOR:
@@ -2222,6 +2217,26 @@ INT_PTR CALLBACK DebuggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 							break;
 					}
 				}
+				case EN_CHANGE:
+				case EN_UPDATE:
+					switch (LOWORD(wParam))
+					{
+						case IDC_DEBUGGER_CYCLES_EXCEED:
+						{
+							char str[16];
+							GetDlgItemText(hwndDlg, IDC_DEBUGGER_CYCLES_EXCEED, str, 16);
+							break_cycles_limit = strtoul(str, NULL, 10);
+							break;
+						}
+						case IDC_DEBUGGER_INSTRUCTIONS_EXCEED:
+						{
+							char str[16];
+							GetDlgItemText(hwndDlg, IDC_DEBUGGER_INSTRUCTIONS_EXCEED, str, 16);
+							break_instructions_limit = strtoul(str, NULL, 10);
+							break;
+						}
+					}
+					break;
 			}
 		}
 	}

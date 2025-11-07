@@ -232,7 +232,7 @@ void PaletteEditorDialog_t::updatePeriodic(void)
 
 		chg = undoColorHistory.back();
 
-		sprintf( stmp, "&Undo $%02X = rgb(%3i,%3i,%3i)", chg.palIdx, 
+		snprintf( stmp, sizeof(stmp), "&Undo $%02X = rgb(%3i,%3i,%3i)", chg.palIdx, 
 				chg.newColor.red(), chg.newColor.green(), chg.newColor.blue() );
 
 		undoAct->setText( tr(stmp) );
@@ -249,7 +249,7 @@ void PaletteEditorDialog_t::updatePeriodic(void)
 
 		chg = redoColorHistory.back();
 
-		sprintf( stmp, "&Redo $%02X = rgb(%3i,%3i,%3i)", chg.palIdx, 
+		snprintf( stmp, sizeof(stmp), "&Redo $%02X = rgb(%3i,%3i,%3i)", chg.palIdx, 
 				chg.newColor.red(), chg.newColor.green(), chg.newColor.blue() );
 
 		redoAct->setText( tr(stmp) );
@@ -335,19 +335,19 @@ void PaletteEditorDialog_t::openPaletteFileDialog(void)
 		if ( d.exists() )
 		{
 			urls << QUrl::fromLocalFile( d.absolutePath() );
-			iniPath = d.absolutePath().toStdString();
+			iniPath = d.absolutePath().toLocal8Bit().constData();
 		}
 
 		#ifdef __APPLE__
 		// Search for MacOSX DragNDrop Resources
 		d.setPath(QString(exePath) + "/../Resources/palettes");
 
-		//printf("Looking for: '%s'\n", d.path().toStdString().c_str());
+		//printf("Looking for: '%s'\n", d.path().toLocal8Bit().constData());
 
 		if (d.exists())
 		{
 			urls << QUrl::fromLocalFile(d.absolutePath());
-			iniPath = d.absolutePath().toStdString();
+			iniPath = d.absolutePath().toLocal8Bit().constData();
 		}
 		#endif
 	}
@@ -372,12 +372,12 @@ void PaletteEditorDialog_t::openPaletteFileDialog(void)
 		d.setPath(QString("/usr/share/fceux/palettes"));
 	}
 
-	//printf("Looking for: '%s'\n", d.path().toStdString().c_str());
+	//printf("Looking for: '%s'\n", d.path().toLocal8Bit().constData());
 
 	if (d.exists())
 	{
 		urls << QUrl::fromLocalFile(d.absolutePath());
-		iniPath = d.absolutePath().toStdString();
+		iniPath = d.absolutePath().toLocal8Bit().constData();
 	}
 #endif
 
@@ -428,10 +428,10 @@ void PaletteEditorDialog_t::openPaletteFileDialog(void)
 	{
 	   return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	palView->loadFromFile( filename.toStdString().c_str() );
-	g_config->setOption ("SDL.Palette", filename.toStdString().c_str() );
+	palView->loadFromFile( filename.toLocal8Bit().constData() );
+	g_config->setOption ("SDL.Palette", filename.toLocal8Bit().constData() );
 
    return;
 }
@@ -481,9 +481,9 @@ void PaletteEditorDialog_t::savePaletteFileDialog(void)
 	{
 	   return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	palView->saveToFile( filename.toStdString().c_str() );
+	palView->saveToFile( filename.toLocal8Bit().constData() );
 }
 //----------------------------------------------------------------------------
 void PaletteEditorDialog_t::exportPaletteFileDialog(void)
@@ -531,9 +531,9 @@ void PaletteEditorDialog_t::exportPaletteFileDialog(void)
 	{
 	   return;
 	}
-	qDebug() << "selected file path : " << filename.toUtf8();
+	qDebug() << "selected file path : " << filename.toLocal8Bit();
 
-	palView->exportToFileACT( filename.toStdString().c_str() );
+	palView->exportToFileACT( filename.toLocal8Bit().constData() );
 }
 //----------------------------------------------------------------------------
 //---NES Color Palette Viewer
@@ -798,7 +798,7 @@ void nesPaletteView::contextMenuEvent(QContextMenuEvent *event)
 		update();
 	}
 
-	sprintf( stmp, "Edit Color %X%X", selCell.y(), selCell.x() );
+	snprintf( stmp, sizeof(stmp), "Edit Color %X%X", selCell.y(), selCell.x() );
 	act = new QAction(tr(stmp), &menu);
 	act->setShortcut( QKeySequence(tr("E")));
 	connect( act, SIGNAL(triggered(void)), this, SLOT(editSelColor(void)) );
@@ -947,7 +947,7 @@ nesColorPickerDialog_t::nesColorPickerDialog_t( int palIndex, QColor *c, QWidget
 
 	style = this->style();
 
-	sprintf( stmp, "Pick Palette Color $%02X", palIndex );
+	snprintf( stmp, sizeof(stmp), "Pick Palette Color $%02X", palIndex );
 
 	setWindowTitle( stmp );
 
@@ -1220,7 +1220,7 @@ void nesPalettePickerView::contextMenuEvent(QContextMenuEvent *event)
 //	//QActionGroup *group;
 //	char stmp[64];
 //
-//	sprintf( stmp, "Edit Color %X%X", selCell.y(), selCell.x() );
+//	snprintf( stmp, sizeof(stmp), "Edit Color %X%X", selCell.y(), selCell.x() );
 //	act = new QAction(tr(stmp), &menu);
 //	act->setShortcut( QKeySequence(tr("E")));
 //	connect( act, SIGNAL(triggered(void)), this, SLOT(editSelColor(void)) );
@@ -1341,7 +1341,7 @@ nesPalettePickerDialog::nesPalettePickerDialog( int idx, QWidget *parent)
 	palIdx  = idx;
 	palAddr = 0x3F00 + palIdx;
 
-	sprintf( stmp, "Pick Palette Color for Address $%04X", palAddr );
+	snprintf( stmp, sizeof(stmp), "Pick Palette Color for Address $%04X", palAddr );
 	setWindowTitle( tr(stmp) );
 
 	palOrigVal = READPAL_MOTHEROFALL(palIdx & 0x1F);

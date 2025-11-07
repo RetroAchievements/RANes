@@ -118,6 +118,19 @@ bool DemandLua()
 #endif
 }
 
+static void luaReadMemHook(unsigned int address, unsigned int value, void *userData)
+{
+	CallRegisteredLuaMemHook(address, 1, value, LUAMEMHOOK_READ);
+}
+static void luaWriteMemHook(unsigned int address, unsigned int value, void *userData)
+{
+	CallRegisteredLuaMemHook(address, 1, value, LUAMEMHOOK_WRITE);
+}
+static void luaExecMemHook(unsigned int address, unsigned int value, void *userData)
+{
+	CallRegisteredLuaMemHook(address, 1, value, LUAMEMHOOK_EXEC);
+}
+
 extern "C"
 {
 #include <lua.h>
@@ -232,6 +245,7 @@ extern void WinLuaOnStop(intptr_t hDlgAsInt);
 static lua_State *L;
 
 static int luaexiterrorcount = 8;
+static int luaCallbackErrorCounter = 0;
 
 // Are we running any code right now?
 static char *luaScriptName = NULL;
@@ -649,13 +663,6 @@ static int emu_loadrom(lua_State *L)
 		extern void LoadRecentRom(int slot);
 		LoadRecentRom(0);
 	}
-	if ( GameInfo )
-	{
-		//printf("Currently Loaded ROM: '%s'\n", GameInfo->filename );
-		lua_pushstring(L, GameInfo->filename);
-		return 1;
-	}
-	return 0;
 #elif  defined(__QT_DRIVER__)
 	const char *nameo2 = luaL_checkstring(L,1);
 	std::string nameo;
@@ -671,15 +678,17 @@ static int emu_loadrom(lua_State *L)
 	//	//printf("Failed to Load ROM: '%s'\n", nameo );
 	//	reloadLastGame();
 	//}
+#endif
+
+#if defined(__WIN_DRIVER__) || defined(__QT_DRIVER__)
 	if ( GameInfo )
 	{
 		//printf("Currently Loaded ROM: '%s'\n", GameInfo->filename );
 		lua_pushstring(L, GameInfo->filename);
 		return 1;
-	} else {
-		return 0;
 	}
 #endif
+
 	return 0;
 }
 
@@ -897,7 +906,7 @@ static void LuaStackToBinaryConverter(lua_State* L, int i, std::vector<unsigned 
 		default:
 			{
 				char errmsg [1024];
-				sprintf(errmsg, "values of type \"%s\" are not allowed to be returned from registered save functions.\r\n", luaL_typename(L,i));
+				snprintf(errmsg, sizeof(errmsg), "values of type \"%s\" are not allowed to be returned from registered save functions.\r\n", luaL_typename(L,i));
 				if(info_print)
 					info_print(info_uid, errmsg);
 				else
@@ -1061,9 +1070,9 @@ void BinaryToLuaStackConverter(lua_State* L, const unsigned char*& data, unsigne
 			{
 				char errmsg [1024];
 				if(type <= 10 && type != LUA_TTABLE)
-					sprintf(errmsg, "values of type \"%s\" are not allowed to be loaded into registered load functions. The save state's Lua save data file might be corrupted.\r\n", lua_typename(L,type));
+					snprintf(errmsg, sizeof(errmsg), "values of type \"%s\" are not allowed to be loaded into registered load functions. The save state's Lua save data file might be corrupted.\r\n", lua_typename(L,type));
 				else
-					sprintf(errmsg, "The save state's Lua save data file seems to be corrupted.\r\n");
+					snprintf(errmsg, sizeof(errmsg), "The save state's Lua save data file seems to be corrupted.\r\n");
 				if(info_print)
 					info_print(info_uid, errmsg);
 				else
@@ -1493,12 +1502,18 @@ static int rom_getfilename(lua_State *L) {
 
 static int rom_gethash(lua_State *L) {
 	const char *type = luaL_checkstring(L, 1);
-	MD5DATA md5hash = GameInfo->MD5;
+	if (GameInfo != nullptr)
+	{
+		MD5DATA md5hash = GameInfo->MD5;
 
-	if      (!type)                    lua_pushstring(L, "");
-	else if (!stricmp(type, "md5"))    lua_pushstring(L, md5_asciistr(md5hash));
-	else if (!stricmp(type, "base64")) lua_pushstring(L, BytesToString(md5hash.data, MD5DATA::size).c_str());
-	else                               lua_pushstring(L, "");
+		if (!type)                         lua_pushstring(L, "");
+		else if (!stricmp(type, "md5"))    lua_pushstring(L, md5_asciistr(md5hash));
+		else if (!stricmp(type, "base64")) lua_pushstring(L, BytesToString(md5hash.data, MD5DATA::size).c_str());
+		else                               lua_pushstring(L, "");
+	}
+	else
+		lua_pushnil(L);
+
 	return 1;
 }
 
@@ -2063,7 +2078,7 @@ static int memory_setregister(lua_State *L)
 }
 
 // Forces a stack trace and returns the string
-static const char *CallLuaTraceback(lua_State *L) {
+static const char *CallLuaTraceback(lua_State *L, int msgDepth = -1) {
 	lua_getfield(L, LUA_GLOBALSINDEX, "debug");
 	if (!lua_istable(L, -1)) {
 		lua_pop(L, 1);
@@ -2076,26 +2091,29 @@ static const char *CallLuaTraceback(lua_State *L) {
 		return "";
 	}
 
-	lua_pushvalue(L, 1);
+	if (msgDepth < 0)
+		msgDepth -= 2; // We pushed 2 onto the stack
+
+	lua_pushvalue(L, msgDepth);
 	lua_call(L, 1, 1);
 
 	return lua_tostring(L, -1);
 }
 
 
-void HandleCallbackError(lua_State* L)
+void HandleCallbackError(lua_State* L, bool stop, int msgDepth = -1)
 {
 	//if(L->errfunc || L->errorJmp)
 	//	luaL_error(L, "%s", lua_tostring(L,-1));
 	//else
 	{
-		const char *trace = CallLuaTraceback(L);
+		const char *trace = CallLuaTraceback(L, msgDepth);
 
 		lua_pushnil(L);
 		lua_setfield(L, LUA_REGISTRYINDEX, guiCallbackTable);
 
 		char errmsg [2048];
-		sprintf(errmsg, "%s\n%s", lua_tostring(L,-1), trace);
+		snprintf(errmsg, sizeof(errmsg), "%s\n%s", lua_tostring(L,-1), trace);
 
 		// Error?
 #ifdef __WIN_DRIVER__
@@ -2105,7 +2123,13 @@ void HandleCallbackError(lua_State* L)
 		fprintf(stderr, "Lua thread bombed out: %s\n", errmsg);
 #endif
 
-		FCEU_LuaStop();
+		// If stop flag is true, destruct the lua engine immediately.
+		// else it will be destructed later at the next frame boundary when callback errors are detected.
+		if (stop)
+		{
+			FCEU_LuaStop();
+		}
+		luaCallbackErrorCounter++;
 	}
 }
 
@@ -2243,7 +2267,7 @@ static void CallRegisteredLuaMemHook_LuaMatch(unsigned int address, int size, un
 		if(/*info.*/ numMemHooks)
 		{
 //			lua_State* L = info.L;
-			if(L/* && !info.panic*/)
+			if( (L != nullptr) && (luaCallbackErrorCounter == 0) )
 			{
 #ifdef USE_INFO_STACK
 				infoStack.insert(infoStack.begin(), &info);
@@ -2267,7 +2291,8 @@ static void CallRegisteredLuaMemHook_LuaMatch(unsigned int address, int size, un
 						//RefreshScriptSpeedStatus();
 						if (errorcode)
 						{
-							HandleCallbackError(L);
+							// Defer Lua destruction until x6502 memory hooks can fully return.
+							HandleCallbackError(L, false);
 							//int uid = iter->first;
 							//HandleCallbackError(L,info,uid,true);
 						}
@@ -2316,7 +2341,7 @@ void CallRegisteredLuaFunctions(LuaCallID calltype)
 	{
 		errorcode = lua_pcall(L, 0, 0, 0);
 		if (errorcode)
-			HandleCallbackError(L);
+			HandleCallbackError(L, true);
 	}
 	else
 	{
@@ -2361,9 +2386,21 @@ void TaseditorDisableManualFunctionIfNeeded()
 		// check if LUACALL_TASEDITOR_MANUAL function is not nil
 		lua_getfield(L, LUA_REGISTRYINDEX, luaCallIDStrings[LUACALL_TASEDITOR_MANUAL]);
 		if (!lua_isfunction(L, -1))
-			taseditor_lua->disableRunFunction();
+		{
+			if (taseditor_lua != nullptr)
+			{
+				taseditor_lua->disableRunFunction();
+			}
+		}
 		lua_pop(L, 1);
-	} else taseditor_lua->disableRunFunction();
+	}
+	else
+	{
+		if (taseditor_lua != nullptr)
+		{
+			taseditor_lua->disableRunFunction();
+		}
+	}
 }
 #endif
 
@@ -2874,7 +2911,7 @@ static int joypad_getimmediate(lua_State *L)
 		luaL_error(L,"Invalid input port (valid range 1-4, specified %d)", which);
 	}
 	// Currently only supports Windows, sorry...
-#ifdef __WIN_DRIVER__
+#if  defined(__WIN_DRIVER__) || defined(__QT_DRIVER__)
 	extern uint32 GetGamepadPressedImmediate();
 	uint8 buttons = GetGamepadPressedImmediate() >> ((which - 1) * 8);
 
@@ -5089,8 +5126,13 @@ static int taseditor_registermanual(lua_State *L)
 	lua_setfield(L, LUA_REGISTRYINDEX, luaCallIDStrings[LUACALL_TASEDITOR_MANUAL]);
 #ifdef __WIN_DRIVER__
 	taseditor_lua.enableRunFunction(caption);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		taseditor_lua->enableRunFunction(caption);
+	}
 #endif
-	return 1;
+    return 1;
 }
 
 // bool taseditor.engaged()
@@ -5098,8 +5140,15 @@ static int taseditor_engaged(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	lua_pushboolean(L, taseditor_lua.engaged());
-#else
-	lua_pushboolean(L, false);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		lua_pushboolean(L, taseditor_lua->engaged());
+	}
+	else
+	{
+		lua_pushboolean(L, false);
+	}
 #endif
 	return 1;
 }
@@ -5109,8 +5158,15 @@ static int taseditor_markedframe(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	lua_pushboolean(L, taseditor_lua.markedframe(luaL_checkinteger(L, 1)));
-#else
-	lua_pushboolean(L, false);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		lua_pushboolean(L, taseditor_lua->markedframe(luaL_checkinteger(L, 1)));
+	}
+	else
+	{
+		lua_pushboolean(L, false);
+	}
 #endif
 	return 1;
 }
@@ -5120,8 +5176,15 @@ static int taseditor_getmarker(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	lua_pushinteger(L, taseditor_lua.getmarker(luaL_checkinteger(L, 1)));
-#else
-	lua_pushinteger(L, -1);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		lua_pushinteger(L, taseditor_lua->getmarker(luaL_checkinteger(L, 1)));
+	}
+	else
+	{
+		lua_pushinteger(L, 0);
+	}
 #endif
 	return 1;
 }
@@ -5131,8 +5194,15 @@ static int taseditor_setmarker(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	lua_pushinteger(L, taseditor_lua.setmarker(luaL_checkinteger(L, 1)));
-#else
-	lua_pushinteger(L, -1);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		lua_pushinteger(L, taseditor_lua->setmarker(luaL_checkinteger(L, 1)));
+	}
+	else
+	{
+		lua_pushinteger(L, 0);
+	}
 #endif
 	return 1;
 }
@@ -5142,6 +5212,11 @@ static int taseditor_removemarker(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	taseditor_lua.removemarker(luaL_checkinteger(L, 1));
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		taseditor_lua->removemarker(luaL_checkinteger(L, 1));
+	}
 #endif
 	return 0;
 }
@@ -5151,8 +5226,15 @@ static int taseditor_getnote(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	lua_pushstring(L, taseditor_lua.getnote(luaL_checkinteger(L, 1)));
-#else
-	lua_pushnil(L);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		lua_pushstring(L, taseditor_lua->getnote(luaL_checkinteger(L, 1)));
+	}
+	else
+	{
+		lua_pushstring(L, "");
+	}
 #endif
 	return 1;
 }
@@ -5162,6 +5244,11 @@ static int taseditor_setnote(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	taseditor_lua.setnote(luaL_checkinteger(L, 1), luaL_checkstring(L, 2));
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		taseditor_lua->setnote(luaL_checkinteger(L, 1), luaL_checkstring(L, 2));
+	}
 #endif
 	return 0;
 }
@@ -5171,8 +5258,15 @@ static int taseditor_getcurrentbranch(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	lua_pushinteger(L, taseditor_lua.getcurrentbranch());
-#else
-	lua_pushinteger(L, -1);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		lua_pushinteger(L, taseditor_lua->getcurrentbranch());
+	}
+	else
+	{
+		lua_pushinteger(L, 0);
+	}
 #endif
 	return 1;
 }
@@ -5182,8 +5276,15 @@ static int taseditor_getrecordermode(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	lua_pushstring(L, taseditor_lua.getrecordermode());
-#else
-	lua_pushnil(L);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		lua_pushstring(L, taseditor_lua->getrecordermode());
+	}
+	else
+	{
+		lua_pushstring(L, "");
+	}
 #endif
 	return 1;
 }
@@ -5193,8 +5294,15 @@ static int taseditor_getsuperimpose(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	lua_pushinteger(L, taseditor_lua.getsuperimpose());
-#else
-	lua_pushinteger(L, -1);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		lua_pushinteger(L, taseditor_lua->getsuperimpose());
+	}
+	else
+	{
+		lua_pushinteger(L, 0);
+	}
 #endif
 	return 1;
 }
@@ -5204,8 +5312,15 @@ static int taseditor_getlostplayback(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	lua_pushinteger(L, taseditor_lua.getlostplayback());
-#else
-	lua_pushinteger(L, -1);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		lua_pushinteger(L, taseditor_lua->getlostplayback());
+	}
+	else
+	{
+		lua_pushinteger(L, 0);
+	}
 #endif
 	return 1;
 }
@@ -5215,8 +5330,15 @@ static int taseditor_getplaybacktarget(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	lua_pushinteger(L, taseditor_lua.getplaybacktarget());
-#else
-	lua_pushinteger(L, -1);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		lua_pushinteger(L, taseditor_lua->getplaybacktarget());
+	}
+	else
+	{
+		lua_pushinteger(L, 0);
+	}
 #endif
 	return 1;
 }
@@ -5226,6 +5348,11 @@ static int taseditor_setplayback(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	taseditor_lua.setplayback(luaL_checkinteger(L, 1));
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		taseditor_lua->setplayback(luaL_checkinteger(L, 1));
+	}
 #endif
 	return 0;
 }
@@ -5235,6 +5362,11 @@ static int taseditor_stopseeking(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	taseditor_lua.stopseeking();
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		taseditor_lua->stopseeking();
+	}
 #endif
 	return 0;
 }
@@ -5242,10 +5374,16 @@ static int taseditor_stopseeking(lua_State *L)
 // table taseditor.getselection()
 static int taseditor_getselection(lua_State *L)
 {
-#ifdef __WIN_DRIVER__
 	// create temp vector and provide its reference to TAS Editor for filling the vector with data
 	std::vector<int> cur_set;
+#ifdef __WIN_DRIVER__
 	taseditor_lua.getselection(cur_set);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		taseditor_lua->getselection(cur_set);
+	}
+#endif
 	int size = cur_set.size();
 	if (size)
 	{
@@ -5259,16 +5397,12 @@ static int taseditor_getselection(lua_State *L)
 	{
 		lua_pushnil(L);
 	}
-#else
-	lua_pushnil(L);
-#endif
 	return 1;
 }
 
 // taseditor.setselection(table new_set)
 static int taseditor_setselection(lua_State *L)
 {
-#ifdef __WIN_DRIVER__
 	std::vector<int> cur_set;
 	// retrieve new_set data from table to vector
 	if (!lua_isnil(L, 1))
@@ -5285,7 +5419,13 @@ static int taseditor_setselection(lua_State *L)
 		}
 	}
 	// and provide its reference to TAS Editor for changing selection
+#ifdef __WIN_DRIVER__
 	taseditor_lua.setselection(cur_set);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		taseditor_lua->setselection(cur_set);
+	}
 #endif
 	return 0;
 }
@@ -5295,8 +5435,15 @@ static int taseditor_getinput(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	lua_pushinteger(L, taseditor_lua.getinput(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2)));
-#else
-	lua_pushinteger(L, -1);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		lua_pushinteger(L, taseditor_lua->getinput(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2)));
+	}
+	else
+	{
+		lua_pushinteger(L, 0);
+	}
 #endif
 	return 1;
 }
@@ -5306,6 +5453,11 @@ static int taseditor_submitinputchange(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	taseditor_lua.submitinputchange(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2), luaL_checkinteger(L, 3));
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		taseditor_lua->submitinputchange(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2), luaL_checkinteger(L, 3));
+	}
 #endif
 	return 0;
 }
@@ -5315,6 +5467,11 @@ static int taseditor_submitinsertframes(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	taseditor_lua.submitinsertframes(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2));
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		taseditor_lua->submitinsertframes(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2));
+	}
 #endif
 	return 0;
 }
@@ -5324,6 +5481,11 @@ static int taseditor_submitdeleteframes(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	taseditor_lua.submitdeleteframes(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2));
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		taseditor_lua->submitdeleteframes(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2));
+	}
 #endif
 	return 0;
 }
@@ -5343,8 +5505,23 @@ static int taseditor_applyinputchanges(lua_State *L)
 		else
 			lua_pushinteger(L, taseditor_lua.applyinputchanges(""));
 	}
-#else
-	lua_pushinteger(L, -1);
+#elif defined __QT_DRIVER__
+	if (taseditor_lua == nullptr)
+	{
+		lua_pushinteger(L, 0);
+	}
+	else if (lua_isnil(L, 1))
+	{
+		lua_pushinteger(L, taseditor_lua->applyinputchanges(""));
+	}
+	else
+	{
+		const char* name = lua_tostring(L, 1);
+		if (name)
+			lua_pushinteger(L, taseditor_lua->applyinputchanges(name));
+		else
+			lua_pushinteger(L, taseditor_lua->applyinputchanges(""));
+	}
 #endif
 	return 1;
 }
@@ -5354,6 +5531,11 @@ static int taseditor_clearinputchanges(lua_State *L)
 {
 #ifdef __WIN_DRIVER__
 	taseditor_lua.clearinputchanges();
+#elif defined __QT_DRIVER__
+	if (taseditor_lua != nullptr)
+	{
+		taseditor_lua->clearinputchanges();
+	}
 #endif
 	return 0;
 }
@@ -5800,8 +5982,8 @@ static int bit_tobit(lua_State *L) { BRET(barg(L, 1)) }
 static int bit_bnot(lua_State *L) { BRET(~barg(L, 1)) }
 
 #define BIT_OP(func, opr) \
-  static int func(lua_State *L) { int i; UBits b = barg(L, 1); \
-	for (i = lua_gettop(L); i > 1; i--) b opr barg(L, i); BRET(b) }
+  static int func(lua_State *L) { UBits b = barg(L, 1); \
+	for (int i = lua_gettop(L); i > 1; i--){ b opr barg(L, i); } BRET(b) }
 BIT_OP(bit_band, &=)
 BIT_OP(bit_bor, |=)
 BIT_OP(bit_bxor, ^=)
@@ -6305,7 +6487,7 @@ void CallExitFunction()
 	}
 
 	if (errorcode)
-		HandleCallbackError(L);
+		HandleCallbackError(L, true);
 }
 
 void FCEU_LuaFrameBoundary()
@@ -6313,8 +6495,19 @@ void FCEU_LuaFrameBoundary()
 	//printf("Lua Frame\n");
 
 	// HA!
-	if (!L || !luaRunning)
+	if (L == nullptr)
+	{
 		return;
+	}
+	if (luaCallbackErrorCounter > 0)
+	{
+		FCEU_LuaStop();
+		return;
+	}
+	if (!luaRunning)
+	{
+		return;
+	}
 
 	// Our function needs calling
 	lua_settop(L,0);
@@ -6339,7 +6532,7 @@ void FCEU_LuaFrameBoundary()
 		lua_setfield(L, LUA_REGISTRYINDEX, guiCallbackTable);
 
 		char errmsg [1024];
-		sprintf(errmsg, "%s\n%s", lua_tostring(thread,-1), trace);
+		snprintf(errmsg, sizeof(errmsg), "%s\n%s", lua_tostring(thread,-1), trace);
 
 		// Error?
 #ifdef __WIN_DRIVER__
@@ -6378,6 +6571,7 @@ void FCEU_LuaFrameBoundary()
 #endif
 }
 
+
 /**
  * Loads and runs the given Lua script.
  * The emulator MUST be paused for this function to be
@@ -6412,6 +6606,7 @@ int FCEU_LoadLuaCode(const char *filename, const char *arg)
 
 	//Reinit the error count
 	luaexiterrorcount = 8;
+	luaCallbackErrorCounter = 0;
 
 	if (!L) {
 
@@ -6486,6 +6681,10 @@ int FCEU_LoadLuaCode(const char *filename, const char *arg)
 			lua_newtable(L);
 			lua_setfield(L, LUA_REGISTRYINDEX, luaMemHookTypeStrings[i]);
 		}
+
+		X6502_MemHook::Add( X6502_MemHook::Read , luaReadMemHook , nullptr );
+		X6502_MemHook::Add( X6502_MemHook::Write, luaWriteMemHook, nullptr );
+		X6502_MemHook::Add( X6502_MemHook::Exec , luaExecMemHook , nullptr );
 	}
 
 	// We make our thread NOW because we want it at the bottom of the stack.
@@ -6601,6 +6800,10 @@ void FCEU_LuaStop() {
 	//already killed
 	if (!L) return;
 
+	X6502_MemHook::Remove( X6502_MemHook::Read , luaReadMemHook , nullptr );
+	X6502_MemHook::Remove( X6502_MemHook::Write, luaWriteMemHook, nullptr );
+	X6502_MemHook::Remove( X6502_MemHook::Exec , luaExecMemHook , nullptr );
+
 	// Since the script is exiting, we want to prevent an infinite loop.
 	// CallExitFunction() > HandleCallbackError() > FCEU_LuaStop() > CallExitFunction() ...
 	if (luaexiterrorcount > 0) {
@@ -6692,7 +6895,7 @@ uint8 FCEU_LuaReadJoypad(int which, uint8 joyl) {
  *
  * This function will not return true if a script is not running.
  */
-int FCEU_LuaRerecordCountSkip() {
+bool FCEU_LuaRerecordCountSkip() {
 	// FIXME: return true if (there are any active callback functions && skipRerecords)
 	return L && luaRunning && skipRerecords;
 }

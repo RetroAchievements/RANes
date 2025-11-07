@@ -19,6 +19,14 @@ unsigned int debuggerPageSize = 14;
 int vblankScanLines = 0;	//Used to calculate scanlines 240-261 (vblank)
 int vblankPixel = 0;		//Used to calculate the pixels in vblank
 
+
+struct TraceInstructionCallback
+{
+	void (*func)(uint8 *opcode, int size) = nullptr;
+	TraceInstructionCallback* next = nullptr;
+};
+static TraceInstructionCallback* traceInstructionCB = nullptr;
+
 int offsetStringToInt(unsigned int type, const char* offsetBuffer, bool *conversionOk)
 {
 	int offset = -1;
@@ -546,7 +554,7 @@ void LogCDData(uint8 *opcode, uint16 A, int size)
 		case 4: memop = 0x20; break;
 	}
 
-	if ((j = GetPRGAddress(A)) != -1)
+	if (((j = GetPRGAddress(A)) != -1) && (opcode[0] != 0x4C) && (opcode[0] != 0x6C))
 	{
 		if (opwrite[opcode[0]] == 0)
 		{
@@ -561,7 +569,12 @@ void LogCDData(uint8 *opcode, uint16 A, int size)
 				newDataHit = true;
 			}
 		}
-		else
+		// Unclear why the write destination's access types gets reset for FDS...
+		// See:
+		// - https://github.com/TASEmulators/fceux/commit/a4fa6225a04b5ab8d3dfca3fc9abd7190bceec85
+		// - https://github.com/TASEmulators/fceux/commit/b10b6254c3d5c9519a85cb4382cdb22846d2e394
+		// - https://github.com/TASEmulators/fceux/commit/67942accc72149ae028d58f36419b64ea8651db9?diff=unified&w=1
+		else if(GameInfo && GameInfo->type == GIT_FDS)
 		{
 			if (cdloggerdata[j] & 1)
 			{
@@ -989,5 +1002,82 @@ void DebugCycle()
 	if(debug_loggingCD)
 		LogCDData(opcode, A, size);
 
+#ifdef __WIN_DRIVER__
 	FCEUD_TraceInstruction(opcode, size);
+#else
+	// Use callback pointer that can be null checked, this saves on the overhead
+	// of calling a function for every instruction when we aren't tracing.
+	if (traceInstructionCB != nullptr)
+	{
+		auto* cb = traceInstructionCB;
+		while (cb != nullptr)
+		{
+			cb->func(opcode, size);
+			cb = cb->next;
+		}
+	}
+#endif
 }
+
+void* FCEUI_TraceInstructionRegister( void (*func)(uint8*,int) )
+{
+	TraceInstructionCallback* cb = nullptr;
+
+	if (traceInstructionCB == nullptr)
+	{
+		cb = traceInstructionCB = new TraceInstructionCallback();
+		cb->func = func;
+	}
+	else
+	{
+		cb = traceInstructionCB;
+
+		while (cb != nullptr)
+		{
+			if (cb->func == func)
+			{
+				// This function has already been registered, don't double add.
+				return nullptr;
+			}
+			if (cb->next == nullptr)
+			{
+				auto* newCB = new TraceInstructionCallback();
+				newCB->func = func;
+				cb->next = newCB;
+				return newCB;
+			}
+			cb = cb->next;
+		}
+	}
+	return cb;
+}
+
+bool FCEUI_TraceInstructionUnregisterHandle( void* handle )
+{
+	TraceInstructionCallback* cb, *cb_prev, *cb_handle;
+
+	cb_handle = static_cast<TraceInstructionCallback*>(handle);
+	cb_prev = nullptr;
+	cb = traceInstructionCB;
+
+	while (cb != nullptr)
+	{
+		if (cb == cb_handle)
+		{	// Match we are going to remove from list and delete
+			if (cb_prev != nullptr)
+			{
+				cb_prev = cb->next;
+			}
+			else
+			{
+				traceInstructionCB = cb->next;
+			}
+			delete cb;
+			return true;
+		}
+		cb_prev = cb;
+		cb = cb->next;
+	}
+	return false;
+}
+

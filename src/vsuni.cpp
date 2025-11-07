@@ -268,8 +268,8 @@ VSUNIENTRY VSUniGames[] =
 	{ "Freedom Force", 0xed96436bd1b5e688ULL, 4, 0, GIPPU_RP2C04_0001, VS_OPTION_GUN, 0, EGIVS_NORMAL }, /* Wrong color in game select screen? */
 	{ "Stroke and Match Golf", 0x612325606e82bc66ULL, 99, 2, GIPPU_RP2C04_0002, VS_OPTION_SWAPDIRAB | VS_OPTION_PREDIP, 0x01, EGIVS_NORMAL },
 
-	{ "Goonies", 0xb4032d694e1d2733ULL, 151, 1, GIPPU_RP2C04_0003, 0, 0, EGIVS_NORMAL },
-	{ "Gradius", 0x50687ae63bdad976ULL, 151, 1, GIPPU_RP2C04_0001, VS_OPTION_SWAPDIRAB, 0, EGIVS_NORMAL },
+	{ "Goonies", 0xb4032d694e1d2733ULL, 75, 2, GIPPU_RP2C04_0003, 0, 0, EGIVS_NORMAL },
+	{ "Gradius", 0x47b22dfda574b968ULL, 75, 2, GIPPU_RP2C04_0001, VS_OPTION_SWAPDIRAB, 0, EGIVS_NORMAL },
 	{ "Gumshoe", 0x87161f8ee37758d3ULL, 99, 2, GIPPU_RC2C05_03, VS_OPTION_GUN, 0, EGIVS_NORMAL },
 	{ "Gumshoe", 0xb8500780bf69ce29ULL, 99, 2, GIPPU_RC2C05_03, VS_OPTION_GUN, 0, EGIVS_NORMAL },
 	{ "Hogan's Alley", 0xd78b7f0bb621fb45ULL, 99, 2, GIPPU_RP2C04_0001, VS_OPTION_GUN, 0, EGIVS_NORMAL },
@@ -354,33 +354,50 @@ void FCEU_VSUniCheck(uint64 md5partial, int *MapperNo, uint8 *Mirroring) {
 				GameInfo->vs_cswitch = 1;
 			}
 
-			if (tofix) {
-				char gigastr[768];
-				strcpy(gigastr, "The iNES header contains incorrect information.  For now, the information will be corrected in RAM.  ");
+			if (tofix)
+			{
+				char tmpStr[128];
+				std::string gigastr;
+				gigastr.reserve(768);
+				gigastr.assign("The iNES header contains incorrect information.  For now, the information will be corrected in RAM.  ");
 				if (tofix & 4) {
-					sprintf(gigastr + strlen(gigastr), "Game type should be set to Vs. System.  ");
+					snprintf(tmpStr, sizeof(tmpStr), "Game type should be set to Vs. System.  ");
+					gigastr.append(tmpStr);
 				}
 				if (tofix & 1)
-					sprintf(gigastr + strlen(gigastr), "The mapper number should be set to %d.  ", *MapperNo);
-				if (tofix & 2) {
+				{
+					snprintf(tmpStr, sizeof(tmpStr), "The mapper number should be set to %d.  ", *MapperNo);
+					gigastr.append(tmpStr);
+				}
+				if (tofix & 2)
+				{
 					const char* mstr[3] = { "Horizontal", "Vertical", "Four-screen" };
-					sprintf(gigastr + strlen(gigastr), "Mirroring should be set to \"%s\".  ", mstr[vs->mirroring & 3]);
+					snprintf(tmpStr, sizeof(tmpStr), "Mirroring should be set to \"%s\".  ", mstr[vs->mirroring & 3]);
+					gigastr.append(tmpStr);
 				}
 				if (tofix & 8) {
 					const char* mstr[4] = { "Normal", "RBI Baseball protection", "TKO Boxing protection", "Super Xevious protection"};
-					sprintf(gigastr + strlen(gigastr), "Vs. System type should be set to \"%s\".  ", mstr[vs->type]);
+					snprintf(tmpStr, sizeof(tmpStr), "Vs. System type should be set to \"%s\".  ", mstr[vs->type]);
+					gigastr.append(tmpStr);
 				}
 				if (tofix & 16)
 				{
 					const char* mstr[10] = { "Default", "RP2C04-0001", "RP2C04-0002", "RP2C04-0003", "RP2C04-0004", "RC2C03B", "RC2C05-01", "RC2C05-02" , "RC2C05-03" , "RC2C05-04" };
-					sprintf(gigastr + strlen(gigastr), "Vs. System PPU should be set to \"%s\".  ", mstr[vs->ppu]);
+					snprintf(tmpStr, sizeof(tmpStr), "Vs. System PPU should be set to \"%s\".  ", mstr[vs->ppu]);
+					gigastr.append(tmpStr);
 				}
 				if (tofix & 32)
-					sprintf(gigastr + strlen(gigastr), "The controller type should be set to zapper.  ");
+				{
+					snprintf(tmpStr, sizeof(tmpStr), "The controller type should be set to zapper.  ");
+					gigastr.append(tmpStr);
+				}
 				if (tofix & 64)
-					sprintf(gigastr + strlen(gigastr), "The controllers should be swapped.  ");
-				strcat(gigastr, "\n");
-				FCEU_printf("%s", gigastr);
+				{
+					snprintf(tmpStr, sizeof(tmpStr), "The controllers should be swapped.  ");
+					gigastr.append(tmpStr);
+				}
+				gigastr.append("\n");
+				FCEU_printf("%s", gigastr.c_str());
 			}
 
 			return;

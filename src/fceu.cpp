@@ -125,23 +125,27 @@ static unsigned int pauseTimer = 0;
 
 
 FCEUGI::FCEUGI()
-	: filename(0),
-	  archiveFilename(0) 
 {
-	//printf("%08x",opsize); // WTF?!
 }
 
 FCEUGI::~FCEUGI() 
 {
+	if (name)
+	{
+		free(name);
+		name = nullptr;
+	}
+
 	if (filename) 
 	{
 		free(filename);
-		filename = NULL;
+		filename = nullptr;
 	}
+
 	if (archiveFilename) 
 	{
 		free(archiveFilename);
-		archiveFilename = NULL;
+		archiveFilename = nullptr;
 	}
 }
 
@@ -205,7 +209,7 @@ static void FCEU_CloseGame(void)
 
 		if (GameInfo->name) {
 			free(GameInfo->name);
-			GameInfo->name = NULL;
+			GameInfo->name = nullptr;
 		}
 
 		if (GameInfo->type != GIT_NSF) {
@@ -235,7 +239,7 @@ static void FCEU_CloseGame(void)
 		FCEU_CloseGenie();
 
 		delete GameInfo;
-		GameInfo = NULL;
+		GameInfo = nullptr;
 
 		currFrameCounter = 0;
 
@@ -254,7 +258,7 @@ static void FCEU_CloseGame(void)
 uint64 timestampbase;
 
 
-FCEUGI *GameInfo = NULL;
+FCEUGI *GameInfo = nullptr;
 
 void (*GameInterface)(GI h);
 void (*GameStateRestore)(int version);
@@ -285,9 +289,13 @@ int AutosaveFrequency = 256; // Number of frames between autosaves
 int EnableAutosave = 0;
 
 ///a wrapper for unzip.c
-extern "C" FILE *FCEUI_UTF8fopen_C(const char *n, const char *m) {
-	return ::FCEUD_UTF8fopen(n, m);
-}
+extern "C"
+{
+	FILE *FCEUI_UTF8fopen_C(const char *n, const char *m) 
+	{
+		return ::FCEUD_UTF8fopen(n, m);
+	}
+} // extern C
 
 static DECLFW(BNull) {
 }
@@ -315,8 +323,8 @@ void FlushGenieRW(void) {
 		}
 		free(AReadG);
 		free(BWriteG);
-		AReadG = NULL;
-		BWriteG = NULL;
+		AReadG = nullptr;
+		BWriteG = nullptr;
 		RWWrap = 0;
 	}
 }
@@ -382,7 +390,7 @@ static void AllocBuffers() {
 
 static void FreeBuffers() {
 	FCEU_free(RAM);
-    RAM = NULL;
+    RAM = nullptr;
 }
 //------
 
@@ -409,14 +417,14 @@ void ResetGameLoaded(void) {
 	if (GameInfo) FCEU_CloseGame();
 	EmulationPaused = 0; //mbg 5/8/08 - loading games while paused was bad news. maybe this fixes it
 	GameStateRestore = 0;
-	PPU_hook = NULL;
-	GameHBIRQHook = NULL;
-	FFCEUX_PPURead = NULL;
-	FFCEUX_PPUWrite = NULL;
+	PPU_hook = nullptr;
+	GameHBIRQHook = nullptr;
+	FFCEUX_PPURead = nullptr;
+	FFCEUX_PPUWrite = nullptr;
 	if (GameExpSound.Kill)
 		GameExpSound.Kill();
 	memset(&GameExpSound, 0, sizeof(GameExpSound));
-	MapIRQHook = NULL;
+	MapIRQHook = nullptr;
 	MMC5Hack = 0;
 	PEC586Hack = 0;
 	QTAIHack = 0;
@@ -481,12 +489,12 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 
 	FCEU_CloseGame();
 	GameInfo = new FCEUGI();
-	memset( (void*)GameInfo, 0, sizeof(FCEUGI));
 
 	GameInfo->filename = strdup(fp->filename.c_str());
 	if (fp->archiveFilename != "")
 		GameInfo->archiveFilename = strdup(fp->archiveFilename.c_str());
 	GameInfo->archiveCount = fp->archiveCount;
+	GameInfo->archiveIndex = fp->archiveIndex;
 
 	GameInfo->soundchan = 0;
 	GameInfo->soundrate = 0;
@@ -824,7 +832,7 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 			RefreshThrottleFPS();
 		}
 #endif
-		if (EmulationPaused & (EMULATIONPAUSED_PAUSED | EMULATIONPAUSED_TIMER) )
+		if (EmulationPaused & (EMULATIONPAUSED_PAUSED | EMULATIONPAUSED_TIMER | EMULATIONPAUSED_NETPLAY) )
 		{
 			// emulator is paused
 			memcpy(XBuf, XBackBuf, 256*256);
@@ -1354,6 +1362,23 @@ int FCEUI_PauseFramesRemaining(void)
 	return (EmulationPaused & EMULATIONPAUSED_TIMER) ? pauseTimer : 0;
 }
 
+bool FCEUI_GetNetPlayPause()
+{
+	return (EmulationPaused & EMULATIONPAUSED_NETPLAY) ? true : false;
+}
+
+void FCEUI_SetNetPlayPause(bool value)
+{
+	if (value)
+	{
+		EmulationPaused |= EMULATIONPAUSED_NETPLAY;
+	}
+	else
+	{
+		EmulationPaused &= ~EMULATIONPAUSED_NETPLAY;
+	}
+}
+
 static int AutosaveCounter = 0;
 
 void UpdateAutosave(void) {
@@ -1368,7 +1393,7 @@ void UpdateAutosave(void) {
 		FCEUSS_Save(f, false);
 		AutoSS = true;  //Flag that an auto-savestate was made
 		free(f);
-		f = NULL;
+		f = nullptr;
 		AutosaveStatus[AutosaveIndex] = 1;
 	}
 }
@@ -1387,7 +1412,7 @@ void FCEUI_RewindToLastAutosave(void) {
 		f = strdup(FCEU_MakeFName(FCEUMKF_AUTOSTATE, AutosaveIndex, 0).c_str());
 		FCEUSS_Load(f);
 		free(f);
-        f = NULL;
+		f = nullptr;
 
 		//Set pointer to previous available slot
 		if (AutosaveStatus[(AutosaveIndex + AutosaveQty - 1) % AutosaveQty] == 1) {

@@ -18,6 +18,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
+#include <QMessageBox>
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QApplication>
@@ -238,7 +239,7 @@ int hotkey_t::init(QWidget *parent)
 
 	shortcut = new QShortcut(QKeySequence(QString::fromStdString(keyText)), parent);
 
-	//printf("ShortCut: '%s' = '%s'\n", configName, shortcut->key().toString().toStdString().c_str() );
+	//printf("ShortCut: '%s' = '%s'\n", configName, shortcut->key().toString().toLocal8Bit().constData() );
 
 	conv2SDL();
 	return 0;
@@ -258,7 +259,7 @@ int hotkey_t::readConfig(void)
 	{
 		shortcut->setKey(QString::fromStdString(keyText));
 
-		//printf("ShortCut: '%s' = '%s'\n", configName, shortcut->key().toString().toStdString().c_str() );
+		//printf("ShortCut: '%s' = '%s'\n", configName, shortcut->key().toString().toLocal8Bit().constData() );
 
 		if (act)
 		{
@@ -289,7 +290,7 @@ void hotkey_t::conv2SDL(void)
 	SDL_Keymod m = convQtKey2SDLModifier((Qt::KeyboardModifier)(shortcut->key()[0] & 0xFE000000));
 #endif
 
-	//printf("Key: '%s'  0x%08x\n", shortcut->key().toString().toStdString().c_str(), shortcut->key()[0] );
+	//printf("Key: '%s'  0x%08x\n", shortcut->key().toString().toLocal8Bit().constData(), shortcut->key()[0] );
 
 	sdl.value = k;
 	sdl.modifier = m;
@@ -327,7 +328,7 @@ int hotkey_t::getString(char *s)
 
 	if (shortcut)
 	{
-		strcpy(s, shortcut->key().toString().toStdString().c_str());
+		strcpy(s, shortcut->key().toString().toLocal8Bit().constData());
 	}
 	//if ( sdl.modifier != 0 )
 	//{
@@ -670,7 +671,7 @@ static std::string GetFilename(const char *title, int mode, const char *filter)
 
 		if (fileList.size() > 0)
 		{
-			fname = fileList[0].toStdString();
+			fname = fileList[0].toLocal8Bit().constData();
 		}
 	}
 
@@ -690,7 +691,7 @@ void FCEUD_MovieRecordTo(void)
 	//	return;													// no filename selected, quit the whole thing
 	//}
 	//std::string s = QInputDialog::getText( consoleWindow, QObject::tr("Movie Recording"), 
-	//			QObject::tr("Enter Author Name"), QLineEdit::Normal, QObject::tr(""), &ok ).toStdString();
+	//			QObject::tr("Enter Author Name"), QLineEdit::Normal, QObject::tr(""), &ok ).toLocal8Bit().constData();
 
 	//std::wstring author (s.begin (), s.end ());
 
@@ -1288,8 +1289,8 @@ void GetMouseRelative(int32 (&d)[3])
 /**
  * Handles outstanding SDL events.
  */
-static void
-UpdatePhysicalInput()
+void
+pollEventsSDL()
 {
 	SDL_Event event;
 
@@ -1362,7 +1363,51 @@ UpdatePhysicalInput()
 
 			break;
 		case SDL_JOYDEVICEADDED:
-			AddJoystick(event.jdevice.which);
+			{
+				int devIdx = AddJoystick(event.jdevice.which);
+				if (devIdx >= 0)
+				{
+					int newDeviceBehavior = 0;
+					g_config->getOption("SDL.NewInputDeviceBehavior", &newDeviceBehavior);
+
+					if (newDeviceBehavior == 1)
+					{
+						bool wasPaused = FCEUI_EmulationPaused() ? true : false;
+
+						jsDev_t* jsDev = getJoystickDevice(devIdx);
+
+						QString msg = "A new joystick/gamepad device has been detected.\n";
+
+						if (jsDev != nullptr)
+						{
+							msg += QString("\nDevice ") + QString::number(devIdx) + QString(": ");
+							msg += QString(jsDev->getName()) + "\n";
+						}
+						msg += "\nDo you wish to reload button bindings?";
+						QMessageBox msgBox(QMessageBox::Question, QObject::tr("New Device Detected"), msg,
+							QMessageBox::No | QMessageBox::Yes, consoleWindow);
+
+						msgBox.setDefaultButton( QMessageBox::Yes );
+
+						FCEUI_SetEmulationPaused( EMULATIONPAUSED_PAUSED );
+
+						int answer = msgBox.exec();
+
+						if ( answer == QMessageBox::Yes )
+						{
+							initGamepadBindings();
+						}
+						if (!wasPaused)
+						{
+							FCEUI_SetEmulationPaused(0);
+						}
+					}
+					else if (newDeviceBehavior == 2)
+					{
+						initGamepadBindings();
+					}
+				}
+			}
 			break;
 		case SDL_JOYDEVICEREMOVED:
 			RemoveJoystick(event.jdevice.which);
@@ -1646,7 +1691,7 @@ void FCEUD_UpdateInput(void)
 
 	updateGamePadKeyMappings();
 
-	UpdatePhysicalInput();
+	pollEventsSDL();
 	KeyboardCommands();
 
 	for (x = 0; x < 2; x++)
@@ -2093,7 +2138,7 @@ const char *ButtonName(const ButtConfig *bc)
 			inputNum = bc->ButtonNum;
 			inputDirection = "";
 		}
-		sprintf(name, "js%i:%s%i%s", joyNum, inputType, inputNum, inputDirection);
+		snprintf(name, sizeof(name), "js%i:%s%i%s", joyNum, inputType, inputNum, inputDirection);
 	}
 	break;
 	}
@@ -2598,7 +2643,7 @@ int loadInputSettingsFromFile(const char *filename)
 void UpdateInput(Config *config)
 {
 	char buf[64];
-	std::string device, prefix, guid, mapping;
+	std::string device, prefix;
 
 	InitJoysticks();
 
@@ -2686,19 +2731,20 @@ void UpdateInput(Config *config)
 	//              input device key.
 	int type, devnum, button;
 
+	// This is now done in InitJoysticks
 	// gamepad 0 - 3
-	for (unsigned int i = 0; i < GAMEPAD_NUM_DEVICES; i++)
-	{
-		char buf[64];
-		snprintf(buf, sizeof(buf) - 1, "SDL.Input.GamePad.%u.", i);
-		prefix = buf;
+	//for (unsigned int i = 0; i < GAMEPAD_NUM_DEVICES; i++)
+	//{
+	//	char buf[64];
+	//	snprintf(buf, sizeof(buf) - 1, "SDL.Input.GamePad.%u.", i);
+	//	prefix = buf;
 
-		config->getOption(prefix + "DeviceType", &device);
-		config->getOption(prefix + "DeviceGUID", &guid);
-		config->getOption(prefix + "Profile", &mapping);
+	//	config->getOption(prefix + "DeviceType", &device);
+	//	config->getOption(prefix + "DeviceGUID", &guid);
+	//	config->getOption(prefix + "Profile", &mapping);
 
-		GamePad[i].init(i, guid.c_str(), mapping.c_str());
-	}
+	//	GamePad[i].init(i, guid.c_str(), mapping.c_str());
+	//}
 
 	// PowerPad 0 - 1
 	for (unsigned int i = 0; i < POWERPAD_NUM_DEVICES; i++)

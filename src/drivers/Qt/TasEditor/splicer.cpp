@@ -73,7 +73,7 @@ void SPLICER::update(void)
 			// rows
 			if (size > 1)
 			{
-				sprintf( num, "%i", size);
+				snprintf( num, sizeof(num), "%i", size);
 				strcat(new_text, num);
 				strcat(new_text, numTextRows);
 			}
@@ -85,7 +85,7 @@ void SPLICER::update(void)
 			int columns = NUM_JOYPAD_BUTTONS * joysticksPerFrame[getInputType(currMovieData)];	// in future the number of columns will depend on selected columns
 			if (columns > 1)
 			{
-				sprintf( num, "%i", columns);
+				snprintf( num, sizeof(num), "%i", columns);
 				strcat(new_text, num);
 				strcat(new_text, numTextColumns);
 			}
@@ -497,7 +497,7 @@ bool SPLICER::pasteInputFromClipboard()
 
 	int num_joypads = joysticksPerFrame[getInputType(currMovieData)];
 	int pos = *(current_selection->begin());
-	std::string stmp = tasWin->clipboard->text().toStdString();
+	std::string stmp = tasWin->clipboard->text().toLocal8Bit().constData();
 	const char *pGlobal = stmp.c_str();
 
 	// TAS recording info starts with "TAS "
@@ -622,7 +622,7 @@ bool SPLICER::pasteInsertInputFromClipboard(void)
 	int num_joypads = joysticksPerFrame[getInputType(currMovieData)];
 	bool markers_changed = false;
 	int pos = *current_selection_begin;
-	std::string stmp = tasWin->clipboard->text().toStdString();
+	std::string stmp = tasWin->clipboard->text().toLocal8Bit().constData();
 	const char *pGlobal = stmp.c_str();
 
 	// TAS recording info starts with "TAS "
@@ -743,7 +743,7 @@ void SPLICER::checkClipboardContents(void)
 	// check if clipboard contains TAS Editor Input data
 	clipboardSelection.clear();
 	int current_pos = -1;
-	std::string stmp = tasWin->clipboard->text().toStdString();
+	std::string stmp = tasWin->clipboard->text().toLocal8Bit().constData();
 	const char *pGlobal = stmp.c_str();
 	// TAS recording info starts with "TAS "
 	if (pGlobal[0]=='T' && pGlobal[1]=='A' && pGlobal[2]=='S')
@@ -787,7 +787,7 @@ void SPLICER::redrawInfoAboutClipboard(void)
 		// rows
 		if (clipboardSelection.size() > 1)
 		{
-			sprintf( num, "%zi", clipboardSelection.size());
+			snprintf( num, sizeof(num), "%zi", clipboardSelection.size());
 			strcat(new_text, num);
 			strcat(new_text, numTextRows);
 		}
@@ -799,7 +799,7 @@ void SPLICER::redrawInfoAboutClipboard(void)
 		int columns = NUM_JOYPAD_BUTTONS * joysticksPerFrame[getInputType(currMovieData)];	// in future the number of columns will depend on selected columns
 		if (columns > 1)
 		{
-			sprintf( num, "%i", columns);
+			snprintf( num, sizeof(num), "%i", columns);
 			strcat(new_text, num);
 			strcat(new_text, numTextColumns);
 		}

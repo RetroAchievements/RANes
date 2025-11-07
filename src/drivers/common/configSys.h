@@ -4,6 +4,10 @@
 #include <map>
 #include <string>
 
+#ifdef __QT_DRIVER__
+#include <QString>
+#endif
+
 class Config {
 private:
     std::string _dir;
@@ -61,11 +65,18 @@ public:
     /**
      * Sets a configuration option.  Can be called at any time.
      */
+    int setOption(const std::string &, const char *);
     int setOption(const std::string &, const std::string &);
     int setOption(const std::string &, int);
     int setOption(const std::string &, double);
     int setOption(const std::string &, void (*)(const std::string &));
+#ifdef __QT_DRIVER__
+    int setOption(const std::string &, const QString &);
+#endif
 
+#ifdef __QT_DRIVER__
+    int getOption(const std::string &, QString *) const;
+#endif
     int getOption(const std::string &, std::string *) const;
     int getOption(const std::string &, const char **) const;
     int getOption(const std::string &, int *) const;

@@ -27,8 +27,9 @@
 #include "Qt/ConsoleWindow.h"
 #include "Qt/fceuWrapper.h"
 #include "Qt/SplashScreen.h"
+#include "Qt/QtScriptManager.h"
 
-#ifdef WIN32
+#if defined(WIN32) && (QT_VERSION_MAJOR < 6)
 #include <QtPlatformHeaders/QWindowsWindowFunctions>
 #endif
 
@@ -65,6 +66,10 @@ static void MessageOutput(QtMsgType type, const QMessageLogContext &context, con
     }
     cmsg[sizeof(cmsg)-1] = 0;
     fprintf(stderr, "%s", cmsg );
+
+#ifdef  __FCEU_QSCRIPT_ENABLE__
+    QtScriptManager::logMessageQt(type, msg);
+#endif
 }
 
 
@@ -154,11 +159,13 @@ int main( int argc, char *argv[] )
 	// Need to wait for window to initialize before video init can be called.
 	//consoleWindow->videoInit();
 
-#ifdef WIN32
+#if defined(WIN32) && (QT_VERSION_MAJOR < 6)
 	// This function is needed to fix the issue referenced below. It adds a 1-pixel border
 	// around the fullscreen window due to some limitation in windows.
 	// https://doc.qt.io/qt-5/windows-issues.html#fullscreen-opengl-based-windows
-	QWindowsWindowFunctions::setHasBorderInFullScreen( consoleWindow->windowHandle(), true);
+	bool fullScreenBorderOpt = false;
+	g_config->getOption("SDL.winFullScreenBorder", &fullScreenBorderOpt );
+	QWindowsWindowFunctions::setHasBorderInFullScreen( consoleWindow->windowHandle(), fullScreenBorderOpt);
 #endif
 
 	if ( splash )

@@ -747,7 +747,6 @@ $(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h R
     <ClCompile Include="..\src\boards\121.cpp" />
     <ClCompile Include="..\src\boards\12in1.cpp" />
     <ClCompile Include="..\src\boards\15.cpp" />
-    <ClCompile Include="..\src\boards\151.cpp" />
     <ClCompile Include="..\src\boards\156.cpp" />
     <ClCompile Include="..\src\boards\158B.cpp" />
     <ClCompile Include="..\src\boards\164.cpp" />
@@ -784,6 +783,9 @@ $(ProjectDir)..\RAInterface\MakeBuildVer.bat $(ProjectDir)..\src\RA_BuildVer.h R
     <ClCompile Include="..\src\boards\33.cpp" />
     <ClCompile Include="..\src\boards\34.cpp" />
     <ClCompile Include="..\src\boards\354.cpp" />
+    <ClCompile Include="..\src\boards\413.cpp" />
+    <ClCompile Include="..\src\boards\471.cpp" />
+    <ClCompile Include="..\src\boards\451.cpp" />
     <ClCompile Include="..\src\boards\36.cpp" />
     <ClCompile Include="..\src\boards\3d-block.cpp" />
     <ClCompile Include="..\src\boards\40.cpp" />

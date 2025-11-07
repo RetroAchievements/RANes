@@ -10,6 +10,7 @@
 #include <QAction>
 
 #include "common/configSys.h"
+#include "Qt/main.h"
 
 //#define MAXBUTTCONFIG   4
 
@@ -26,6 +27,7 @@ struct ButtConfig
 	int    state;
 };
 
+struct FCEUGI;
 extern int NoWaiting;
 extern CFGSTRUCT InputConfig[];
 extern ARGPSTRUCT InputArgs[];
@@ -143,6 +145,8 @@ void UpdateInput(Config *config);
 
 const char* ButtonName(const ButtConfig* bc);
 
+void pollEventsSDL();
+uint32_t GetGamepadPressedImmediate(void);
 int getInputSelection( int port, int *cur, int *usr );
 int saveInputSettingsToFile( const char *fileBase = NULL );
 int loadInputSettingsFromFile( const char *filename = NULL );

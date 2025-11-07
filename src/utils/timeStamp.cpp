@@ -14,17 +14,37 @@
 //-------------------------------------------------------------------------
 //---- Time Stamp Record
 //-------------------------------------------------------------------------
+#ifdef __FCEU_X86_TSC_ENABLE
 #if defined(WIN32)
 #include <intrin.h>
 #pragma intrinsic(__rdtsc)
 #else
+#if defined(__x86_64_) || defined(__i386__)
 #include <x86intrin.h>
+#endif
 #endif
 
 static uint64_t rdtsc()
 {
+#if defined(__aarch64__) || defined(__arm__)
+    // SPDX-License-Identifier: GPL-2.0
+    uint64_t val = 0;
+
+    /*
+     * According to ARM DDI 0487F.c, from Armv8.0 to Armv8.5 inclusive, the
+     * system counter is at least 56 bits wide; from Armv8.6, the counter
+     * must be 64 bits wide.  So the system counter could be less than 64
+     * bits wide and it is attributed with the flag 'cap_user_time_short'
+     * is true.
+     */
+    asm volatile("mrs %0, cntvct_el0" : "=r" (val));
+
+    return val;
+#else
 	return __rdtsc();
+#endif
 }
+#endif
 
 namespace FCEU
 {
@@ -36,12 +56,15 @@ uint64_t timeStampRecord::qpcFreq = 0;
 
 void timeStampRecord::readNew(void)
 {
-#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
-	clock_gettime( CLOCK_REALTIME, &ts );
-#else
-	QueryPerformanceCounter((LARGE_INTEGER*)&ts);
-#endif
-	tsc = rdtsc();
+	#ifdef __FCEU_X86_TSC_ENABLE
+		tsc = rdtsc();
+	#endif
+
+	#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+		clock_gettime( CLOCK_REALTIME, &ts );
+	#else
+		QueryPerformanceCounter((LARGE_INTEGER*)&ts);
+	#endif
 }
 #if defined(WIN32)
 void timeStampRecord::qpcCalibrate(void)
@@ -58,7 +81,7 @@ class timeStampModule
 	public:
 	timeStampModule(void)
 	{
-		printf("timeStampModuleInit\n");
+		//printf("timeStampModuleInit\n");
 	#if defined(WIN32)
 		timeStampRecord::qpcCalibrate();
 	#endif

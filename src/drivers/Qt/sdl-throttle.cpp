@@ -21,6 +21,7 @@
 /// \brief Handles emulation speed throttling using the SDL timing functions.
 
 #include "Qt/sdl.h"
+#include "Qt/NetPlay.h"
 #include "Qt/throttle.h"
 #include "utils/timeStamp.h"
 
@@ -39,6 +40,7 @@ static const double Normal  = 1.0;      // 1x speed    (around 60 fps on NTSC)
 static uint32 frameLateCounter = 0;
 static FCEU::timeStampRecord Lasttime, Nexttime, Latetime;
 static FCEU::timeStampRecord DesiredFrameTime, HalfFrameTime, QuarterFrameTime, DoubleFrameTime;
+static FCEU::timeStampRecord emuSignalTx, guiSignalRx, emuSignalLatency;
 static double desired_frametime = (1.0 / 60.099823);
 static double desired_frameRate = (60.099823);
 static double baseframeRate     = (60.099823);
@@ -52,6 +54,9 @@ static double videoLastTs  = 0.0;
 static double videoPeriodCur  = 0.0;
 static double videoPeriodMin  = 1.0;
 static double videoPeriodMax  = 0.0;
+static double emuLatencyCur  = 0.0;
+static double emuLatencyMin  = 1.0;
+static double emuLatencyMax  = 0.0;
 static bool   keepFrameTimeStats = false;
 static int InFrame = 0;
 double g_fpsScale = Normal; // used by sdl.cpp
@@ -59,6 +64,8 @@ bool MaxSpeed = false;
 bool useIntFrameRate = false;
 static double frmRateAdjRatio = 1.000000f; // Frame Rate Adjustment Ratio
 extern bool turbo;
+
+int NetPlayThrottleControl();
 
 double getHighPrecTimeStamp(void)
 {
@@ -193,6 +200,11 @@ int  getFrameTimingStats( struct frameTimingStat_t *stats )
 	stats->videoTimeDel.min = videoPeriodMin;
 	stats->videoTimeDel.max = videoPeriodMax;
 
+	stats->emuSignalDelay.tgt = 0.0;
+	stats->emuSignalDelay.cur = emuLatencyCur;
+	stats->emuSignalDelay.min = emuLatencyMin;
+	stats->emuSignalDelay.max = emuLatencyMax;
+
 	return 0;
 }
 
@@ -216,6 +228,34 @@ void videoBufferSwapMark(void)
 	}
 }
 
+void emuSignalSendMark(void)
+{
+	if ( keepFrameTimeStats )
+	{
+		emuSignalTx.readNew();
+	}
+}
+
+void guiSignalRecvMark(void)
+{
+	if ( keepFrameTimeStats )
+	{
+		guiSignalRx.readNew();
+		emuSignalLatency = guiSignalRx - emuSignalTx;
+
+		emuLatencyCur = emuSignalLatency.toSeconds();
+
+		if ( emuLatencyCur < emuLatencyMin )
+		{
+			emuLatencyMin = emuLatencyCur;
+		}
+		if ( emuLatencyCur > emuLatencyMax )
+		{
+			emuLatencyMax = emuLatencyCur;
+		}
+	}
+}
+
 void resetFrameTiming(void)
 {
 	frameLateCounter = 0;
@@ -225,6 +265,8 @@ void resetFrameTiming(void)
 	frameIdleMin = 1.0;
 	videoPeriodMin = 1.0;
 	videoPeriodMax = 0.0;
+	emuLatencyMin =  1.0;
+	emuLatencyMax =  0.0;
 }
 
 /* LOGMUL = exp(log(2) / 3)
@@ -326,8 +368,14 @@ static int highPrecSleep( FCEU::timeStampRecord &ts )
 int
 SpeedThrottle(void)
 {
-	if ( (g_fpsScale >= 32) || (NoWaiting & 0x01) || turbo )
+	bool isEmuPaused = FCEUI_EmulationPaused() ? true : false;
+	bool noWaitActive = (NoWaiting & 0x01) ? true : false;
+	bool turboActive = (turbo || noWaitActive || NetPlaySkipWait());
+
+	// If Emulator is paused, don't waste CPU cycles spinning on nothing.
+	if ( !isEmuPaused && ((g_fpsScale >= 32) || turboActive) )
 	{
+		//printf("Skip Wait\n");
 		return 0; /* Done waiting */
 	}
 	FCEU::timeStampRecord cur_time, idleStart, time_left;
@@ -358,6 +406,16 @@ SpeedThrottle(void)
 		time_left = Nexttime - cur_time;
 	}
     
+	// If Emulator is paused, ensure that sleep time cannot be zero
+	// we don't want to waste a full CPU core on nothing.
+	if (isEmuPaused)
+	{
+		if (time_left.toMilliSeconds() < 1)
+		{
+			time_left.fromMilliSeconds(1);
+		}
+	}
+
 	if (time_left.toMilliSeconds() > 50)
 	{
 		time_left.fromMilliSeconds(50);
@@ -368,7 +426,7 @@ SpeedThrottle(void)
 	{
 		InFrame = 0;
 	}
-    
+
 	//fprintf(stderr, "attempting to sleep %Ld ms, frame complete=%s\n",
 	//	time_left, InFrame?"no":"yes");
 
@@ -447,6 +505,8 @@ SpeedThrottle(void)
 			//printf("Frame Delta: %f us   min:%f   max:%f \n", frameDelta * 1e6, frameDeltaMin * 1e6, frameDeltaMax * 1e6 );
 			//printf("Frame Sleep Time: %f   Target Error: %f us\n", time_left * 1e6, (cur_time - Nexttime) * 1e6 );
 		}
+		NetPlayThrottleControl();
+
 		Lasttime = Nexttime;
 		Nexttime = Lasttime + DesiredFrameTime;
 		Latetime = Nexttime + HalfFrameTime;
@@ -457,6 +517,7 @@ SpeedThrottle(void)
 			Nexttime = Lasttime + DesiredFrameTime;
 			Latetime = Nexttime + HalfFrameTime;
 		}
+
 		return 0; /* Done waiting */
 	}
 
@@ -511,6 +572,64 @@ int CustomEmulationSpeed(int spdPercent)
 	RefreshThrottleFPS();
 
 	FCEU_DispMessage("Emulation speed %.1f%%",0, g_fpsScale*100.0);
+
+   return 0;
+}
+
+int NetPlayThrottleControl()
+{
+	NetPlayClient *client = NetPlayClient::GetInstance();
+
+	if (client)
+	{
+		uint32_t inputAvailCount = client->inputAvailableCount();
+		const uint32_t tailTarget = client->tailTarget;
+
+		double targetDelta = static_cast<double>( static_cast<intptr_t>(inputAvailCount) - static_cast<intptr_t>(tailTarget) );
+
+		// Simple linear FPS scaling adjustment based on target error.
+		constexpr double speedUpSlope = (0.05) / (10.0);
+		double newScale = 1.0 + (targetDelta * speedUpSlope);
+
+		if (newScale != g_fpsScale)
+		{
+			double hz;
+			int32_t fps = FCEUI_GetDesiredFPS(); // Do >> 24 to get in Hz
+			int32_t T;
+
+			g_fpsScale = newScale;
+
+			hz = ( ((double)fps) / 16777216.0 );
+
+			desired_frametime = 1.0 / ( hz * g_fpsScale );
+
+			if ( useIntFrameRate )
+			{
+				hz = (double)( (int)(hz) );
+
+				frmRateAdjRatio = (1.0 / ( hz * g_fpsScale )) / desired_frametime;
+
+				//printf("frameAdjRatio:%f \n", frmRateAdjRatio );
+			}
+			else
+			{
+				frmRateAdjRatio = 1.000000f;
+			}
+			desired_frametime = 1.0 / ( hz * g_fpsScale );
+			desired_frameRate = ( hz * g_fpsScale );
+			baseframeRate = hz;
+
+			T = (int32_t)( desired_frametime * 1000.0 );
+
+			if ( T < 0 ) T = 1;
+
+			DesiredFrameTime.fromSeconds( desired_frametime );
+			HalfFrameTime = DesiredFrameTime / 2;
+			QuarterFrameTime = DesiredFrameTime / 4;
+			DoubleFrameTime = DesiredFrameTime * 2;
+		}
+		//printf("NetPlayCPUThrottle: %f   %f    %f  Target:%u  InputAvail:%u\n", newScale, desired_frameRate, targetDelta, tailTarget, inputAvailCount);
+	}
 
    return 0;
 }

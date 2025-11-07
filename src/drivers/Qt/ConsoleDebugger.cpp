@@ -150,7 +150,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 
 			tabView[i][j] = new DebuggerTabWidget(i,j);
 
-			sprintf( stmp, "debuggerTabView%i%i\n", i+1, j+1 );
+			snprintf( stmp, sizeof(stmp), "debuggerTabView%i%i\n", i+1, j+1 );
 
 			tabView[i][j]->setObjectName( tr(stmp) );
 
@@ -352,7 +352,7 @@ void ConsoleDebugger::ld65ImportDebug(void)
 	{
 	   return;
 	}
-	//qDebug() << "selected file path : " << filename.toUtf8();
+	//qDebug() << "selected file path : " << filename.toLocal8Bit();
 
 	if (debugSymbolTable.numSymbols() > 0)
 	{
@@ -371,7 +371,7 @@ void ConsoleDebugger::ld65ImportDebug(void)
 
 	debugSymbolTable.loadRegisterMap();
 
-	debugSymbolTable.ld65LoadDebugFile( filename.toStdString().c_str() );
+	debugSymbolTable.ld65LoadDebugFile( filename.toLocal8Bit().constData() );
 
 	queueUpdate(QAsmView::UPDATE_ALL);
 
@@ -1553,7 +1553,7 @@ void ConsoleDebugger::loadDisplayViews(void)
 		for (int j=0; j<4; j++)
 		{
 			QString tabListVal;
-			sprintf( key, "debugger/tabView%i%i", i+1, j+1 );
+			snprintf( key, sizeof(key), "debugger/tabView%i%i", i+1, j+1 );
 			tabListVal = settings.value(key).toString();
 
 			QStringList tabList = tabListVal.split(',');
@@ -1561,7 +1561,7 @@ void ConsoleDebugger::loadDisplayViews(void)
 			{
 				if ( tabList[k].size() > 0 )
 				{
-					//printf("   %i: %s\n", k, tabList[k].toStdString().c_str() );
+					//printf("   %i: %s\n", k, tabList[k].toLocal8Bit().constData() );
 
 					if ( tabList[k].compare( cpuFrame->objectName() ) == 0 )
 					{
@@ -1610,7 +1610,7 @@ void ConsoleDebugger::loadDisplayViews(void)
 	// Save Vertical Panel State
 	for (int i=0; i<2; i++)
 	{
-		sprintf( key, "debugger/vPanelState%i", i+1);
+		snprintf( key, sizeof(key), "debugger/vPanelState%i", i+1);
 		vsplitter[i]->restoreState( settings.value(key).toByteArray() );
 	}
 
@@ -1628,18 +1628,18 @@ void ConsoleDebugger::saveDisplayViews(void)
 		for (int j=0; j<4; j++)
 		{
 			QString tabListVal;
-			sprintf( key, "debugger/tabView%i%i", i+1, j+1 );
+			snprintf( key, sizeof(key), "debugger/tabView%i%i", i+1, j+1 );
 
 			for (int k=0; k<tabView[i][j]->count(); k++)
 			{
 				QWidget *w = tabView[i][j]->widget(k);
 
-				//printf("(%i,%i,%i)   %s\n", i, j, k, w->objectName().toStdString().c_str() );
+				//printf("(%i,%i,%i)   %s\n", i, j, k, w->objectName().toLocal8Bit().constData() );
 
 				tabListVal += w->objectName() + ",";
 			}
 
-			//printf("(%i,%i) %s\n", i, j, tabListVal.toStdString().c_str() );
+			//printf("(%i,%i) %s\n", i, j, tabListVal.toLocal8Bit().constData() );
 			settings.setValue( key, tabListVal );
 		}
 	}
@@ -1650,7 +1650,7 @@ void ConsoleDebugger::saveDisplayViews(void)
 	// Save Vertical Panel State
 	for (int i=0; i<2; i++)
 	{
-		sprintf( key, "debugger/vPanelState%i", i+1);
+		snprintf( key, sizeof(key), "debugger/vPanelState%i", i+1);
 		settings.setValue( key, vsplitter[i]->saveState());
 	}
 
@@ -1711,7 +1711,7 @@ void ConsoleDebugger::moveTab( QWidget *w, int row, int column)
 		QString txt = p->tabBar()->tabText( idx );
 		p->removeTab( idx );
 		tabView[column][row]->addTab(w, txt);
-		//printf("Move Widget %p to (%i,%i) %s\n", w, row, column, txt.toStdString().c_str() ); 
+		//printf("Move Widget %p to (%i,%i) %s\n", w, row, column, txt.toLocal8Bit().constData() ); 
 	}
 	updateTabVisibility();
 }
@@ -1830,7 +1830,7 @@ void 	ConsoleDebugger::bmItemDoubleClicked( QTreeWidgetItem *item, int column)
 
 	//printf("Row: %i Column: %i \n", row, column );
 
-	addr = strtol( item->text(0).toStdString().c_str(), NULL, 16 );
+	addr = strtol( item->text(0).toLocal8Bit().constData(), NULL, 16 );
 
 	line = asmView->getAsmLineFromAddr( addr );
 
@@ -1839,7 +1839,7 @@ void 	ConsoleDebugger::bmItemDoubleClicked( QTreeWidgetItem *item, int column)
 //----------------------------------------------------------------------------
 void ConsoleDebugger::selBmAddrChanged(const QString &txt)
 {
-	selBmAddrVal = strtol( txt.toStdString().c_str(), NULL, 16 );
+	selBmAddrVal = strtol( txt.toLocal8Bit().constData(), NULL, 16 );
 
 	//printf("selBmAddrVal = %04X\n", selBmAddrVal );
 }
@@ -1981,13 +1981,13 @@ DebuggerBreakpointEditor::DebuggerBreakpointEditor(int editIndex, watchpointinfo
 			rom_radio->setChecked(true);
 		}
 
-		sprintf( stmp, "%04X", wp->address );
+		snprintf( stmp, sizeof(stmp), "%04X", wp->address );
 
 		addr1->setText( tr(stmp) );
 
 		if ( wp->endaddress > 0 )
 		{
-			sprintf( stmp, "%04X", wp->endaddress );
+			snprintf( stmp, sizeof(stmp), "%04X", wp->endaddress );
 
 			addr2->setText( tr(stmp) );
 		}
@@ -2032,14 +2032,14 @@ DebuggerBreakpointEditor::DebuggerBreakpointEditor(int editIndex, watchpointinfo
 					if ( romAddr >= 0 )
 					{
 						wp->address = romAddr;
-						sprintf( stmp, "%X", wp->address );
+						snprintf( stmp, sizeof(stmp), "%X", wp->address );
 						addr1->setText( tr(stmp) );
 						rom_radio->setChecked(true);
 					}
 					else
 					{
 						char str[64];
-						sprintf(str, "K==#%02X", getBank(wp->address));
+						snprintf(str, sizeof(str), "K==#%02X", getBank(wp->address));
 						cond->setText( tr(str) );
 					}
 				}
@@ -2129,7 +2129,7 @@ void DebuggerBreakpointEditor::checkDataValid(void)
 	{
 		bool convOk = false;
 
-		start_addr = offsetStringToInt( type, addr1->text().toStdString().c_str(), &convOk );
+		start_addr = offsetStringToInt( type, addr1->text().toLocal8Bit().constData(), &convOk );
 
 		//printf("StartAddr:0x%04X   Upper:0x%04X\n", start_addr, addrUpperBound);
 		startAddrValid = convOk && (start_addr >= addrLowerBound) && (start_addr < addrUpperBound);
@@ -2143,7 +2143,7 @@ void DebuggerBreakpointEditor::checkDataValid(void)
 	{
 		bool convOk = false;
 
-		end_addr = offsetStringToInt( type, addr2->text().toStdString().c_str(), &convOk );
+		end_addr = offsetStringToInt( type, addr2->text().toLocal8Bit().constData(), &convOk );
 
 		endAddrValid = convOk && (end_addr >= addrLowerBound) && 
 			(end_addr < addrUpperBound) && (start_addr < end_addr);
@@ -2196,7 +2196,7 @@ void DebuggerBreakpointEditor::conditionTextChanged(const QString &txt)
 {
 	if ( txt.size() > 0 )
 	{
-		Condition *c = generateCondition( txt.toStdString().c_str() );
+		Condition *c = generateCondition( txt.toLocal8Bit().constData() );
 
 		condValid = (c != nullptr);
 
@@ -2238,14 +2238,14 @@ void DebuggerBreakpointEditor::loadBreakpoint(void)
 		type |= BT_R;
 	}
 
-	s = addr1->text().toStdString();
+	s = addr1->text().toLocal8Bit().constData();
 
 	if ( s.size() > 0 )
 	{
 		start_addr = offsetStringToInt( type, s.c_str() );
 	}
 
-	s = addr2->text().toStdString();
+	s = addr2->text().toLocal8Bit().constData();
 
 	if ( s.size() > 0 )
 	{
@@ -2277,8 +2277,8 @@ void DebuggerBreakpointEditor::loadBreakpoint(void)
 		unsigned int retval;
 		std::string nameString, condString;
 
-		nameString = name->text().toStdString();
-		condString = cond->text().toStdString();
+		nameString = name->text().toLocal8Bit().constData();
+		condString = cond->text().toLocal8Bit().constData();
 
 		retval = NewBreak( nameString.c_str(), start_addr, end_addr, type, condString.c_str(), slot, enable);
 
@@ -2388,11 +2388,11 @@ void ConsoleDebugger::bpListUpdate( bool reset )
 
 		if ( watchpoint[i].endaddress > 0 )
 		{
-			sprintf( addrStr, "$%04X-%04X:", watchpoint[i].address, watchpoint[i].endaddress );
+			snprintf( addrStr, sizeof(addrStr), "$%04X-%04X:", watchpoint[i].address, watchpoint[i].endaddress );
 		}
 		else
 		{
-			sprintf( addrStr, "$%04X:", watchpoint[i].address );
+			snprintf( addrStr, sizeof(addrStr), "$%04X:", watchpoint[i].address );
 		}
 
 		flags[0] = (watchpoint[i].flags & WP_E) ? 'E' : '-';
@@ -2478,7 +2478,7 @@ void ConsoleDebugger::edit_BM_CB(void)
 		printf( "No Item Selected\n");
 		return;
 	}
-	s = item->text(0).toStdString();
+	s = item->text(0).toLocal8Bit().constData();
 
 	addr = strtol( s.c_str(), NULL, 16 );
 
@@ -2499,7 +2499,7 @@ void ConsoleDebugger::delete_BM_CB(void)
 		printf( "No Item Selected\n");
 		return;
 	}
-	s = item->text(0).toStdString();
+	s = item->text(0).toLocal8Bit().constData();
 
 	addr = strtol( s.c_str(), NULL, 16 );
 
@@ -2519,7 +2519,7 @@ void ConsoleDebugger::edit_BM_name( int addr )
 
 	bm = dbgBmMgr.getAddr( addr );
 
-	sprintf( stmp, "Specify Bookmark Name for %04X", addr );
+	snprintf( stmp, sizeof(stmp), "Specify Bookmark Name for %04X", addr );
 
 	dialog.setWindowTitle( tr("Edit Bookmark") );
 	dialog.setLabelText( tr(stmp) );
@@ -2534,7 +2534,7 @@ void ConsoleDebugger::edit_BM_name( int addr )
 
 	if ( QDialog::Accepted == ret )
 	{
-	     	bm->name = dialog.textValue().toStdString();
+	     	bm->name = dialog.textValue().toLocal8Bit().constData();
 	     	bmListUpdate(false);
 	}
 }
@@ -2571,7 +2571,7 @@ void ConsoleDebugger::bmListUpdate( bool reset )
 			bmTree->addTopLevelItem( item );
 		}
 
-		sprintf( addrStr, "%04X", bm->addr );
+		snprintf( addrStr, sizeof(addrStr), "%04X", bm->addr );
 
 		//item->setFlags( Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable | Qt::ItemIsUserCheckable );
 		item->setFlags( Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable | Qt::ItemNeverHasChildren );
@@ -2764,7 +2764,7 @@ void ConsoleDebugger::breakOnCyclesCB( bool value )
 		break_on_cycles = value;
 	}
 
-	//s = cpuCycExdVal->text().toStdString();
+	//s = cpuCycExdVal->text().toLocal8Bit().constData();
 
    //printf("'%s'\n", txt );
 
@@ -2778,7 +2778,7 @@ void ConsoleDebugger::cpuCycleThresChanged(const QString &txt)
 {
 	std::string s;
 
-	s = txt.toStdString();
+	s = txt.toLocal8Bit().constData();
 
 	//printf("Cycles: '%s'\n", s.c_str() );
 
@@ -2802,7 +2802,7 @@ void ConsoleDebugger::breakOnInstructionsCB( bool value )
 		break_on_instructions = value;
 	}
 
-	//s = instrExdVal->text().toStdString();
+	//s = instrExdVal->text().toLocal8Bit().constData();
 
    //printf("'%s'\n", txt );
 
@@ -2816,7 +2816,7 @@ void ConsoleDebugger::instructionsThresChanged(const QString &txt)
 {
 	std::string s;
 
-	s = txt.toStdString();
+	s = txt.toLocal8Bit().constData();
 
 	//printf("Instructions: '%s'\n", s.c_str() );
 
@@ -2896,9 +2896,9 @@ void ConsoleDebugger::changeAsmFontCB(void)
 		asmView->setFont( selFont );
 		asmView->updateAssemblyView();
 
-		//printf("Font Changed to: '%s'\n", font.toString().toStdString().c_str() );
+		//printf("Font Changed to: '%s'\n", font.toString().toLocal8Bit().constData() );
 
-		g_config->setOption("SDL.DebuggerAsmFont", selFont.toString().toStdString().c_str() );
+		g_config->setOption("SDL.DebuggerAsmFont", selFont.toString().toLocal8Bit().constData() );
 	}
 }
 //----------------------------------------------------------------------------
@@ -2912,9 +2912,9 @@ void ConsoleDebugger::changeStackFontCB(void)
 	{
 		stackText->setFont( selFont );
 
-		//printf("Font Changed to: '%s'\n", font.toString().toStdString().c_str() );
+		//printf("Font Changed to: '%s'\n", font.toString().toLocal8Bit().constData() );
 
-		g_config->setOption("SDL.DebuggerStackFont", selFont.toString().toStdString().c_str() );
+		g_config->setOption("SDL.DebuggerStackFont", selFont.toString().toLocal8Bit().constData() );
 	}
 }
 //----------------------------------------------------------------------------
@@ -2930,9 +2930,9 @@ void ConsoleDebugger::changeCpuFontCB(void)
 		setCpuStatusFont( selFont );
 		setPpuStatusFont( selFont );
 
-		//printf("Font Changed to: '%s'\n", font.toString().toStdString().c_str() );
+		//printf("Font Changed to: '%s'\n", font.toString().toLocal8Bit().constData() );
 
-		g_config->setOption("SDL.DebuggerCpuStatusFont", selFont.toString().toStdString().c_str() );
+		g_config->setOption("SDL.DebuggerCpuStatusFont", selFont.toString().toLocal8Bit().constData() );
 	}
 }
 //----------------------------------------------------------------------------
@@ -3148,7 +3148,7 @@ void ConsoleDebugger::debugRunLine128CB(void)
 //{
 //	std::string s;
 //
-//	s = seekEntry->displayText().toStdString();
+//	s = seekEntry->displayText().toLocal8Bit().constData();
 //
 //	//printf("Seek To: '%s'\n", s.c_str() );
 //
@@ -3501,7 +3501,7 @@ void ConsoleDebugger::setBookmarkSelectedAddress( int addr )
 {
 	char stmp[32];
 
-	sprintf( stmp, "%04X", addr );
+	snprintf( stmp, sizeof(stmp), "%04X", addr );
 
 	selBmAddr->setText( tr(stmp) );
 
@@ -3947,16 +3947,16 @@ void  QAsmView::updateAssemblyView(void)
 
 			if (displayROMoffsets && (a->rom != -1) )
 			{
-				sprintf(chr, " %06X: ", a->rom);
+				snprintf(chr, sizeof(chr), " %06X: ", a->rom);
 			} 
 			else
 			{
-				sprintf(chr, "%02X:%04X: ", a->bank, addr);
+				snprintf(chr, sizeof(chr), "%02X:%04X: ", a->bank, addr);
 			}
 		} 
 		else
 		{
-			sprintf(chr, "  :%04X: ", addr);
+			snprintf(chr, sizeof(chr), "  :%04X: ", addr);
 		}
 		line.append(chr);
 
@@ -3964,7 +3964,7 @@ void  QAsmView::updateAssemblyView(void)
 
 		if (size == 0)
 		{
-			sprintf(chr, "%02X        UNDEFINED", GetMem(addr++));
+			snprintf(chr, sizeof(chr), "%02X        UNDEFINED", GetMem(addr++));
 			line.append(chr);
 		}
 		else
@@ -3973,7 +3973,7 @@ void  QAsmView::updateAssemblyView(void)
 			{
 				while (addr < 0xFFFF)
 				{
-					sprintf(chr, "%02X        OVERFLOW\n", GetMem(addr++));
+					snprintf(chr, sizeof(chr), "%02X        OVERFLOW\n", GetMem(addr++));
 					line.append(chr);
 				}
 				delete a;
@@ -3981,7 +3981,7 @@ void  QAsmView::updateAssemblyView(void)
 			}
 			for (int j = 0; j < size; j++)
 			{
-				sprintf(chr, "%02X ", opcode[j] = GetMem(addr++));
+				snprintf(chr, sizeof(chr), "%02X ", opcode[j] = GetMem(addr++));
 				if ( showByteCodes ) line.append(chr);
 			}
 			while (size < 3)
@@ -4122,7 +4122,7 @@ void ConsoleDebugger::setRegsFromEntry(void)
 	std::string s;
 	long int i;
 
-	s = pcEntry->displayText().toStdString();
+	s = pcEntry->displayText().toLocal8Bit().constData();
 
 	if ( s.size() > 0 )
 	{
@@ -4135,7 +4135,7 @@ void ConsoleDebugger::setRegsFromEntry(void)
 	X.PC = i;
 	//printf("Set PC: '%s'  %04X\n", s.c_str(), X.PC );
 
-	s = regAEntry->displayText().toStdString();
+	s = regAEntry->displayText().toLocal8Bit().constData();
 
 	if ( s.size() > 0 )
 	{
@@ -4148,7 +4148,7 @@ void ConsoleDebugger::setRegsFromEntry(void)
 	X.A  = i;
 	//printf("Set A: '%s'  %02X\n", s.c_str(), X.A );
 
-	s = regXEntry->displayText().toStdString();
+	s = regXEntry->displayText().toLocal8Bit().constData();
 
 	if ( s.size() > 0 )
 	{
@@ -4161,7 +4161,7 @@ void ConsoleDebugger::setRegsFromEntry(void)
 	X.X  = i;
 	//printf("Set X: '%s'  %02X\n", s.c_str(), X.X );
 
-	s = regYEntry->displayText().toStdString();
+	s = regYEntry->displayText().toLocal8Bit().constData();
 
 	if ( s.size() > 0 )
 	{
@@ -4217,23 +4217,23 @@ void  ConsoleDebugger::updateRegisterView(void)
 	char stmp[64];
 	char str[32], str2[32];
 
-	sprintf( stmp, "%04X", X.PC );
+	snprintf( stmp, sizeof(stmp), "%04X", X.PC );
 
 	pcEntry->setText( tr(stmp) );
 
-	sprintf( stmp, "%02X", X.A );
+	snprintf( stmp, sizeof(stmp), "%02X", X.A );
 
 	regAEntry->setText( tr(stmp) );
 
-	sprintf( stmp, "%02X", X.X );
+	snprintf( stmp, sizeof(stmp), "%02X", X.X );
 
 	regXEntry->setText( tr(stmp) );
 
-	sprintf( stmp, "%02X", X.Y );
+	snprintf( stmp, sizeof(stmp), "%02X", X.Y );
 
 	regYEntry->setText( tr(stmp) );
 
-	sprintf( stmp, "%02X", X.P );
+	snprintf( stmp, sizeof(stmp), "%02X", X.P );
 
 	regPEntry->setText( tr(stmp) );
 
@@ -4248,7 +4248,7 @@ void  ConsoleDebugger::updateRegisterView(void)
 
 	stackPtr = X.S | 0x0100;
 
-	sprintf( stmp, "Stack: $%04X", stackPtr );
+	snprintf( stmp, sizeof(stmp), "Stack: $%04X", stackPtr );
 	stackFrame->setTitle( tr(stmp) );
 	stackText->updateText();
 
@@ -4266,26 +4266,26 @@ void  ConsoleDebugger::updateRegisterView(void)
 		ResetDebugStatisticsCounters();
 		counter_value2 = 0;
 	}
-	sprintf(stmp, "%10llu  (+%llu)", counter_value1, counter_value2);
+	snprintf(stmp, sizeof(stmp), "%10llu  (+%llu)", counter_value1, counter_value2);
 	cpuCyclesVal->setText( tr(stmp) );
 
-	sprintf(stmp, "%10llu  (+%llu)", total_instructions, delta_instructions);
+	snprintf(stmp, sizeof(stmp), "%10llu  (+%llu)", total_instructions, delta_instructions);
 	cpuInstrsVal->setText( tr(stmp) );
 
 	// PPU Labels
-	sprintf(stmp, "$%02X", PPU[0] );
+	snprintf(stmp, sizeof(stmp), "$%02X", PPU[0] );
 	ppuCtrlReg->setText( tr(stmp) );
 
-	sprintf(stmp, "$%02X", PPU[1] );
+	snprintf(stmp, sizeof(stmp), "$%02X", PPU[1] );
 	ppuMaskReg->setText( tr(stmp) );
 
-	sprintf(stmp, "$%02X", PPU[2] );
+	snprintf(stmp, sizeof(stmp), "$%02X", PPU[2] );
 	ppuStatReg->setText( tr(stmp) );
 
-	sprintf(stmp, "$%04X", (int)FCEUPPU_PeekAddress());
+	snprintf(stmp, sizeof(stmp), "$%04X", (int)FCEUPPU_PeekAddress());
 	ppuAddrDsp->setText( tr(stmp) );
 
-	sprintf(stmp, "$%02X", PPU[3] );
+	snprintf(stmp, sizeof(stmp), "$%02X", PPU[3] );
 	oamAddrDsp->setText( tr(stmp) );
 
 	extern int linestartts;
@@ -4302,41 +4302,41 @@ void  ConsoleDebugger::updateRegisterView(void)
 		if (!vblankScanLines)
 		{
 			// Idle scanline (240)
-			sprintf(str, "%d", scanline);	// was "Idle %d"
+			snprintf(str, sizeof(str), "%d", scanline);	// was "Idle %d"
 		} else if (scanline + vblankScanLines == (PAL?311:261))
 		{
 			// Pre-render
-			sprintf(str, "-1");	// was "Prerender -1"
+			snprintf(str, sizeof(str), "-1");	// was "Prerender -1"
 		} else
 		{
 			// Vblank lines (241-260/310)
-			sprintf(str, "%d", scanline + vblankScanLines);	// was "Vblank %d"
+			snprintf(str, sizeof(str), "%d", scanline + vblankScanLines);	// was "Vblank %d"
 		}
-		sprintf(str2, "%d", vblankPixel);
+		snprintf(str2, sizeof(str2), "%d", vblankPixel);
 	} else
 	{
 		// Scanlines 0 - 239
-		sprintf(str, "%d", scanline);
-		sprintf(str2, "%d", ppupixel);
+		snprintf(str, sizeof(str), "%d", scanline);
+		snprintf(str2, sizeof(str2), "%d", ppupixel);
 	}
 
 	if(newppu)
 	{
-		sprintf(str ,"%d",newppu_get_scanline());
-		sprintf(str2,"%d",newppu_get_dot());
+		snprintf(str , sizeof(str), "%d",newppu_get_scanline());
+		snprintf(str2, sizeof(str2), "%d",newppu_get_dot());
 	}
 
-	sprintf( stmp, "%s", str );
+	snprintf( stmp, sizeof(stmp), "%s", str );
 	ppuScanLineDsp->setText( tr(stmp) );
 
-	sprintf( stmp, "%s", str2 );
+	snprintf( stmp, sizeof(stmp), "%s", str2 );
 	ppuPixelDsp->setText( tr(stmp) );
 
 	int ppuScrollPosX, ppuScrollPosY;
 	ppu_getScroll( ppuScrollPosX, ppuScrollPosY);
-	sprintf( stmp, "%i", ppuScrollPosX );
+	snprintf( stmp, sizeof(stmp), "%i", ppuScrollPosX );
 	ppuScrollX->setText( tr(stmp) );
-	sprintf( stmp, "%i", ppuScrollPosY );
+	snprintf( stmp, sizeof(stmp), "%i", ppuScrollPosY );
 	ppuScrollY->setText( tr(stmp) );
 }
 //----------------------------------------------------------------------------
@@ -4415,7 +4415,7 @@ void ConsoleDebugger::updatePeriodic(void)
 					if ( lastBpIdx >= 0 )
 					{
 						char stmp[128];
-						sprintf( stmp, " Emulator Stopped / Paused at Breakpoint: %i", lastBpIdx );
+						snprintf( stmp, sizeof(stmp), " Emulator Stopped / Paused at Breakpoint: %i", lastBpIdx );
 						emuStatLbl->setText( tr(stmp) );
 					}
 					else
@@ -4892,7 +4892,7 @@ void loadGameDebugBreakpoints(void)
 
 	if ( fp == NULL )
 	{
-		printf("Warning: Failed to open file '%s' for reading\n", fileName.c_str() );
+		//printf("Warning: Failed to open file '%s' for reading\n", fileName.c_str() );
 		return;
 	}
 
@@ -5374,7 +5374,7 @@ void QAsmView::setSelAddrToLine( int line )
 		selAddrWidth = 4;
 		selAddrValue = addr;
 		selAddrType  =  0;
-		sprintf( selAddrText, "%04X", addr );
+		snprintf( selAddrText, sizeof(selAddrText), "%04X", addr );
 
 
 		if ( parent )
@@ -5598,7 +5598,7 @@ bool QAsmView::event(QEvent *event)
 		}
 		else if ( showSymHexDecode )
 		{
-			sprintf( stmp, "$%04X", asmEntry[line]->sym.offset() );
+			snprintf( stmp, sizeof(stmp), "$%04X", asmEntry[line]->sym.offset() );
 
 			QToolTip::showText(helpEvent->globalPos(), tr(stmp), this );
 		}
@@ -5606,11 +5606,11 @@ bool QAsmView::event(QEvent *event)
 		{
 			if ( asmEntry[line]->bank < 0 )
 			{
-				sprintf( stmp, "ADDR:\t$%04X", asmEntry[line]->addr );
+				snprintf( stmp, sizeof(stmp), "ADDR:\t$%04X", asmEntry[line]->addr );
 			}
 			else
 			{
-				sprintf( stmp, "ADDR:\t$%04X\nBANK:\t$%02X\nROM:\t$%06X", 
+				snprintf( stmp, sizeof(stmp), "ADDR:\t$%04X\nBANK:\t$%02X\nROM:\t$%06X", 
 					asmEntry[line]->addr, asmEntry[line]->bank, asmEntry[line]->rom );
 			}
 
@@ -5631,11 +5631,11 @@ bool QAsmView::event(QEvent *event)
 
 			if ( bank < 0 )
 			{
-				sprintf( stmp, "ADDR:\t$%04X", addr );
+				snprintf( stmp, sizeof(stmp), "ADDR:\t$%04X", addr );
 			}
 			else
 			{
-				sprintf( stmp, "ADDR:\t$%04X\nBANK:\t$%02X\nROM:\t$%06X", 
+				snprintf( stmp, sizeof(stmp), "ADDR:\t$%04X\nBANK:\t$%02X\nROM:\t$%06X", 
 					addr, bank, romOfs );
 			}
 
@@ -5909,7 +5909,7 @@ void QAsmView::mouseMoveEvent(QMouseEvent * event)
 			bank   = getBank(addr);
 			romOfs = GetNesFileAddress(addr);
 
-			sprintf( txt, "CPU Address: %02X:%04X", bank, addr);
+			snprintf( txt, sizeof(txt), "CPU Address: %02X:%04X", bank, addr);
 
 			s.assign( txt );
 
@@ -5923,14 +5923,14 @@ void QAsmView::mouseMoveEvent(QMouseEvent * event)
 				{
 					fileName = "...";
 				}
-				sprintf( txt, "\nOffset 0x%06X in File \"%s\" (NL file: %X)", romOfs, fileName, bank);
+				snprintf( txt, sizeof(txt), "\nOffset 0x%06X in File \"%s\" (NL file: %X)", romOfs, fileName, bank);
 
 				s.append( txt );
 			}
 		}
 		else
 		{
-			sprintf( txt, "CPU Address: %04X", addr);
+			snprintf( txt, sizeof(txt), "CPU Address: %04X", addr);
 
 			s.assign( txt );
 		}
@@ -6212,13 +6212,13 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 
 			if ( selAddrType )
 			{
-				sprintf( selAddrText, "%06X", addr );
+				snprintf( selAddrText, sizeof(selAddrText), "%06X", addr );
 				selAddrWidth = 6;
 				selAddrChar  = pcLocLinePos+1;
 			}
 			else
 			{
-				sprintf( selAddrText, "%04X", addr );
+				snprintf( selAddrText, sizeof(selAddrText), "%04X", addr );
 				selAddrWidth = 4;
 				selAddrChar  = pcLocLinePos+3;
 			}
@@ -6357,7 +6357,7 @@ void QAsmView::contextMenuEvent(QContextMenuEvent *event)
 
 		if ( ctxMenuAddrType == 0 )
 		{
-			sprintf( stmp, "Go to $%04X\tDouble+Click", ctxMenuAddr );
+			snprintf( stmp, sizeof(stmp), "Go to $%04X\tDouble+Click", ctxMenuAddr );
 			act = new QAction(tr(stmp), &menu);
 			menu.addAction(act);
 			//act->setShortcut( QKeySequence(tr("Ctrl+F10")));
@@ -7105,7 +7105,7 @@ void DebuggerStackDisplay::contextMenuEvent(QContextMenuEvent *event)
 	{
 	   char stmp[8];
 
-	   sprintf( stmp, "%i", i+1 );
+	   snprintf( stmp, sizeof(stmp), "%i", i+1 );
 
 	   bytesPerLineAct[i] = new QAction(tr(stmp), &menu);
 	   bytesPerLineAct[i]->setCheckable(true);
@@ -7172,11 +7172,11 @@ void DebuggerStackDisplay::updateText(void)
 	{
 		if ( showAddrs || (stackBytesPerLine <= 1) )
 		{
-			sprintf( stmp, "%03X: %02X", stackPtr, GetMem(stackPtr) );
+			snprintf( stmp, sizeof(stmp), "%03X: %02X", stackPtr, GetMem(stackPtr) );
 		}
 		else
 		{
-			sprintf( stmp, "%02X", GetMem(stackPtr) );
+			snprintf( stmp, sizeof(stmp), "%02X", GetMem(stackPtr) );
 		}
 
 		stackLine.assign( stmp );
@@ -7194,21 +7194,21 @@ void DebuggerStackDisplay::updateText(void)
 				{
 					if ( showAddrs )
 					{
-						sprintf( stmp, "\n%03X: %02X", stackPtr, GetMem(stackPtr) );
+						snprintf( stmp, sizeof(stmp), "\n%03X: %02X", stackPtr, GetMem(stackPtr) );
 					}
 					else
 					{
-						sprintf( stmp, "\n%02X", GetMem(stackPtr) );
+						snprintf( stmp, sizeof(stmp), "\n%02X", GetMem(stackPtr) );
 					}
 				}
 				else
 				{
-				  	sprintf( stmp, ",%02X", GetMem(stackPtr) );
+				  	snprintf( stmp, sizeof(stmp), ",%02X", GetMem(stackPtr) );
 				}
 			}
 			else
 			{
-			       	   sprintf( stmp, "\n%03X: %02X", stackPtr, GetMem(stackPtr) );
+			       	   snprintf( stmp, sizeof(stmp), "\n%03X: %02X", stackPtr, GetMem(stackPtr) );
 			}
 			stackLine.append( stmp );
 
@@ -7312,11 +7312,11 @@ asmLookAheadPopup::asmLookAheadPopup( int addr, QWidget *parent )
 		hbox = new QHBoxLayout();
 		vbox->addLayout( hbox );
 
-		sprintf( stmp, "%02X : $%04X", bank, addr );
+		snprintf( stmp, sizeof(stmp), "%02X : $%04X", bank, addr );
 		cpuAddr->setText( tr(stmp) );
-		sprintf( stmp, "#$%02X", GetMem(addr) );
+		snprintf( stmp, sizeof(stmp), "#$%02X", GetMem(addr) );
 		cpuVal->setText( tr(stmp) );
-		sprintf( stmp, "$%06X", romOfs );
+		snprintf( stmp, sizeof(stmp), "$%06X", romOfs );
 		romAddr->setText( tr(stmp) );
 
 		lbl = new QLabel( tr("CPU ADDR:") );
@@ -7343,9 +7343,9 @@ asmLookAheadPopup::asmLookAheadPopup( int addr, QWidget *parent )
 		hbox = new QHBoxLayout();
 		vbox->addLayout( hbox );
 
-		sprintf( stmp, "$%04X", addr );
+		snprintf( stmp, sizeof(stmp), "$%04X", addr );
 		cpuAddr->setText( tr(stmp) );
-		sprintf( stmp, "#$%02X", GetMem(addr) );
+		snprintf( stmp, sizeof(stmp), "#$%02X", GetMem(addr) );
 		cpuVal->setText( tr(stmp) );
 
 		lbl = new QLabel( tr("CPU ADDR:") );
@@ -7502,10 +7502,10 @@ ppuRegPopup::ppuRegPopup( QWidget *parent )
 	sprite0hit_cbox   = new QCheckBox( tr("Sprite 0 Hit") );
 	spriteOvrflw_cbox = new QCheckBox( tr("Sprite Overflow") );
 
-	sprintf( stmp, "$%04X", 0x2000 + (0x400*(PPU[0] & 0x03)));
+	snprintf( stmp, sizeof(stmp), "$%04X", 0x2000 + (0x400*(PPU[0] & 0x03)));
 	ppuBgAddr->setText( tr(stmp) );
 
-	sprintf( stmp, "$%04X", (PPU[0] & 0x08) ? 0x1000 : 0x0000 );
+	snprintf( stmp, sizeof(stmp), "$%04X", (PPU[0] & 0x08) ? 0x1000 : 0x0000 );
 	ppuSprAddr->setText( tr(stmp) );
 
 	  nmiBlank_cbox->setChecked( PPU[0] & 0x80 );
@@ -7865,7 +7865,7 @@ DebugBreakOnDialog::DebugBreakOnDialog(int type, QWidget *parent )
 		refMode     = breakOnInstrMode;
 		threshold   = break_instructions_limit;
 
-		sprintf(stmp, "Current Instruction Count: %10llu  (+%llu)", totalCount, deltaCount);
+		snprintf(stmp, sizeof(stmp), "Current Instruction Count: %10llu  (+%llu)", totalCount, deltaCount);
 		currLbl->setText( tr(stmp) );
 
 	}
@@ -7889,7 +7889,7 @@ DebugBreakOnDialog::DebugBreakOnDialog(int type, QWidget *parent )
 		refMode     = breakOnCycleMode;
 		threshold   = break_cycles_limit;
 
-		sprintf(stmp, "Current Cycle Count: %10llu  (+%llu)", totalCount, deltaCount);
+		snprintf(stmp, sizeof(stmp), "Current Cycle Count: %10llu  (+%llu)", totalCount, deltaCount);
 		currLbl->setText( tr(stmp) );
 	}
 
@@ -7969,7 +7969,7 @@ DebugBreakOnDialog::DebugBreakOnDialog(int type, QWidget *parent )
 
 			grid->addWidget( btn, row, 4-(col*2) );
 
-			sprintf( stmp, "%+i%c", -bb, c);
+			snprintf( stmp, sizeof(stmp), "%+i%c", -bb, c);
 
 			btn->setText( tr(stmp) );
 
@@ -7979,7 +7979,7 @@ DebugBreakOnDialog::DebugBreakOnDialog(int type, QWidget *parent )
 
 			grid->addWidget( btn, row, 4-(col*2)+1 );
 
-			sprintf( stmp, "%+i%c", bb, c);
+			snprintf( stmp, sizeof(stmp), "%+i%c", bb, c);
 
 			btn->setText( tr(stmp) );
 
@@ -8118,7 +8118,7 @@ void DebugBreakOnDialog::updateCurrent(void)
 		totalCount = total_instructions;
 		deltaCount = delta_instructions;
 
-		sprintf(stmp, "Current Instruction Count: %10llu  (+%llu)", totalCount, deltaCount);
+		snprintf(stmp, sizeof(stmp), "Current Instruction Count: %10llu  (+%llu)", totalCount, deltaCount);
 		currLbl->setText( tr(stmp) );
 
 	}
@@ -8137,7 +8137,7 @@ void DebugBreakOnDialog::updateCurrent(void)
 			ResetDebugStatisticsCounters();
 			deltaCount = 0;
 		}
-		sprintf(stmp, "Current Cycle Count: %10llu  (+%llu)", totalCount, deltaCount);
+		snprintf(stmp, sizeof(stmp), "Current Cycle Count: %10llu  (+%llu)", totalCount, deltaCount);
 		currLbl->setText( tr(stmp) );
 	}
 
@@ -8195,7 +8195,7 @@ void DebugBreakOnDialog::setThreshold( unsigned long long int val )
 
 	threshold = val;
 
-	sprintf( stmp, "%llu", threshold );
+	snprintf( stmp, sizeof(stmp), "%llu", threshold );
 
 	countEntryBox->setText( tr(stmp) );
 
@@ -8204,7 +8204,7 @@ void DebugBreakOnDialog::setThreshold( unsigned long long int val )
 //----------------------------------------------------------------------------
 void DebugBreakOnDialog::setThreshold( const QString &text )
 {
-	threshold = strtoull( text.toStdString().c_str(), NULL, 10 );
+	threshold = strtoull( text.toLocal8Bit().constData(), NULL, 10 );
 
 	updateLabel();
 }
@@ -8229,11 +8229,11 @@ void DebugBreakOnDialog::updateLabel(void)
 
 			if ( delta > 0 )
 			{
-				sprintf( stmp, "Will break in %lli CPU Instruction%s", delta, (delta > 1) ? "s":"" );
+				snprintf( stmp, sizeof(stmp), "Will break in %lli CPU Instruction%s", delta, (delta > 1) ? "s":"" );
 			}
 			else
 			{
-				sprintf( stmp, "Will break immediately, CPU instruction count already exceeds value by %lli.", -delta);
+				snprintf( stmp, sizeof(stmp), "Will break immediately, CPU instruction count already exceeds value by %lli.", -delta);
 			}
 		}
 		else
@@ -8242,11 +8242,11 @@ void DebugBreakOnDialog::updateLabel(void)
 
 			if ( delta > 0 )
 			{
-				sprintf( stmp, "Will break in %lli CPU Instruction%s", delta, (delta > 1) ? "s":"" );
+				snprintf( stmp, sizeof(stmp), "Will break in %lli CPU Instruction%s", delta, (delta > 1) ? "s":"" );
 			}
 			else
 			{
-				sprintf( stmp, "Will break immediately, CPU instruction count already exceeds value by %lli.", -delta);
+				snprintf( stmp, sizeof(stmp), "Will break immediately, CPU instruction count already exceeds value by %lli.", -delta);
 			}
 		}
 	}
@@ -8258,11 +8258,11 @@ void DebugBreakOnDialog::updateLabel(void)
 
 			if ( delta > 0 )
 			{
-				sprintf( stmp, "Will break in %lli CPU cycle%s", delta, (delta > 1) ? "s":"" );
+				snprintf( stmp, sizeof(stmp), "Will break in %lli CPU cycle%s", delta, (delta > 1) ? "s":"" );
 			}
 			else
 			{
-				sprintf( stmp, "Will break immediately, CPU cycle count already exceeds value by %lli.", -delta);
+				snprintf( stmp, sizeof(stmp), "Will break immediately, CPU cycle count already exceeds value by %lli.", -delta);
 			}
 		}
 		else
@@ -8271,11 +8271,11 @@ void DebugBreakOnDialog::updateLabel(void)
 
 			if ( delta > 0 )
 			{
-				sprintf( stmp, "Will break in %lli CPU cycle%s", delta, (delta > 1) ? "s":"" );
+				snprintf( stmp, sizeof(stmp), "Will break in %lli CPU cycle%s", delta, (delta > 1) ? "s":"" );
 			}
 			else
 			{
-				sprintf( stmp, "Will break immediately, CPU cycle count already exceeds value %lli.", -delta);
+				snprintf( stmp, sizeof(stmp), "Will break immediately, CPU cycle count already exceeds value %lli.", -delta);
 			}
 		}
 	}
